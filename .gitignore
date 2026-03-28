@@ -1,8 +1,6 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -10,67 +8,67 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-dist/
-bin/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# package manager
+# Package manager lockfiles
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# semantic-release
-.nyc_output
-
-# env files (can opt-in for committing if needed)
+# Environment files
 .env*
 !.env.example
 
-# vercel
-.vercel
+# Python
+__pycache__/
+*.pyc
+.venv/
 
-# typescript
+# Brain data
+data/
+
+# Build & output
+dist/
+bin/
+build/
+coverage/
+.nyc_output
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+logs.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+*.pem
+
+# TypeScript
 *.tsbuildinfo
-next-env.d.ts
 
-# flutter
-.dart_tool
-build
-GoogleService-Info.plist
-
-repomix-output.xml
-.serena/cache
+# Plans & reports (generated, not tracked)
 plans/**/*
 !plans/templates/*
-screenshots/*
-docs/screenshots/*
-docs/research/*
-logs.txt
-test-ck
-__pycache__
 
-# CK meta commands
+# Screenshots
+screenshots/
+docs/screenshots/
+docs/research/
+
+# Repomix output
+repomix-output.xml
+
+# CK meta
 prompt.md
 ck.md
+test-ck
 
-# Gemini CLI settings (symlink to .claude/.mcp.json)
+# Gemini CLI
 .gemini/settings.json
+
+# Claude Code settings backup
 .claude/settings.bak.json
+
+# Serena cache
+.serena/cache
