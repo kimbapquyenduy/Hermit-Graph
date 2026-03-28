@@ -1,102 +1,110 @@
-# 🧠 Claude Code Brain v2.3 — Bộ Não Cho Claude Code
+# Claude Code Brain v2.3 — Knowledge Graph Memory for Claude Code
 
-> Copy thư mục này vào máy → 5 phút setup → Claude Code có trí nhớ vĩnh viễn
-> **v2.3: Semantic Search + Auto-Learn + Cross-Project + Brain Hygiene**
+> Copy this folder → 5 min setup → Claude Code gains persistent memory across all projects.
+> Built on [ClaudeKit Engineer](https://github.com/claudekit/claudekit-engineer) boilerplate.
 
-## Cài đặt nhanh (5 phút)
+## Quick Start (5 min)
 
-### Bước 1: Copy thư mục
-Copy toàn bộ thư mục `claude-code-brain` vào máy (ví dụ: `D:\AI\claude-code-brain`)
+### Step 1: Clone / Copy
+```bash
+git clone https://github.com/kimbapquyenduy/claude-code-brain.git
+cd claude-code-brain
+```
 
-### Bước 2: Cài dependencies
-```cmd
-cd D:\AI\claude-code-brain
+### Step 2: Install dependencies
+```bash
 npm install
 ```
 
-### Bước 3: Config Claude Code
-Copy nội dung `.claude-settings.json` vào file `%USERPROFILE%\.claude\settings.json`
-(Tạo thư mục `.claude` nếu chưa có)
+### Step 3: Configure Claude Code
+Copy `.claude-settings.json` content into `~/.claude/settings.json` (create `~/.claude/` if needed).
 
-⚠️ Sửa đường dẫn MEMORY_FILE_PATH và DATA_DIR cho đúng vị trí thư mục trên máy bạn
+**Important:** Replace `REPLACE_WITH_YOUR_PATH` with actual path to this folder.
 
-### Bước 4: (Tùy chọn) Setup Semantic Search + Auto-Learn
-```cmd
-npm run setup:semantic     # Python + PyTorch cho semantic search
-npm run setup:conventions  # uv/pip cho auto-learn conventions
-# Hoặc cài tất cả:
+### Step 4: (Optional) Semantic Search + Auto-Learn
+```bash
+npm run setup:semantic     # Python + PyTorch for semantic search
+npm run setup:conventions  # uv/pip for auto-learn conventions
+# Or install all:
 npm run setup:all
 ```
 
-### Bước 5: Dùng Claude Code
-Mở terminal bất kỳ project nào → `claude` → Nó tự nhớ mọi thứ!
+### Step 5: Use it
+Open terminal in any project → `claude` → it remembers everything!
 
-## Xem Knowledge Graph
+## Viewing the Knowledge Graph
 
-### Option A: HTML Viewer (không cần Docker, đơn giản nhất)
-Mở file `viewer/index.html` trong browser → Click "Load File" → Chọn `data/brain.jsonl`
+### Option A: HTML Viewer (simplest, no Docker)
+Open `viewer/index.html` → Click "Load File" → Select `data/brain.jsonl`
 
-### Option B: Neo4j Browser (đẹp hơn, cần Docker)
-1. Cài Docker Desktop
+### Option B: Neo4j Browser (richer, needs Docker)
+1. Install Docker Desktop
 2. `cd docker && docker compose up -d`
-3. Mở http://localhost:7474
-4. Copy `.env.example` thành `.env`, sửa password (`brainpassword`)
-5. `npm run sync` → Data vào Neo4j → Xem graph trong Neo4j Browser
+3. Open http://localhost:7474
+4. Copy `.env.example` → `.env`, set password (`brainpassword`)
+5. `npm run sync` → Data flows into Neo4j
 
-## Cách dùng hàng ngày
-1. Mở Claude Code trong bất kỳ project → nó tự nhớ context từ mọi project khác
-2. Cuối ngày: mở viewer/index.html xem brain đã học được gì
-3. (Tùy chọn) `npm run sync` để đẩy data vào Neo4j xem graph đẹp hơn
+## Daily Usage
+1. Open Claude Code in any project → it auto-recalls context from all projects
+2. End of day: open `viewer/index.html` to see what the brain learned
+3. (Optional) `npm run sync` to push data into Neo4j for richer graph visualization
 
-## 4-Tier Naming Convention (v2)
+## 4-Tier Naming Convention
 
-| Tier | Prefix | EntityTypes | Ví dụ |
-|------|--------|-------------|-------|
+| Tier | Prefix | EntityTypes | Example |
+|------|--------|-------------|---------|
 | BIZ | `BIZ:`, `RULE:`, `FLOW:`, `ENTITY:` | biz-domain, biz-rule, biz-flow, biz-entity | `BIZ:ShopX`, `RULE:ShopX:DiscountMax50` |
 | PATTERN | `PATTERN:`, `PATTERN:ARCH:`, `PATTERN:INT:` | pattern-code, pattern-arch, pattern-integration | `PATTERN:JWTRefresh`, `PATTERN:INT:VNPay` |
 | TECH | `TECH:`, `PERSON:`, `DECISION:` | tech-stack, tech-config, tech-person, tech-decision | `TECH:EduMVP`, `PERSON:AnhMinh` |
 | INCIDENT | `INCIDENT:`, `GOTCHA:`, `BUG:` | incident-bug, incident-gotcha | `BUG:RLS:20260325`, `GOTCHA:PrismaEnum` |
 
-## Commands (12 lệnh)
+## Brain Commands (12)
 
-| Command | Mô tả |
-|---------|-------|
-| `/impact` | Phân tích ảnh hưởng trước khi sửa code |
-| `/biz-review` | Review code vs business rules |
-| `/biz-init` | Tạo BUSINESS.md cho project mới |
-| `/remember` | Lưu thông tin vào bộ nhớ (v2 naming) |
-| `/recall` | Tìm thông tin đã lưu |
-| `/brain-dump` | Tổng kết session, lưu hết |
-| `/diagnose` | Debug vấn đề có hệ thống, lưu incident |
-| `/ingest` | Nạp file (BRD/PRD/README) vào KG |
-| `/tech-decision` | Ghi nhận quyết định kỹ thuật |
-| `/learn-project` | Phát hiện convention của project (v2.2) |
-| `/suggest-reuse` | Gợi ý patterns từ project khác (v2.2) |
-| `/brain-health` | Kiểm tra sức khỏe bộ não — 5 checks, score 0-100 (v2.3) |
+| Command | Description |
+|---------|-------------|
+| `/impact` | Analyze blast radius before code changes |
+| `/biz-review` | Review code against business rules |
+| `/biz-init` | Create BUSINESS.md for a new project |
+| `/remember` | Save info to memory (v2 naming) |
+| `/recall` | Search saved information |
+| `/brain-dump` | End-of-session summary, save everything |
+| `/diagnose` | Systematic debugging, save incident |
+| `/ingest` | Ingest files (BRD/PRD/README) into KG |
+| `/tech-decision` | Record technical decisions |
+| `/learn-project` | Auto-detect project conventions |
+| `/suggest-reuse` | Suggest reusable patterns from other projects |
+| `/brain-health` | 5 automated health checks, score 0-100 |
 
-## Skills (7 skill)
+## Brain Skills (7)
 
-| Skill | Mô tả |
-|-------|-------|
-| auto-memory | Quản lý save/recall theo 4-tier schema |
-| biz-guard | Check business impact trước khi code |
-| code-patterns | Phát hiện & lưu coding patterns |
-| api-design | Hướng dẫn thiết kế API nhất quán |
-| db-migrations | An toàn khi chạy database migrations |
+| Skill | Description |
+|-------|-------------|
+| auto-memory | Save/recall management with 4-tier schema |
+| biz-guard | Check business impact before coding |
+| code-patterns | Detect & save coding patterns |
+| api-design | Consistent API design guidance |
+| db-migrations | Safe database migration practices |
 | security-check | Security review checklist |
-| tech-advisor | Tư vấn tech stack & so sánh |
+| tech-advisor | Tech stack comparison & advice |
 
-## v2.1-2.3 Features
+> **Note:** This project ships with 47+ additional skills via ClaudeKit (frontend, backend, DevOps, etc.). See `.claude/skills/` for the full list.
 
-### Semantic Search (Phase 3)
+## Features
+
+### Confidence & Temporal (v2.1)
+- Observation prefix: `[confidence|YYYY-MM-DD]` — required for all new observations
+- Stale detection: observations >180 days → flagged for review
+- Decay formula: `confidence * e^(-0.01 * days)`
+- Tools: `npm run backfill` (add prefix to legacy data), `npm run stale` (stale report)
+
+### Semantic Search (v2.2)
 - MCP server: `@sockeye44/better-memory-mcp` (drop-in replacement, 15 tools)
-- ModernColBERT neural embeddings — tìm "authentication patterns" → ra `PATTERN:JWTAuth`
-- Yêu cầu: Python 3.8+, PyTorch (~500MB model). Fallback keyword search nếu không có Python
-- Setup: `npm run setup:semantic`
-- **Mặc định: TẮT** (dùng `search_nodes` + Claude đủ tốt cho <500 entities)
+- ModernColBERT neural embeddings — search "authentication patterns" → finds `PATTERN:JWTAuth`
+- Requires: Python 3.8+, PyTorch (~500MB model). Falls back to keyword search without Python
+- **Default: OFF** (`search_nodes` + Claude is sufficient for <500 entities)
 
-#### Bật Semantic Search khi brain lớn (>500 entities):
-Đổi memory config trong `~/.claude/.mcp.json` từ npx sang launcher:
+#### Enable Semantic Search (>500 entities):
+Switch memory config in `~/.claude/settings.json` from npx to launcher:
 ```json
 "memory": {
   "command": "node",
@@ -107,87 +115,100 @@ Mở file `viewer/index.html` trong browser → Click "Load File" → Chọn `da
   }
 }
 ```
-Launcher tự fix Python PATH + spawn better-memory-mcp với semantic search enabled.
-Restart Claude Code session sau khi đổi config.
+Restart Claude Code session after changing config.
 
-### Auto-Learn Conventions (Phase 4)
-- MCP server phụ: `enhanced-mcp-memory` (SQLite, chạy song song)
-- Tự phát hiện: naming convention, import style, build tools, linting
-- Command `/learn-project` — scan project, detect conventions, lưu `PATTERN:ARCH:*`
+### Auto-Learn Conventions (v2.2)
+- Secondary MCP server: `enhanced-mcp-memory` (SQLite, runs in parallel)
+- Auto-detects: naming conventions, import styles, build tools, linting
+- Command `/learn-project` — scan project, detect conventions, save as `PATTERN:ARCH:*`
 - Setup: `npm run setup:conventions`
 
-### Cross-Project Intelligence (Phase 5)
-- Command `/suggest-reuse` — tìm patterns từ project khác có thể tái sử dụng
-- Rank theo confidence score, filter by decay threshold 0.3
-- Link pattern vào project hiện tại qua `uses_pattern` relation
-
-### Confidence & Temporal (v2.1)
-- Observation prefix: `[confidence|YYYY-MM-DD]` — bắt buộc cho mọi observation mới
-- Stale detection: observations >180 ngày → flag review
-- Decay formula: `confidence * e^(-0.01 * days)`
-- Tools: `npm run backfill` (thêm prefix cho data cũ), `npm run stale` (báo cáo stale)
+### Cross-Project Intelligence (v2.2)
+- Command `/suggest-reuse` — find patterns from other projects that can be reused
+- Ranked by confidence score, filtered by decay threshold 0.3
+- Links patterns to current project via `uses_pattern` relation
 
 ### Brain Hygiene (v2.3)
 - Command `/brain-health` — 5 automated checks, health score 0-100
 - Checks: stale entries, duplicates, orphan nodes, low confidence, missing relations
 - Viewer: health badge in header bar (color-coded score)
-- CLI: `npm run health` — run checks on brain.jsonl, exit code 0 if healthy
+- CLI: `npm run health`
 
-## Test
-```cmd
-npm test
+## NPM Scripts
+
+```bash
+npm test              # 11 tests (JSONL, entities, settings, viewer, skills, health...)
+npm run sync          # Sync brain.jsonl → Neo4j (needs Docker)
+npm run view          # Serve HTML viewer on localhost:3000
+npm run migrate       # Migrate brain.jsonl from v1 to v2
+npm run backfill      # Add [confidence|date] prefix to legacy data
+npm run stale         # Report stale observations
+npm run health        # Brain health check (score 0-100)
+npm run setup         # Setup biz-guard for a new project
+npm run setup:all     # Setup semantic + conventions + project
 ```
-11 tests: JSONL validation, entity counts, settings JSON, viewer, skills/commands, confidence parsing, stale detection, semantic config, conventions config, cross-project, brain health.
 
-## Migration từ v1
-Nếu bạn có brain.jsonl cũ (v1 format):
-```cmd
-npm run migrate
-```
-Script tự convert entity names + entityTypes sang v2 format.
+## Project Structure
 
-## Cấu trúc thư mục
 ```
 claude-code-brain/
 ├── data/
-│   ├── brain.jsonl              ← Memory file (Claude Code ghi vào đây)
+│   ├── brain.jsonl              ← Memory file (Claude Code writes here)
 │   ├── brain-sample.jsonl       ← Sample data (v2 format)
-│   └── brain-v1-backup.jsonl    ← Backup trước migration
+│   └── conventions/             ← Auto-learned conventions (SQLite)
 ├── scripts/
 │   ├── sync-to-neo4j.mjs        ← Sync brain → Neo4j
 │   ├── test.mjs                 ← Test script (11 tests)
-│   ├── setup-project.mjs        ← Setup biz-guard cho project mới
-│   ├── setup-semantic.mjs       ← Setup Python + PyTorch (v2.2)
-│   ├── setup-conventions.mjs    ← Setup uv + enhanced-mcp-memory (v2.2)
-│   ├── backfill-confidence.mjs  ← Backfill [confidence|date] prefix (v2.1)
-│   ├── stale-report.mjs         ← Report stale observations (v2.1)
-│   ├── lib/parse-observation.mjs ← Shared parser module (v2.1)
 │   ├── brain-health.mjs         ← Brain health check (v2.3)
+│   ├── setup-project.mjs        ← Setup biz-guard for new project
+│   ├── setup-semantic.mjs       ← Setup Python + PyTorch
+│   ├── setup-conventions.mjs    ← Setup uv + enhanced-mcp-memory
+│   ├── backfill-confidence.mjs  ← Backfill [confidence|date] prefix
+│   ├── stale-report.mjs         ← Report stale observations
 │   ├── migrate-brain-v1-to-v2.mjs ← Migration script v1→v2
-│   └── clean-skills.mjs         ← Xóa YAML frontmatter khỏi skills
+│   ├── launch-memory-mcp.mjs    ← MCP launcher with semantic search
+│   └── lib/                     ← Shared modules
 ├── viewer/
 │   └── index.html               ← Graph viewer (vis.js, dark theme)
 ├── docker/
 │   └── docker-compose.yml       ← Neo4j (optional)
 ├── templates/
-│   ├── global-CLAUDE.md         ← Template cho ~/.claude/CLAUDE.md
+│   ├── global-CLAUDE.md         ← Template for ~/.claude/CLAUDE.md
 │   ├── BUSINESS.md              ← Template business impact map
-│   └── CLAUDE.md                ← Template per-project instructions
-├── .claude/
-│   ├── skills/                  ← 7 skills (auto-memory, biz-guard, ...)
-│   └── commands/                ← 12 commands (impact, brain-health, learn-project, ...)
+│   └── CLAUDE-project.md        ← Template per-project instructions
+├── .claude/                     ← ClaudeKit boilerplate (skills, commands, workflows)
+│   ├── skills/                  ← 47+ skills (brain + general dev)
+│   ├── commands/                ← 40+ commands (brain + general dev)
+│   ├── workflows/               ← Development workflows
+│   ├── hooks/                   ← Git & editor hooks
+│   └── agents/                  ← Specialized agent configs
 ├── .claude-settings.json        ← Config template (Dual MCP + Stop Hook)
 ├── .env.example                 ← Neo4j config template
 ├── package.json
+├── GUIDE.md                     ← Detailed setup guide & use cases
 └── README.md
 ```
 
+## Migration from v1
+If you have an existing brain.jsonl (v1 format):
+```bash
+npm run migrate
+```
+Script auto-converts entity names + entityTypes to v2 format.
+
 ## FAQ
-Q: Claude Code không nhớ gì?
-A: Kiểm tra file settings.json đã copy đúng chưa, path MEMORY_FILE_PATH đúng chưa
 
-Q: Viewer không hiện gì?
-A: Kiểm tra file brain.jsonl có data chưa (dùng brain-sample.jsonl để test)
+**Q: Claude Code doesn't remember anything?**
+A: Check `~/.claude/settings.json` exists, JSON format is valid, `MEMORY_FILE_PATH` points to correct location. Restart Claude Code after editing.
 
-Q: Sync lỗi kết nối Neo4j?
-A: Kiểm tra Docker đang chạy, .env đúng password (`brainpassword`)
+**Q: Viewer shows nothing?**
+A: Check `data/brain.jsonl` has data. Use `brain-sample.jsonl` to test. If `file://` is blocked, run `npm run view`.
+
+**Q: Neo4j sync fails?**
+A: Check Docker is running (`docker ps`), `.env` has correct password (`brainpassword`).
+
+**Q: Want to reset brain?**
+A: Clear contents of `data/brain.jsonl` (keep the file, delete contents).
+
+**Q: Brain file too large?**
+A: MCP Memory Server handles files up to several MB. If >10MB, consider archiving old entries.
