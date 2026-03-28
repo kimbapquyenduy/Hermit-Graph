@@ -16,10 +16,57 @@ cd claude-code-brain
 npm install
 ```
 
-### Step 3: Configure Claude Code
-Copy `.claude-settings.json` content into `~/.claude/settings.json` (create `~/.claude/` if needed).
+### Step 3: Global Setup (brain works in ANY project)
 
-**Important:** Replace `REPLACE_WITH_YOUR_PATH` with actual path to this folder.
+The brain is configured **globally** — once set up, Claude Code has memory in every project you open.
+
+**3a. Create global settings directory:**
+```bash
+# Linux/Mac
+mkdir -p ~/.claude
+
+# Windows
+mkdir %USERPROFILE%\.claude
+```
+
+**3b. Create `~/.claude/settings.json`** with the MCP memory server config:
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@sockeye44/better-memory-mcp"],
+      "env": {
+        "MEMORY_FILE_PATH": "D:/AI/claude-code-brain/data/brain.jsonl",
+        "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"
+      }
+    }
+  }
+}
+```
+
+> **Important:** Replace `D:/AI/claude-code-brain` with the actual path where you cloned this repo.
+> Use forward slashes `/` even on Windows.
+
+**3c. (Optional) Copy global instructions:**
+
+Copy `templates/global-CLAUDE.md` → `~/.claude/CLAUDE.md`
+
+This teaches Claude Code the 4-tier naming convention, auto-save rules, and Stop Hook enforcement — so it knows *how* to use the brain properly.
+
+**3d. (Optional) Add Stop Hook for auto-save enforcement:**
+
+Add the `hooks` section from `.claude-settings.json` into your `~/.claude/settings.json`. The Stop Hook runs after every Claude Code response and reminds it to save new knowledge — so nothing gets forgotten.
+
+**How it works:**
+```
+~/.claude/settings.json    ← MCP server config (global, all projects)
+~/.claude/CLAUDE.md        ← Brain instructions (global, all projects)
+       ↓
+You open ANY project → `claude` → brain is active automatically
+       ↓
+Claude Code reads/writes → data/brain.jsonl (one shared brain file)
+```
 
 ### Step 4: (Optional) Semantic Search + Auto-Learn
 ```bash
