@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { todayISO } from './lib/parse-observation.mjs';
+import { todayISO, obsText } from './lib/parse-observation.mjs';
 
 const brainPath = join(process.cwd(), 'data', 'brain.jsonl');
 const backupPath = brainPath + '.bak';
@@ -34,11 +34,16 @@ const updated = lines.map(line => {
 
   let modified = false;
   data.observations = data.observations.map(obs => {
+    const text = obsText(obs);
     // Skip if already has prefix [
-    if (obs.startsWith('[')) return obs;
+    if (text.startsWith('[')) return obs;
     obsCount++;
     modified = true;
-    return `[0.8|${today}] ${obs}`;
+    // Preserve object format if present
+    if (typeof obs === 'object' && obs.content) {
+      return { ...obs, content: `[0.8|${today}] ${obs.content}` };
+    }
+    return `[0.8|${today}] ${text}`;
   });
 
   if (modified) entityCount++;
