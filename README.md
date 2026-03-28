@@ -29,7 +29,7 @@ mkdir -p ~/.claude
 mkdir %USERPROFILE%\.claude
 ```
 
-**3b. Create `~/.claude/settings.json`** with the MCP memory server config:
+**3b. Create `~/.claude/settings.json`** with both MCP servers:
 ```json
 {
   "mcpServers": {
@@ -40,6 +40,15 @@ mkdir %USERPROFILE%\.claude
         "MEMORY_FILE_PATH": "D:/AI/claude-code-brain/data/brain.jsonl",
         "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"
       }
+    },
+    "conventions": {
+      "command": "uvx",
+      "args": ["enhanced-mcp-memory"],
+      "env": {
+        "LOG_LEVEL": "INFO",
+        "MAX_MEMORY_ITEMS": "500",
+        "DATA_DIR": "D:/AI/claude-code-brain/data/conventions"
+      }
     }
   }
 }
@@ -47,6 +56,8 @@ mkdir %USERPROFILE%\.claude
 
 > **Important:** Replace `D:/AI/claude-code-brain` with the actual path where you cloned this repo.
 > Use forward slashes `/` even on Windows.
+>
+> **Note:** `conventions` server requires `uv` — install with `pip install uv` or see [uv docs](https://docs.astral.sh/uv/). If you skip it, only remove the `conventions` block — `memory` works standalone.
 
 **3c. (Optional) Copy global instructions:**
 
@@ -56,7 +67,20 @@ This teaches Claude Code the 4-tier naming convention, auto-save rules, and Stop
 
 **3d. (Optional) Add Stop Hook for auto-save enforcement:**
 
-Add the `hooks` section from `.claude-settings.json` into your `~/.claude/settings.json`. The Stop Hook runs after every Claude Code response and reminds it to save new knowledge — so nothing gets forgotten.
+Add this `hooks` section into your `~/.claude/settings.json` (merge with the `mcpServers` block above). The Stop Hook runs after every Claude Code response and reminds it to save new knowledge — so nothing gets forgotten.
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "type": "prompt",
+        "prompt": "Review the conversation. Check if assistant learned NEW knowledge in these 4 tiers:\n\nTier 1 BIZ: business rules (min 4 obs: RULE,CONTEXT,VIOLATION,FILES), flows (min 4: FLOW steps,TRIGGER,SIDE_EFFECTS,EDGE_CASE), entities (min 3: FIELDS,STATUSES,CONSTRAINTS), domain (min 4: WHAT,TARGET,REVENUE,STARTED)\nTier 2 PATTERN: code/arch/integration patterns (min 4-5 obs each with WHAT,WHEN,HOW,USED_IN)\nTier 3 TECH: stack (min 4: FRONTEND,BACKEND,INFRA,CI_CD), config, people (min 3: ROLE,PROJECTS,PREFERENCES)\nTier 4 INCIDENT: bugs (min 6: SYMPTOM,ROOT_CAUSE,FIX,FILES,TIME,PROJECT), gotchas (min 4), decisions (min 5: DECISION,REASON,TRADEOFF,ALTERNATIVES,DATE)\n\nNaming: TIER:SCOPE:LABEL (e.g. RULE:ShopX:DiscountMax50)\nEntityTypes: biz-domain|biz-rule|biz-flow|biz-entity|pattern-code|pattern-arch|pattern-integration|tech-stack|tech-config|tech-person|incident-bug|incident-gotcha|tech-decision\n\nObservations MUST use [confidence|YYYY-MM-DD] prefix. Example: [0.8|2026-03-26] RULE: Discount max 50%. Default confidence 0.8. User-stated facts: 0.95. Auto-detected: 0.6.\n\nIf NEW knowledge found: list each item and remind assistant to save using create_entities + create_relations.\nIf nothing new: respond exactly PASS"
+      }
+    ]
+  }
+}
+```
 
 **How it works:**
 ```
