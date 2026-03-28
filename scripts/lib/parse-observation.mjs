@@ -10,21 +10,32 @@
 const PREFIX_RE = /^\[(\d\.?\d*?)(?:\|(\d{4}-\d{2}-\d{2}))?\]\s*/;
 
 /**
+ * Extract text from observation (handles both string and object formats)
+ * @param {string|{content: string}} obs - Raw observation
+ * @returns {string}
+ */
+export function obsText(obs) {
+  return typeof obs === 'string' ? obs : (obs && obs.content) || '';
+}
+
+/**
  * Parse an observation string into structured components
  * @param {string} obs - Raw observation text
  * @returns {{ confidence: number, date: string|null, text: string }}
  */
 export function parseObservation(obs) {
-  const match = obs.match(PREFIX_RE);
+  // Handle object format: { content: "...", timestamp, confidence }
+  const text = typeof obs === 'string' ? obs : (obs && obs.content) || '';
+  const match = text.match(PREFIX_RE);
   if (match) {
     return {
       confidence: Math.min(parseFloat(match[1]), 1.0),
       date: match[2] || null,
-      text: obs.replace(PREFIX_RE, '')
+      text: text.replace(PREFIX_RE, '')
     };
   }
   // Legacy: no prefix → default confidence 0.8, no date
-  return { confidence: 0.8, date: null, text: obs };
+  return { confidence: 0.8, date: null, text };
 }
 
 /**

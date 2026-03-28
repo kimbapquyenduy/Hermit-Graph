@@ -7,7 +7,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { parseObservation, isStale } from './lib/parse-observation.mjs';
+import { parseObservation, isStale, obsText } from './lib/parse-observation.mjs';
 
 // Stop words for missing-relation heuristic
 const STOP_WORDS = new Set([
@@ -109,7 +109,7 @@ function checkLowConfidence(entities) {
   for (const e of entities) {
     for (const obs of e.observations || []) {
       const parsed = parseObservation(obs);
-      if (obs.startsWith('[')) hasConfidence = true;
+      if (obsText(obs).startsWith('[')) hasConfidence = true;
       total++;
       if (parsed.confidence < 0.3) {
         lowCount++;
@@ -131,7 +131,7 @@ function checkLowConfidence(entities) {
 // Check 5: Missing relations (heuristic: shared keyword tokens)
 function checkMissingRelations(entities, relations) {
   function extractTokens(entity) {
-    const parts = [entity.name, ...(entity.observations || [])].join(' ');
+    const parts = [entity.name, ...(entity.observations || []).map(o => obsText(o))].join(' ');
     return [...new Set(
       parts.toLowerCase()
         .replace(/[^a-z0-9\s]/g, ' ')

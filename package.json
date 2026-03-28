@@ -13,7 +13,9 @@
     "setup:semantic": "node scripts/setup-semantic.mjs",
     "setup:conventions": "node scripts/setup-conventions.mjs",
     "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
-    "health": "node scripts/brain-health.mjs"
+    "health": "node scripts/brain-health.mjs",
+    "export": "node scripts/export-db-to-jsonl.mjs",
+    "view:live": "node scripts/export-db-to-jsonl.mjs && npx serve viewer"
   },
   "dependencies": {
     "neo4j-driver": "^5.27.0",
