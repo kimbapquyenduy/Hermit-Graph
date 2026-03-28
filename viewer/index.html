@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code Brain - Knowledge Graph Viewer</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0F172A;
+      color: #E2E8F0;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: #1E293B;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 1px solid #334155;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    .title { font-size: 1.25rem; font-weight: 700; color: #F1F5F9; }
+
+    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+
+    .btn {
+      padding: 0.5rem 1rem;
+      border: 1px solid #475569;
+      background: #1E293B;
+      color: #E2E8F0;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: #334155; border-color: #64748B; }
+    .btn-primary { background: #6366F1; border-color: #6366F1; }
+    .btn-primary:hover { background: #818CF8; }
+    .btn-reset { background: #475569; border-color: #475569; }
+    .btn-reset:hover { background: #64748B; }
+
+    input[type="file"] { display: none; }
+
+    .search-box {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #475569;
+      background: #0F172A;
+      color: #E2E8F0;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      width: 200px;
+    }
+    .search-box:focus { outline: none; border-color: #6366F1; }
+
+    select {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #475569;
+      background: #0F172A;
+      color: #E2E8F0;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+
+    .stats { margin-left: auto; font-size: 0.875rem; color: #94A3B8; }
+
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    #graph-container {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+    }
+
+    #network {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+    }
+
+    .empty-state {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: #64748B;
+    }
+    .empty-state h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .empty-state p { font-size: 1rem; }
+
+    .legend {
+      position: absolute;
+      bottom: 1rem; left: 1rem;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #334155;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      font-size: 0.75rem;
+    }
+    .legend-title { font-weight: 700; margin-bottom: 0.5rem; color: #F1F5F9; }
+    .legend-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.125rem 0; }
+    .legend-color { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Side detail panel */
+    .detail-panel {
+      width: 360px;
+      background: #1E293B;
+      border-left: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      transition: margin-right 0.3s;
+    }
+    .detail-panel.hidden {
+      margin-right: -360px;
+      width: 0;
+      border: none;
+      overflow: hidden;
+    }
+
+    .detail-header {
+      padding: 1rem;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .detail-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #F1F5F9;
+      word-break: break-word;
+    }
+    .detail-badge {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 1rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      color: #fff;
+    }
+    .detail-close {
+      background: none;
+      border: none;
+      color: #64748B;
+      font-size: 1.25rem;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+    .detail-close:hover { color: #E2E8F0; }
+
+    .detail-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    .detail-section {
+      margin-bottom: 1.25rem;
+    }
+    .detail-section-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748B;
+      margin-bottom: 0.5rem;
+    }
+
+    .observation-item {
+      padding: 0.4rem 0;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: #CBD5E1;
+      border-bottom: 1px solid #1E293B;
+      padding-left: 0.75rem;
+      position: relative;
+    }
+    .observation-item:last-child { border-bottom: none; }
+    .observation-item::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.65rem;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #6366F1;
+    }
+
+    .connection-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0;
+      font-size: 0.8rem;
+      color: #94A3B8;
+      cursor: pointer;
+    }
+    .connection-item:hover { color: #E2E8F0; }
+    .connection-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .connection-label {
+      font-size: 0.7rem;
+      color: #64748B;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+
+    .detail-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #475569;
+      font-size: 0.875rem;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .btn-expand {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.75rem;
+      background: #6366F1;
+      border: none;
+      color: #fff;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .btn-expand:hover { background: #818CF8; }
+
+    /* Custom hover tooltip */
+    .node-tooltip {
+      position: fixed;
+      z-index: 9999;
+      background: #1E293B;
+      border: 1px solid #475569;
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      max-width: 350px;
+      max-height: 300px;
+      overflow-y: auto;
+      pointer-events: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #CBD5E1;
+      display: none;
+    }
+    .node-tooltip .tt-name {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #F1F5F9;
+      margin-bottom: 0.25rem;
+    }
+    .node-tooltip .tt-type {
+      font-size: 0.65rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 1rem;
+      color: #fff;
+      display: inline-block;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .node-tooltip .tt-obs {
+      border-top: 1px solid #334155;
+      padding-top: 0.4rem;
+      margin-top: 0.25rem;
+    }
+    .node-tooltip .tt-obs-item {
+      padding: 0.2rem 0;
+      padding-left: 0.6rem;
+      position: relative;
+      word-break: break-word;
+    }
+    .node-tooltip .tt-obs-item::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: #6366F1;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">Claude Code Brain</div>
+    <div class="controls">
+      <input type="file" id="fileInput" accept=".jsonl">
+      <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load File</button>
+      <button class="btn btn-reset" id="resetBtn" onclick="resetView()" style="display:none">Reset View</button>
+      <input type="text" class="search-box" id="searchBox" placeholder="Search nodes..." oninput="filterNodes()">
+      <select id="filterType" onchange="filterNodes()">
+        <option value="all">All Types</option>
+      </select>
+    </div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="main">
+    <div id="graph-container">
+      <div id="network"></div>
+      <div class="empty-state" id="emptyState">
+        <h2>No Data Loaded</h2>
+        <p>Click "Load File" and select a brain.jsonl file</p>
+      </div>
+      <div class="legend" id="legend" style="display: none;"></div>
+    </div>
+
+    <div class="node-tooltip" id="nodeTooltip"></div>
+
+    <div class="detail-panel hidden" id="detailPanel">
+      <div class="detail-header">
+        <div>
+          <div class="detail-name" id="detailName">-</div>
+          <span class="detail-badge" id="detailBadge">-</span>
+        </div>
+        <button class="detail-close" onclick="closeDetail()">&times;</button>
+      </div>
+      <div class="detail-body" id="detailBody">
+        <div class="detail-empty">Click a node to see details</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let network = null;
+    let nodes = new vis.DataSet([]);
+    let edges = new vis.DataSet([]);
+    let allData = { nodes: [], edges: [] };
+    let entities = {};
+    let observations = {};
+    let selectedNode = null;
+
+    const COLORS = {
+      // BIZ tier
+      'biz-domain': '#6366F1', 'biz-rule': '#EF4444',
+      'biz-flow': '#3B82F6', 'biz-entity': '#8B5CF6',
+      // PATTERN tier
+      'pattern-code': '#10B981', 'pattern-arch': '#10B981',
+      'pattern-integration': '#10B981',
+      // TECH tier
+      'tech-stack': '#F59E0B', 'tech-config': '#F59E0B',
+      'tech-person': '#EC4899', 'tech-decision': '#06B6D4',
+      // INCIDENT tier
+      'incident-bug': '#F97316', 'incident-gotcha': '#F97316',
+      // Legacy (backward compat)
+      project: '#6366F1', service: '#10B981', person: '#F59E0B',
+      technology: '#EC4899', pattern: '#8B5CF6', erpsystem: '#14B8A6',
+      erpmodule: '#F97316', businessflow: '#06B6D4', architecture: '#A855F7',
+      externalintegration: '#EF4444', default: '#6B7280'
+    };
+
+    // Parse observation — handles both string and object {content,timestamp,confidence} formats
+    const PREFIX_RE = /^\[(\d\.?\d*?)(?:\|(\d{4}-\d{2}-\d{2}))?\]\s*/;
+    function normalizeObs(obs) {
+      if (typeof obs === 'string') return obs;
+      if (typeof obs === 'object' && obs !== null && 'content' in obs) {
+        return obs.content; // extract string from object format
+      }
+      return String(obs);
+    }
+    function parseObs(obs) {
+      const str = normalizeObs(obs);
+      const m = str.match(PREFIX_RE);
+      if (m) return { confidence: Math.min(parseFloat(m[1]), 1.0), date: m[2] || null, text: str.replace(PREFIX_RE, '') };
+      return { confidence: 0.8, date: null, text: str };
+    }
+    function confColor(c) {
+      if (c < 0.3) return '#EF4444';
+      if (c < 0.7) return '#F59E0B';
+      return '#10B981';
+    }
+    function isStaleObs(dateStr, threshold = 180) {
+      if (!dateStr) return false;
+      return (Date.now() - new Date(dateStr).getTime()) / 86400000 > threshold;
+    }
+
+    function shortenLabel(name) {
+      const parts = name.split(':');
+      if (parts.length >= 3) return parts.slice(1).join(':');
+      if (parts.length === 2) return parts[1];
+      return name;
+    }
+
+    function getColor(type) {
+      return COLORS[type.toLowerCase()] || COLORS.default;
+    }
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try { loadBrainData(event.target.result); }
+        catch (err) { alert('Error parsing file: ' + err.message); }
+      };
+      reader.readAsText(file);
+    });
+
+    function loadBrainData(jsonl) {
+      allData.nodes = [];
+      allData.edges = [];
+      entities = {};
+      observations = {};
+
+      const lines = jsonl.trim().split('\n').filter(line => line.trim());
+
+      lines.forEach(line => {
+        try {
+          const data = JSON.parse(line);
+          if (data.type === 'entity') {
+            entities[data.name] = {
+              id: data.name, label: shortenLabel(data.name),
+              color: getColor(data.entityType),
+              group: data.entityType,
+              observations: data.observations || []
+            };
+            observations[data.name] = data.observations || [];
+            allData.nodes.push(entities[data.name]);
+          } else if (data.type === 'relation') {
+            allData.edges.push({
+              from: data.from, to: data.to,
+              label: data.relationType,
+              font: { align: 'middle', size: 10, color: '#94A3B8' },
+              arrows: 'to'
+            });
+          }
+        } catch (err) {
+          console.error('Error parsing line:', line, err);
+        }
+      });
+
+      nodes.clear();
+      nodes.add(allData.nodes);
+      edges.clear();
+      edges.add(allData.edges);
+
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('detailPanel').classList.remove('hidden');
+      updateStats();
+      updateLegend();
+
+      // Fit after physics settles
+      setTimeout(() => network.fit({ animation: true }), 500);
+    }
+
+    function updateStats() {
+      let staleCount = 0;
+      allData.nodes.forEach(node => {
+        (observations[node.id] || []).forEach(o => {
+          const parsed = parseObs(o);
+          if (isStaleObs(parsed.date)) staleCount++;
+        });
+      });
+      // Health badge: orphan + low-conf counts
+      const linked = new Set();
+      allData.edges.forEach(e => { linked.add(e.from); linked.add(e.to); });
+      const orphanCount = allData.nodes.filter(n => !linked.has(n.id)).length;
+      let totalObs = 0, lowConfCount = 0;
+      allData.nodes.forEach(n => {
+        (observations[n.id] || []).forEach(o => {
+          totalObs++;
+          if (parseObs(o).confidence < 0.3) lowConfCount++;
+        });
+      });
+      let penalty = 0;
+      if (allData.nodes.length > 0 && orphanCount / allData.nodes.length >= 0.1)
+        penalty += 0.20 * Math.min((orphanCount / allData.nodes.length) * 2, 1);
+      if (totalObs > 0 && staleCount > 0 && staleCount / totalObs >= 0.05)
+        penalty += 0.20 * Math.min((staleCount / totalObs) * 2, 1);
+      if (totalObs > 0 && lowConfCount / totalObs >= 0.15)
+        penalty += 0.20 * Math.min((lowConfCount / totalObs) * 2, 1);
+      const healthScore = Math.round((1 - penalty) * 100);
+      const healthColor = healthScore >= 90 ? '#10B981' : healthScore >= 70 ? '#F59E0B' : '#EF4444';
+      const healthTip = `${orphanCount} orphans, ${staleCount} stale, ${lowConfCount} low-conf`;
+      const staleStr = staleCount > 0 ? ` | ${staleCount} stale` : '';
+      const orphanStr = orphanCount > 0 ? ` | ${orphanCount} orphan` : '';
+      document.getElementById('stats').innerHTML =
+        `${nodes.length} entities | ${edges.length} relations${staleStr}${orphanStr} ` +
+        `<span style="background:${healthColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;margin-left:6px" title="${healthTip}">${healthScore}%</span>`;
+    }
+
+    function updateLegend() {
+      const types = [...new Set(allData.nodes.map(n => n.group))].sort();
+      document.getElementById('legend').innerHTML = `
+        <div class="legend-title">Types</div>
+        ${types.map(t => `<div class="legend-item"><div class="legend-color" style="background:${getColor(t)}"></div><span>${t}</span></div>`).join('')}
+        <div style="margin-top:0.6rem;border-top:1px solid #334155;padding-top:0.5rem;color:#94A3B8;font-size:0.7rem">
+          Confidence:
+          <span style="color:#10B981">&#9679;</span> &ge;0.7
+          <span style="color:#F59E0B">&#9679;</span> &ge;0.3
+          <span style="color:#EF4444">&#9679;</span> &lt;0.3
+        </div>
+      `;
+      document.getElementById('legend').style.display = 'block';
+
+      const select = document.getElementById('filterType');
+      select.innerHTML = '<option value="all">All Types</option>';
+      types.forEach(type => {
+        const opt = document.createElement('option');
+        opt.value = type; opt.textContent = type;
+        select.appendChild(opt);
+      });
+    }
+
+    function filterNodes() {
+      const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+      const filterType = document.getElementById('filterType').value;
+
+      let filteredNodes = allData.nodes.filter(node => {
+        const matchesSearch = node.label.toLowerCase().includes(searchTerm);
+        const matchesType = filterType === 'all' || node.group === filterType;
+        return matchesSearch && matchesType;
+      });
+
+      const nodeIds = new Set(filteredNodes.map(n => n.id));
+      const filteredEdges = allData.edges.filter(e =>
+        nodeIds.has(e.from) && nodeIds.has(e.to)
+      );
+
+      nodes.clear();
+      nodes.add(filteredNodes);
+      edges.clear();
+      edges.add(filteredEdges);
+      updateStats();
+
+      if (filteredNodes.length > 0) {
+        document.getElementById('emptyState').style.display = 'none';
+        setTimeout(() => network.fit({ animation: true }), 300);
+      }
+    }
+
+    function resetView() {
+      document.getElementById('searchBox').value = '';
+      document.getElementById('filterType').value = 'all';
+      selectedNode = null;
+      nodes.clear();
+      nodes.add(allData.nodes);
+      edges.clear();
+      edges.add(allData.edges);
+      updateStats();
+      document.getElementById('resetBtn').style.display = 'none';
+      setTimeout(() => network.fit({ animation: true }), 300);
+    }
+
+    function showDetail(nodeId) {
+      const nodeData = entities[nodeId];
+      if (!nodeData) return;
+      selectedNode = nodeId;
+
+      document.getElementById('detailName').textContent = nodeData.label;
+      const badge = document.getElementById('detailBadge');
+      badge.textContent = nodeData.group;
+      badge.style.background = getColor(nodeData.group);
+
+      const obs = observations[nodeId] || [];
+      const connectedEdges = allData.edges.filter(e => e.from === nodeId || e.to === nodeId);
+
+      let html = '';
+
+      // Observations
+      if (obs.length > 0) {
+        const obsHtml = obs.map(o => {
+          const parsed = parseObs(o);
+          const stale = isStaleObs(parsed.date);
+          return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;opacity:${stale ? '0.6' : '1'};font-size:0.85rem;line-height:1.5;color:#CBD5E1;border-bottom:1px solid #1E293B">
+            <span style="width:8px;height:8px;border-radius:50%;background:${confColor(parsed.confidence)};flex-shrink:0" title="Confidence: ${parsed.confidence}"></span>
+            ${parsed.date ? `<span style="color:#64748B;font-size:0.75rem;flex-shrink:0">${parsed.date}</span>` : ''}
+            <span style="word-break:break-word">${parsed.text}</span>
+            ${stale ? '<span style="color:#EF4444;font-size:0.6rem;text-transform:uppercase;margin-left:auto;flex-shrink:0">stale</span>' : ''}
+          </div>`;
+        }).join('');
+        html += `<div class="detail-section">
+          <div class="detail-section-title">Observations (${obs.length})</div>
+          ${obsHtml}
+        </div>`;
+      }
+
+      // Connections
+      if (connectedEdges.length > 0) {
+        html += `<div class="detail-section"><div class="detail-section-title">Connections (${connectedEdges.length})</div>`;
+        connectedEdges.forEach(edge => {
+          const targetId = edge.from === nodeId ? edge.to : edge.from;
+          const direction = edge.from === nodeId ? '→' : '←';
+          const targetEntity = entities[targetId];
+          const color = targetEntity ? getColor(targetEntity.group) : '#6B7280';
+          html += `<div class="connection-item" onclick="navigateToNode('${targetId}')">
+            <div class="connection-dot" style="background:${color}"></div>
+            <span>${direction} ${targetId}</span>
+            <span class="connection-label">${edge.label}</span>
+          </div>`;
+        });
+        html += '</div>';
+      }
+
+      // Expand button
+      if (connectedEdges.length > 0) {
+        html += `<button class="btn-expand" onclick="expandNode('${nodeId}')">Show ${connectedEdges.length} connected nodes</button>`;
+      }
+
+      document.getElementById('detailBody').innerHTML = html || '<div class="detail-empty">No details</div>';
+    }
+
+    function expandNode(nodeId) {
+      const connectedNodes = network.getConnectedNodes(nodeId);
+      const focusIds = new Set([...connectedNodes, nodeId]);
+      nodes.clear();
+      nodes.add(allData.nodes.filter(n => focusIds.has(n.id)));
+      edges.clear();
+      edges.add(allData.edges.filter(e => focusIds.has(e.from) && focusIds.has(e.to)));
+      updateStats();
+      document.getElementById('resetBtn').style.display = 'inline-block';
+      setTimeout(() => network.fit({ animation: true }), 300);
+    }
+
+    function navigateToNode(nodeId) {
+      showDetail(nodeId);
+      network.selectNodes([nodeId]);
+      network.focus(nodeId, { scale: 1, animation: true });
+    }
+
+    function closeDetail() {
+      document.getElementById('detailPanel').classList.add('hidden');
+      setTimeout(() => network.redraw(), 350);
+    }
+
+    // Init vis-network
+    const container = document.getElementById('network');
+    const options = {
+      nodes: {
+        shape: 'dot', size: 20,
+        font: { size: 13, color: '#F1F5F9' },
+        borderWidth: 2, borderColor: '#1E293B', shadow: true
+      },
+      edges: {
+        width: 1.5,
+        color: { color: '#334155', highlight: '#6366F1' },
+        smooth: { type: 'continuous', roundness: 0.2 }
+      },
+      physics: {
+        stabilization: { iterations: 150 },
+        barnesHut: {
+          gravitationalConstant: -3000,
+          springLength: 200,
+          springConstant: 0.04,
+          damping: 0.09
+        }
+      },
+      interaction: { hover: true, tooltipDelay: 0, hideEdgesOnDrag: true }
+    };
+
+    network = new vis.Network(container, { nodes, edges }, options);
+
+    // Click node → show detail only (no graph filter)
+    network.on('click', function(params) {
+      if (params.nodes.length > 0) {
+        const nodeId = params.nodes[0];
+        document.getElementById('detailPanel').classList.remove('hidden');
+        showDetail(nodeId);
+        network.focus(nodeId, { scale: 1, animation: true });
+      }
+    });
+
+    // Hover → show tooltip clamped to viewport
+    const tooltip = document.getElementById('nodeTooltip');
+    let hoverTimeout = null;
+
+    network.on('hoverNode', function(params) {
+      clearTimeout(hoverTimeout);
+      hoverTimeout = setTimeout(() => {
+        const nodeData = entities[params.node];
+        if (!nodeData) return;
+
+        const obs = observations[params.node] || [];
+        const maxObs = 8; // limit observations shown in tooltip
+        const obsHtml = obs.slice(0, maxObs).map(o =>
+          `<div class="tt-obs-item">${normalizeObs(o)}</div>`
+        ).join('');
+        const moreText = obs.length > maxObs ? `<div style="color:#64748B;padding-top:0.3rem;font-size:0.75rem">+${obs.length - maxObs} more... (click to see all)</div>` : '';
+
+        tooltip.innerHTML = `
+          <div class="tt-name">${nodeData.label}</div>
+          <span class="tt-type" style="background:${getColor(nodeData.group)}">${nodeData.group}</span>
+          ${obs.length > 0 ? `<div class="tt-obs">${obsHtml}${moreText}</div>` : ''}
+        `;
+        tooltip.style.display = 'block';
+
+        // Position near cursor, clamped to viewport
+        const canvasPos = params.event.center || params.pointer?.DOM;
+        if (canvasPos) {
+          const rect = container.getBoundingClientRect();
+          positionTooltip(rect.left + canvasPos.x, rect.top + canvasPos.y);
+        }
+      }, 200);
+    });
+
+    network.on('blurNode', function() {
+      clearTimeout(hoverTimeout);
+      tooltip.style.display = 'none';
+    });
+
+    // Clamp tooltip within viewport
+    function positionTooltip(mouseX, mouseY) {
+      const gap = 12;
+      tooltip.style.left = '0px';
+      tooltip.style.top = '0px';
+
+      // Force layout to get actual dimensions
+      const ttRect = tooltip.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      let x = mouseX + gap;
+      let y = mouseY + gap;
+
+      // Clamp right edge
+      if (x + ttRect.width > vw - gap) {
+        x = mouseX - ttRect.width - gap;
+      }
+      // Clamp left edge
+      if (x < gap) x = gap;
+
+      // Clamp bottom edge
+      if (y + ttRect.height > vh - gap) {
+        y = mouseY - ttRect.height - gap;
+      }
+      // Clamp top edge
+      if (y < gap) y = gap;
+
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    }
+
+    // Hide tooltip on click (detail panel takes over)
+    network.on('click', function() {
+      clearTimeout(hoverTimeout);
+      tooltip.style.display = 'none';
+    });
+
+    // Double-click → reset
+    network.on('doubleClick', function(params) {
+      if (params.nodes.length === 0) resetView();
+    });
+
+    window.addEventListener('resize', () => network.fit());
+  </script>
+</body>
+</html>
