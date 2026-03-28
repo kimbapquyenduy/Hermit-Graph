@@ -1,0 +1,22 @@
+{
+  "name": "claude-code-brain",
+  "version": "2.3.0",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-to-neo4j.mjs",
+    "view": "npx serve viewer",
+    "test": "node scripts/test.mjs",
+    "setup": "node scripts/setup-project.mjs",
+    "migrate": "node scripts/migrate-brain-v1-to-v2.mjs",
+    "backfill": "node scripts/backfill-confidence.mjs",
+    "stale": "node scripts/stale-report.mjs",
+    "setup:semantic": "node scripts/setup-semantic.mjs",
+    "setup:conventions": "node scripts/setup-conventions.mjs",
+    "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
+    "health": "node scripts/brain-health.mjs"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.27.0",
+    "dotenv": "^16.4.0"
+  }
+}
