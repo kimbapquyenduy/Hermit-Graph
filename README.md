@@ -1,35 +1,21 @@
-# Claude Code Brain v2.3 — Knowledge Graph Memory for Claude Code
+# Claude Code Brain — Persistent Memory for Claude Code
 
-> Copy this folder → 5 min setup → Claude Code gains persistent memory across all projects.
-> Built on [ClaudeKit Engineer](https://github.com/claudekit/claudekit-engineer) boilerplate.
+Give Claude Code a **shared brain** that remembers across all your projects. Built on a Knowledge Graph with 4-tier organization.
 
-## Quick Start (5 min)
+## Setup (3 steps)
 
-### Step 1: Clone / Copy
+### 1. Clone & install
+
 ```bash
 git clone https://github.com/kimbapquyenduy/claude-code-brain.git
 cd claude-code-brain
-```
-
-### Step 2: Install dependencies
-```bash
 npm install
 ```
 
-### Step 3: Global Setup (brain works in ANY project)
+### 2. Configure global settings
 
-The brain is configured **globally** — once set up, Claude Code has memory in every project you open.
+Create `~/.claude/settings.json` (or merge into your existing one):
 
-**3a. Create global settings directory:**
-```bash
-# Linux/Mac
-mkdir -p ~/.claude
-
-# Windows
-mkdir %USERPROFILE%\.claude
-```
-
-**3b. Create `~/.claude/settings.json`** with both MCP servers:
 ```json
 {
   "mcpServers": {
@@ -37,186 +23,147 @@ mkdir %USERPROFILE%\.claude
       "command": "npx",
       "args": ["-y", "@sockeye44/better-memory-mcp"],
       "env": {
-        "MEMORY_FILE_PATH": "D:/AI/claude-code-brain/data/brain.jsonl",
+        "MEMORY_FILE_PATH": "<YOUR_PATH>/claude-code-brain/data/brain.jsonl",
         "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"
-      }
-    },
-    "conventions": {
-      "command": "uvx",
-      "args": ["enhanced-mcp-memory"],
-      "env": {
-        "LOG_LEVEL": "INFO",
-        "MAX_MEMORY_ITEMS": "500",
-        "DATA_DIR": "D:/AI/claude-code-brain/data/conventions"
       }
     }
   }
 }
 ```
 
-> **Important:** Replace `D:/AI/claude-code-brain` with the actual path where you cloned this repo.
-> Use forward slashes `/` even on Windows.
->
-> **Note:** `conventions` server requires `uv` — install with `pip install uv` or see [uv docs](https://docs.astral.sh/uv/). If you skip it, only remove the `conventions` block — `memory` works standalone.
+Replace `<YOUR_PATH>` with the absolute path where you cloned the repo. Use forward slashes on all platforms.
 
-**3c. (Optional) Copy global instructions:**
+### 3. Verify
 
-Copy `templates/global-CLAUDE.md` → `~/.claude/CLAUDE.md`
+Open any project with Claude Code and ask: *"Do you have memory tools? Try `search_nodes` with keyword test."*
 
-This teaches Claude Code the 4-tier naming convention, auto-save rules, and Stop Hook enforcement — so it knows *how* to use the brain properly.
+If it responds with memory tools — you're done.
 
-**3d. (Optional) Add Stop Hook for auto-save enforcement:**
+---
 
-Add this `hooks` section into your `~/.claude/settings.json` (merge with the `mcpServers` block above). The Stop Hook runs after every Claude Code response and reminds it to save new knowledge — so nothing gets forgotten.
+## Optional Enhancements
+
+### Add conventions server (auto-learn project patterns)
+
+Requires [uv](https://docs.astral.sh/uv/). Add to your `mcpServers`:
 
 ```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "type": "prompt",
-        "prompt": "Review the conversation. Check if assistant learned NEW knowledge in these 4 tiers:\n\nTier 1 BIZ: business rules (min 4 obs: RULE,CONTEXT,VIOLATION,FILES), flows (min 4: FLOW steps,TRIGGER,SIDE_EFFECTS,EDGE_CASE), entities (min 3: FIELDS,STATUSES,CONSTRAINTS), domain (min 4: WHAT,TARGET,REVENUE,STARTED)\nTier 2 PATTERN: code/arch/integration patterns (min 4-5 obs each with WHAT,WHEN,HOW,USED_IN)\nTier 3 TECH: stack (min 4: FRONTEND,BACKEND,INFRA,CI_CD), config, people (min 3: ROLE,PROJECTS,PREFERENCES)\nTier 4 INCIDENT: bugs (min 6: SYMPTOM,ROOT_CAUSE,FIX,FILES,TIME,PROJECT), gotchas (min 4), decisions (min 5: DECISION,REASON,TRADEOFF,ALTERNATIVES,DATE)\n\nNaming: TIER:SCOPE:LABEL (e.g. RULE:ShopX:DiscountMax50)\nEntityTypes: biz-domain|biz-rule|biz-flow|biz-entity|pattern-code|pattern-arch|pattern-integration|tech-stack|tech-config|tech-person|incident-bug|incident-gotcha|tech-decision\n\nObservations MUST use [confidence|YYYY-MM-DD] prefix. Example: [0.8|2026-03-26] RULE: Discount max 50%. Default confidence 0.8. User-stated facts: 0.95. Auto-detected: 0.6.\n\nIf NEW knowledge found: list each item and remind assistant to save using create_entities + create_relations.\nIf nothing new: respond exactly PASS"
-      }
-    ]
+"conventions": {
+  "command": "uvx",
+  "args": ["enhanced-mcp-memory"],
+  "env": {
+    "LOG_LEVEL": "INFO",
+    "MAX_MEMORY_ITEMS": "500",
+    "DATA_DIR": "<YOUR_PATH>/claude-code-brain/data/conventions"
   }
 }
 ```
 
-**How it works:**
-```
-~/.claude/settings.json    ← MCP server config (global, all projects)
-~/.claude/CLAUDE.md        ← Brain instructions (global, all projects)
-       ↓
-You open ANY project → `claude` → brain is active automatically
-       ↓
-Claude Code reads/writes → data/brain.jsonl (one shared brain file)
+### Add Stop Hook (auto-save enforcement)
+
+Add to your `~/.claude/settings.json`. This runs after every Claude Code response and reminds it to save new knowledge — nothing gets forgotten.
+
+```json
+"hooks": {
+  "Stop": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Review the conversation. Check if assistant learned NEW knowledge in these 4 tiers:\n\nTier 1 BIZ: business rules, flows, entities, domain\nTier 2 PATTERN: code/arch/integration patterns\nTier 3 TECH: stack, config, people, decisions\nTier 4 INCIDENT: bugs, gotchas\n\nNaming: TIER:SCOPE:LABEL (e.g. RULE:ShopX:DiscountMax50)\nObservations MUST use [confidence|YYYY-MM-DD] prefix.\n\nIf NEW knowledge found: list each item and remind assistant to save using create_entities + create_relations.\nIf nothing new: respond exactly PASS"
+        }
+      ]
+    }
+  ]
+}
 ```
 
-### Step 4: (Optional) Semantic Search + Auto-Learn
+### Copy global instructions
+
+Copy `templates/global-CLAUDE.md` to `~/.claude/CLAUDE.md`. This teaches Claude Code the 4-tier naming convention and auto-save rules.
+
+### Enable semantic search (for large brains, >500 entities)
+
 ```bash
-npm run setup:semantic     # Python + PyTorch for semantic search
-npm run setup:conventions  # uv/pip for auto-learn conventions
-# Or install all:
-npm run setup:all
+npm run setup:semantic   # Installs Python + PyTorch (~500MB)
 ```
 
-### Step 5: Use it
-Open terminal in any project → `claude` → it remembers everything!
-
-## Viewing the Knowledge Graph
-
-### Option A: HTML Viewer (simplest, no Docker)
-Open `viewer/index.html` → Click "Load File" → Select `data/brain.jsonl`
-
-### Option B: Neo4j Browser (richer, needs Docker)
-1. Install Docker Desktop
-2. `cd docker && docker compose up -d`
-3. Open http://localhost:7474
-4. Copy `.env.example` → `.env`, set password (`brainpassword`)
-5. `npm run sync` → Data flows into Neo4j
-
-## Daily Usage
-1. Open Claude Code in any project → it auto-recalls context from all projects
-2. End of day: open `viewer/index.html` to see what the brain learned
-3. (Optional) `npm run sync` to push data into Neo4j for richer graph visualization
-
-## 4-Tier Naming Convention
-
-| Tier | Prefix | EntityTypes | Example |
-|------|--------|-------------|---------|
-| BIZ | `BIZ:`, `RULE:`, `FLOW:`, `ENTITY:` | biz-domain, biz-rule, biz-flow, biz-entity | `BIZ:ShopX`, `RULE:ShopX:DiscountMax50` |
-| PATTERN | `PATTERN:`, `PATTERN:ARCH:`, `PATTERN:INT:` | pattern-code, pattern-arch, pattern-integration | `PATTERN:JWTRefresh`, `PATTERN:INT:VNPay` |
-| TECH | `TECH:`, `PERSON:`, `DECISION:` | tech-stack, tech-config, tech-person, tech-decision | `TECH:EduMVP`, `PERSON:AnhMinh` |
-| INCIDENT | `INCIDENT:`, `GOTCHA:`, `BUG:` | incident-bug, incident-gotcha | `BUG:RLS:20260325`, `GOTCHA:PrismaEnum` |
-
-## Brain Commands (12)
-
-| Command | Description |
-|---------|-------------|
-| `/impact` | Analyze blast radius before code changes |
-| `/biz-review` | Review code against business rules |
-| `/biz-init` | Create BUSINESS.md for a new project |
-| `/remember` | Save info to memory (v2 naming) |
-| `/recall` | Search saved information |
-| `/brain-dump` | End-of-session summary, save everything |
-| `/diagnose` | Systematic debugging, save incident |
-| `/ingest` | Ingest files (BRD/PRD/README) into KG |
-| `/tech-decision` | Record technical decisions |
-| `/learn-project` | Auto-detect project conventions |
-| `/suggest-reuse` | Suggest reusable patterns from other projects |
-| `/brain-health` | 5 automated health checks, score 0-100 |
-
-## Brain Skills (7)
-
-| Skill | Description |
-|-------|-------------|
-| auto-memory | Save/recall management with 4-tier schema |
-| biz-guard | Check business impact before coding |
-| code-patterns | Detect & save coding patterns |
-| api-design | Consistent API design guidance |
-| db-migrations | Safe database migration practices |
-| security-check | Security review checklist |
-| tech-advisor | Tech stack comparison & advice |
-
-> **Note:** This project ships with 47+ additional skills via ClaudeKit (frontend, backend, DevOps, etc.). See `.claude/skills/` for the full list.
-
-## Features
-
-### Confidence & Temporal (v2.1)
-- Observation prefix: `[confidence|YYYY-MM-DD]` — required for all new observations
-- Stale detection: observations >180 days → flagged for review
-- Decay formula: `confidence * e^(-0.01 * days)`
-- Tools: `npm run backfill` (add prefix to legacy data), `npm run stale` (stale report)
-
-### Semantic Search (v2.2)
-- MCP server: `@sockeye44/better-memory-mcp` (drop-in replacement, 15 tools)
-- ModernColBERT neural embeddings — search "authentication patterns" → finds `PATTERN:JWTAuth`
-- Requires: Python 3.8+, PyTorch (~500MB model). Falls back to keyword search without Python
-- **Default: OFF** (`search_nodes` + Claude is sufficient for <500 entities)
-
-#### Enable Semantic Search (>500 entities):
-Switch memory config in `~/.claude/settings.json` from npx to launcher:
+Then switch memory config to use the launcher:
 ```json
 "memory": {
   "command": "node",
-  "args": ["<path>/scripts/launch-memory-mcp.mjs"],
+  "args": ["<YOUR_PATH>/scripts/launch-memory-mcp.mjs"],
   "env": {
-    "MEMORY_FILE_PATH": "<path>/data/brain.jsonl",
+    "MEMORY_FILE_PATH": "<YOUR_PATH>/data/brain.jsonl",
     "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"
   }
 }
 ```
-Restart Claude Code session after changing config.
 
-### Auto-Learn Conventions (v2.2)
-- Secondary MCP server: `enhanced-mcp-memory` (SQLite, runs in parallel)
-- Auto-detects: naming conventions, import styles, build tools, linting
-- Command `/learn-project` — scan project, detect conventions, save as `PATTERN:ARCH:*`
-- Setup: `npm run setup:conventions`
+---
 
-### Cross-Project Intelligence (v2.2)
-- Command `/suggest-reuse` — find patterns from other projects that can be reused
-- Ranked by confidence score, filtered by decay threshold 0.3
-- Links patterns to current project via `uses_pattern` relation
+## How It Works
 
-### Brain Hygiene (v2.3)
-- Command `/brain-health` — 5 automated checks, health score 0-100
-- Checks: stale entries, duplicates, orphan nodes, low confidence, missing relations
-- Viewer: health badge in header bar (color-coded score)
-- CLI: `npm run health`
+```
+~/.claude/settings.json    ← MCP server config (global)
+~/.claude/CLAUDE.md        ← Brain instructions (global)
+       ↓
+Open ANY project → claude → brain is active
+       ↓
+Claude reads/writes → data/brain.jsonl (one shared file)
+```
+
+## 4-Tier Naming
+
+| Tier | Prefix | Example |
+|------|--------|---------|
+| **BIZ** | `BIZ:`, `RULE:`, `FLOW:`, `ENTITY:` | `RULE:ShopX:DiscountMax50` |
+| **PATTERN** | `PATTERN:`, `PATTERN:ARCH:`, `PATTERN:INT:` | `PATTERN:INT:VNPay` |
+| **TECH** | `TECH:`, `PERSON:`, `DECISION:` | `TECH:EduMVP` |
+| **INCIDENT** | `INCIDENT:`, `GOTCHA:`, `BUG:` | `BUG:RLS:20260325` |
+
+## Commands (12)
+
+| Command | What it does |
+|---------|-------------|
+| `/remember` | Save info to memory |
+| `/recall` | Search saved info |
+| `/brain-dump` | End-of-session save-all |
+| `/brain-health` | Health check, score 0-100 |
+| `/impact` | Analyze blast radius before code changes |
+| `/biz-review` | Review code against business rules |
+| `/biz-init` | Create BUSINESS.md for new project |
+| `/diagnose` | Debug with root cause analysis |
+| `/ingest` | Ingest docs (BRD/PRD/README) into KG |
+| `/tech-decision` | Record tech decisions |
+| `/learn-project` | Auto-detect project conventions |
+| `/suggest-reuse` | Find reusable patterns from other projects |
+
+## Viewing the Graph
+
+**HTML Viewer (no Docker):** Open `viewer/index.html` → Click "Load File" → Select `data/brain.jsonl`
+
+**Neo4j (Docker):**
+```bash
+cd docker && docker compose up -d
+cp .env.example .env   # set password: brainpassword
+npm run sync
+# Open http://localhost:7474
+```
 
 ## NPM Scripts
 
 ```bash
-npm test              # 11 tests (JSONL, entities, settings, viewer, skills, health...)
-npm run sync          # Sync brain.jsonl → Neo4j (needs Docker)
-npm run view          # Serve HTML viewer on localhost:3000
-npm run migrate       # Migrate brain.jsonl from v1 to v2
-npm run backfill      # Add [confidence|date] prefix to legacy data
-npm run stale         # Report stale observations
-npm run health        # Brain health check (score 0-100)
-npm run setup         # Setup biz-guard for a new project
-npm run setup:all     # Setup semantic + conventions + project
+npm test           # Run tests
+npm run health     # Brain health check (score 0-100)
+npm run sync       # Sync brain → Neo4j
+npm run view       # Serve HTML viewer on localhost
+npm run migrate    # Migrate v1 → v2 format
+npm run backfill   # Add confidence prefix to legacy data
+npm run stale      # Report stale observations
+npm run setup      # Setup biz-guard for a project
+npm run setup:all  # Setup semantic + conventions + project
 ```
 
 ## Project Structure
@@ -224,62 +171,33 @@ npm run setup:all     # Setup semantic + conventions + project
 ```
 claude-code-brain/
 ├── data/
-│   ├── brain.jsonl              ← Memory file (Claude Code writes here)
-│   ├── brain-sample.jsonl       ← Sample data (v2 format)
-│   └── conventions/             ← Auto-learned conventions (SQLite)
-├── scripts/
-│   ├── sync-to-neo4j.mjs        ← Sync brain → Neo4j
-│   ├── test.mjs                 ← Test script (11 tests)
-│   ├── brain-health.mjs         ← Brain health check (v2.3)
-│   ├── setup-project.mjs        ← Setup biz-guard for new project
-│   ├── setup-semantic.mjs       ← Setup Python + PyTorch
-│   ├── setup-conventions.mjs    ← Setup uv + enhanced-mcp-memory
-│   ├── backfill-confidence.mjs  ← Backfill [confidence|date] prefix
-│   ├── stale-report.mjs         ← Report stale observations
-│   ├── migrate-brain-v1-to-v2.mjs ← Migration script v1→v2
-│   ├── launch-memory-mcp.mjs    ← MCP launcher with semantic search
-│   └── lib/                     ← Shared modules
-├── viewer/
-│   └── index.html               ← Graph viewer (vis.js, dark theme)
-├── docker/
-│   └── docker-compose.yml       ← Neo4j (optional)
-├── templates/
-│   ├── global-CLAUDE.md         ← Template for ~/.claude/CLAUDE.md
-│   ├── BUSINESS.md              ← Template business impact map
-│   └── CLAUDE-project.md        ← Template per-project instructions
-├── .claude/                     ← ClaudeKit boilerplate (skills, commands, workflows)
-│   ├── skills/                  ← 47+ skills (brain + general dev)
-│   ├── commands/                ← 40+ commands (brain + general dev)
-│   ├── workflows/               ← Development workflows
-│   ├── hooks/                   ← Git & editor hooks
-│   └── agents/                  ← Specialized agent configs
-├── .claude-settings.json        ← Config template (Dual MCP + Stop Hook)
-├── .env.example                 ← Neo4j config template
-├── package.json
-├── GUIDE.md                     ← Detailed setup guide & use cases
-└── README.md
+│   ├── brain.jsonl           ← Memory file (Claude writes here)
+│   ├── brain-sample.jsonl    ← Sample data
+│   └── conventions/          ← Auto-learned conventions (SQLite)
+├── scripts/                  ← All utility scripts
+├── viewer/index.html         ← Graph viewer (vis.js, dark theme)
+├── docker/docker-compose.yml ← Neo4j (optional)
+├── templates/                ← Templates for CLAUDE.md, BUSINESS.md
+├── mcp-memory-libsql/       ← LibSQL-based memory MCP server
+├── .claude/                  ← Skills, commands, workflows, hooks
+├── .claude-settings.json     ← Config template (MCP + hooks)
+└── .mcp.json                 ← MCP server config (local)
 ```
-
-## Migration from v1
-If you have an existing brain.jsonl (v1 format):
-```bash
-npm run migrate
-```
-Script auto-converts entity names + entityTypes to v2 format.
 
 ## FAQ
 
-**Q: Claude Code doesn't remember anything?**
-A: Check `~/.claude/settings.json` exists, JSON format is valid, `MEMORY_FILE_PATH` points to correct location. Restart Claude Code after editing.
+**Claude Code doesn't remember anything?**
+Check `~/.claude/settings.json` exists, JSON is valid, `MEMORY_FILE_PATH` is correct. Restart Claude Code after changes.
 
-**Q: Viewer shows nothing?**
-A: Check `data/brain.jsonl` has data. Use `brain-sample.jsonl` to test. If `file://` is blocked, run `npm run view`.
+**Viewer shows nothing?**
+Make sure `data/brain.jsonl` has data. If `file://` is blocked, use `npm run view`.
 
-**Q: Neo4j sync fails?**
-A: Check Docker is running (`docker ps`), `.env` has correct password (`brainpassword`).
+**Want to reset?**
+Clear contents of `data/brain.jsonl` (keep file, delete contents).
 
-**Q: Want to reset brain?**
-A: Clear contents of `data/brain.jsonl` (keep the file, delete contents).
+**Brain file too large?**
+Works fine up to several MB. Over 10MB, consider archiving old entries.
 
-**Q: Brain file too large?**
-A: MCP Memory Server handles files up to several MB. If >10MB, consider archiving old entries.
+---
+
+> Built on [ClaudeKit Engineer](https://github.com/claudekit/claudekit-engineer). Ships with 47+ dev skills — see `.claude/skills/`.
