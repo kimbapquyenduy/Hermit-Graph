@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitNexus — Multi-Repo Code Intelligence Graph</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #c9d1d9;
+    --text-dim: #8b949e; --text-bright: #f0f6fc; --accent: #58a6ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif; overflow: hidden; }
+
+  /* Tab bar */
+  #tabs {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    display: flex; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 16px; gap: 4px; align-items: flex-end; height: 44px;
+  }
+  .tab {
+    padding: 8px 20px; cursor: pointer; font-size: 13px; font-weight: 500;
+    color: var(--text-dim); border-bottom: 2px solid transparent;
+    transition: all 0.2s; user-select: none; background: none; border-top: none;
+    border-left: none; border-right: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .badge {
+    display: inline-block; background: var(--border); color: var(--text-dim);
+    font-size: 10px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;
+  }
+
+  /* Canvas */
+  canvas { display: block; margin-top: 44px; }
+
+  /* Panels */
+  .panel {
+    position: fixed; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; z-index: 10; backdrop-filter: blur(8px);
+  }
+  #stats { top: 60px; left: 16px; width: 300px; }
+  #stats h2 { font-size: 16px; color: var(--accent); margin-bottom: 8px; }
+  #stats .subtitle { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+  .stat-row {
+    display: flex; justify-content: space-between; padding: 5px 0;
+    font-size: 13px; border-bottom: 1px solid #21262d;
+  }
+  .stat-row:last-child { border: none; }
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .value { color: var(--text-bright); font-weight: 600; }
+
+  #legend { bottom: 16px; left: 16px; max-height: 40vh; overflow-y: auto; }
+  #legend h3 { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 3px; cursor: pointer; }
+  .legend-item:hover { color: var(--text-bright); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-bar { height: 4px; border-radius: 2px; margin-top: 1px; }
+
+  #edge-legend { bottom: 16px; right: 16px; }
+  #edge-legend h3 { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .edge-item { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 4px; }
+  .edge-line { width: 24px; height: 2px; border-radius: 1px; }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed; display: none; background: #1c2128ee; border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; font-size: 13px; z-index: 40; pointer-events: none;
+    max-width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  #tooltip .tt-name { color: var(--accent); font-weight: 600; font-size: 15px; }
+  #tooltip .tt-type { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  #tooltip .tt-stats { margin-top: 8px; }
+  #tooltip .tt-stat { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; }
+  #tooltip .tt-stat .k { color: var(--text-dim); }
+  #tooltip .tt-stat .v { color: var(--text-bright); }
+
+  /* Controls */
+  #controls { position: fixed; top: 60px; right: 16px; z-index: 10; display: flex; flex-direction: column; gap: 6px; }
+  .ctrl-btn {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+  }
+  .ctrl-btn:hover { background: var(--border); color: var(--text-bright); }
+</style>
+</head>
+<body>
+
+<div id="tabs"></div>
+<canvas id="graph"></canvas>
+
+<div class="panel" id="stats"></div>
+<div class="panel" id="legend"></div>
+<div class="panel" id="edge-legend">
+  <h3>Edge Types</h3>
+  <div class="edge-item"><span class="edge-line" style="background:#58a6ff"></span>CALLS</div>
+  <div class="edge-item"><span class="edge-line" style="background:#3fb950"></span>IMPORTS</div>
+  <div class="edge-item"><span class="edge-line" style="background:#d29922"></span>DEFINES</div>
+  <div class="edge-item"><span class="edge-line" style="background:#bc8cff"></span>HAS_METHOD</div>
+  <div class="edge-item"><span class="edge-line" style="background:#f85149"></span>FETCHES</div>
+  <div class="edge-item"><span class="edge-line" style="background:#8b949e60"></span>MEMBER_OF</div>
+</div>
+
+<div id="tooltip">
+  <div class="tt-name"></div>
+  <div class="tt-type"></div>
+  <div class="tt-stats"></div>
+</div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="zoomIn" title="Zoom in">+</button>
+  <button class="ctrl-btn" id="zoomOut" title="Zoom out">-</button>
+  <button class="ctrl-btn" id="resetView" title="Reset view">⌂</button>
+</div>
+
+<script>
+// ============= DATA =============
+const repos = {
+  crawbot: {
+    label: "CrawBot",
+    stats: { files: 292, symbols: 2870, edges: 7418, modules: 30, flows: 234 },
+    edgeStats: { CALLS: 3584, DEFINES: 3254, MEMBER_OF: 1958, STEP_IN_PROCESS: 1856, CONTAINS: 1702, IMPORTS: 1168, HAS_METHOD: 662, HAS_PROPERTY: 318, ACCESSES: 308, IMPLEMENTS: 26 },
+    modules: [
+      { name: "Main", symbols: 187, cohesion: 76 },
+      { name: "Browser", symbols: 107, cohesion: 59 },
+      { name: "Chat", symbols: 107, cohesion: 85 },
+      { name: "Automation", symbols: 98, cohesion: 69 },
+      { name: "Gateway", symbols: 82, cohesion: 66 },
+      { name: "Providers", symbols: 77, cohesion: 80 },
+      { name: "Settings", symbols: 45, cohesion: 74 },
+      { name: "Chrome-ext", symbols: 45, cohesion: 61 },
+      { name: "Stores", symbols: 24, cohesion: 88 },
+      { name: "Setup", symbols: 19, cohesion: 86 },
+      { name: "Cron", symbols: 11, cohesion: 87 },
+      { name: "Channels", symbols: 10, cohesion: 86 },
+      { name: "Workflow", symbols: 9, cohesion: 94 },
+    ],
+    calls: [
+      { src: "Main", tgt: "Gateway" }, { src: "Main", tgt: "Gateway" },
+      { src: "Gateway", tgt: "Providers" }, { src: "Gateway", tgt: "Browser" },
+      { src: "Automation", tgt: "Gateway" }, { src: "Automation", tgt: "Gateway" },
+      { src: "Automation", tgt: "Gateway" }, { src: "Browser", tgt: "Main" },
+      { src: "Stores", tgt: "Gateway" }, { src: "Chat", tgt: "Gateway" },
+      { src: "Settings", tgt: "Providers" }, { src: "Channels", tgt: "Gateway" },
+      { src: "Cron", tgt: "Gateway" }, { src: "Workflow", tgt: "Automation" },
+      { src: "Chrome-ext", tgt: "Browser" },
+    ],
+    symbols: [
+      { name: "GatewayManager", module: "Gateway", type: "Class", methods: 30 },
+      { name: "GatewayClient", module: "Gateway", type: "Class", methods: 30 },
+      { name: "ClawHubService", module: "Gateway", type: "Class", methods: 8 },
+      { name: "BrowserManager", module: "Browser", type: "Class", methods: 12 },
+      { name: "CdpFilterProxy", module: "Browser", type: "Class", methods: 20 },
+      { name: "WebAuthPipeline", module: "Browser", type: "Class", methods: 10 },
+      { name: "WebAuthViewManager", module: "Browser", type: "Class", methods: 8 },
+      { name: "WorkflowExecutor", module: "Automation", type: "Class", methods: 15 },
+      { name: "TriggerManager", module: "Automation", type: "Class", methods: 12 },
+      { name: "RateLimiter", module: "Automation", type: "Class", methods: 4 },
+      { name: "AppUpdater", module: "Main", type: "Class", methods: 6 },
+      { name: "ErrorBoundary", module: "Main", type: "Class", methods: 3 },
+    ],
+    processes: [
+      "RegisterGatewayHandlers → Finish", "ChatCompletion → Get",
+      "RegisterGatewayHandlers → GetLocaleAndTimezone", "HandleWsConnection → Get",
+      "Initialize → Finish", "Start → GetOpenClawDir",
+    ]
+  },
+  edumvp: {
+    label: "EduMVP (MentorX)",
+    stats: { files: 292, symbols: 5748, edges: 10194, modules: 30, flows: 270 },
+    edgeStats: { CONTAINS: 6966, DEFINES: 3426, IMPORTS: 2830, CALLS: 2476, STEP_IN_PROCESS: 1958, MEMBER_OF: 1688, ENTRY_POINT_OF: 414, FETCHES: 314, HANDLES_ROUTE: 248, HAS_METHOD: 50 },
+    modules: [
+      { name: "Services", symbols: 185, cohesion: 64 },
+      { name: "Teacher", symbols: 88, cohesion: 91 },
+      { name: "Mentoring", symbols: 68, cohesion: 87 },
+      { name: "Settings", symbols: 62, cohesion: 84 },
+      { name: "Hooks", symbols: 56, cohesion: 80 },
+      { name: "Student", symbols: 32, cohesion: 90 },
+      { name: "Community", symbols: 28, cohesion: 86 },
+      { name: "Lesson", symbols: 27, cohesion: 45 },
+      { name: "Rooms", symbols: 26, cohesion: 70 },
+      { name: "Image", symbols: 13, cohesion: 91 },
+      { name: "Checkout", symbols: 12, cohesion: 92 },
+      { name: "Chat", symbols: 10, cohesion: 75 },
+      { name: "Dashboard", symbols: 9, cohesion: 73 },
+    ],
+    calls: [
+      { src: "Services", tgt: "Hooks" }, { src: "Teacher", tgt: "Services" },
+      { src: "Mentoring", tgt: "Services" }, { src: "Student", tgt: "Services" },
+      { src: "Community", tgt: "Services" }, { src: "Checkout", tgt: "Services" },
+      { src: "Rooms", tgt: "Services" }, { src: "Chat", tgt: "Rooms" },
+      { src: "Settings", tgt: "Services" }, { src: "Lesson", tgt: "Services" },
+      { src: "Dashboard", tgt: "Services" }, { src: "Image", tgt: "Services" },
+      { src: "Teacher", tgt: "Community" }, { src: "Hooks", tgt: "Services" },
+    ],
+    symbols: [
+      { name: "processPayment", module: "Services", type: "Function", methods: 0 },
+      { name: "middleware", module: "Services", type: "Function", methods: 0 },
+      { name: "cn", module: "Hooks", type: "Function", methods: 0 },
+      { name: "sanitizeHtml", module: "Services", type: "Function", methods: 0 },
+      { name: "fetchWithAuth", module: "Services", type: "Function", methods: 0 },
+      { name: "createInvoice", module: "Services", type: "Function", methods: 0 },
+      { name: "PaymentForm", module: "Checkout", type: "Component", methods: 0 },
+      { name: "MessagingInterface", module: "Rooms", type: "Component", methods: 0 },
+      { name: "CommunityTab", module: "Community", type: "Component", methods: 0 },
+      { name: "MockPaymentService", module: "Services", type: "Class", methods: 5 },
+    ],
+    processes: [
+      "GET → SanitizeTimeout", "ProcessInvoiceJob → SanitizeTimeout",
+      "POST → SanitizeTimeout", "GET → GetCachedToken",
+      "PATCH → GetSocket", "AvailabilityScheduleEditor → GetSlotsForDay",
+    ]
+  },
+  "claude-code-brain": {
+    label: "Claude Code Brain",
+    stats: { files: 55, symbols: 704, edges: 809, modules: 12, flows: 12 },
+    edgeStats: { DEFINES: 250, CONTAINS: 200, MEMBER_OF: 150, CALLS: 100, IMPORTS: 80, STEP_IN_PROCESS: 29 },
+    modules: [
+      { name: "Scripts", symbols: 180, cohesion: 72 },
+      { name: "Viewer", symbols: 120, cohesion: 85 },
+      { name: "Config", symbols: 90, cohesion: 80 },
+      { name: "Memory", symbols: 80, cohesion: 78 },
+      { name: "Skills", symbols: 70, cohesion: 75 },
+      { name: "Tests", symbols: 60, cohesion: 90 },
+    ],
+    calls: [
+      { src: "Scripts", tgt: "Memory" }, { src: "Viewer", tgt: "Memory" },
+      { src: "Skills", tgt: "Config" }, { src: "Tests", tgt: "Scripts" },
+    ],
+    symbols: [],
+    processes: []
+  }
+};
+
+// ============= PALETTE =============
+const palette = [
+  "#58a6ff","#3fb950","#d29922","#f85149","#bc8cff","#79c0ff","#56d364",
+  "#e3b341","#ff7b72","#d2a8ff","#39d353","#f778ba","#ffa657","#ff9bce"
+];
+const edgeColors = {
+  CALLS: "#58a6ff", IMPORTS: "#3fb950", DEFINES: "#d29922",
+  HAS_METHOD: "#bc8cff", FETCHES: "#f85149", MEMBER_OF: "#8b949e60"
+};
+
+// ============= STATE =============
+let activeRepo = "crawbot";
+let nodes = [], edges = [], symbolNodes = [];
+let zoom = 1, panX = 0, panY = 0;
+let dragging = null, dragStart = null, isPanning = false, panStart = null;
+let hoveredNode = null;
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight - 44;
+  canvas.style.marginTop = '44px';
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+// ============= BUILD GRAPH =============
+function buildGraph(repoKey) {
+  const repo = repos[repoKey];
+  const moduleColor = {};
+  repo.modules.forEach((m, i) => moduleColor[m.name] = palette[i % palette.length]);
+
+  // Module nodes in circular layout
+  const cx = W / 2, cy = H / 2;
+  const R = Math.min(W, H) * 0.28;
+  nodes = repo.modules.map((m, i) => {
+    const angle = (i / repo.modules.length) * Math.PI * 2 - Math.PI / 2;
+    return {
+      ...m, color: moduleColor[m.name],
+      x: cx + Math.cos(angle) * R, y: cy + Math.sin(angle) * R,
+      vx: 0, vy: 0,
+      radius: Math.max(20, Math.sqrt(m.symbols) * 3),
+      isModule: true
+    };
+  });
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.name] = n);
+
+  // Symbol satellite nodes
+  symbolNodes = repo.symbols.map((s, i) => {
+    const parent = nodeMap[s.module];
+    if (!parent) return null;
+    const angle = (i / Math.max(repo.symbols.length, 1)) * Math.PI * 2;
+    const dist = parent.radius + 30 + Math.random() * 20;
+    return {
+      ...s, color: parent.color,
+      x: parent.x + Math.cos(angle) * dist,
+      y: parent.y + Math.sin(angle) * dist,
+      vx: 0, vy: 0, radius: 5, isModule: false, parent: parent.name
+    };
+  }).filter(Boolean);
+
+  // Edges between modules
+  const edgeMap = {};
+  edges = [];
+  repo.calls.forEach(c => {
+    const key = c.src + '→' + c.tgt;
+    if (edgeMap[key]) { edgeMap[key].weight++; return; }
+    const e = { source: nodeMap[c.src], target: nodeMap[c.tgt], weight: 1 };
+    if (e.source && e.target) { edges.push(e); edgeMap[key] = e; }
+  });
+
+  return { moduleColor, nodeMap };
+}
+
+// ============= PHYSICS =============
+let simFrame = 0;
+function simulate() {
+  if (simFrame > 400) return;
+  // Module repulsion
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+      let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      let force = 12000 / (dist * dist);
+      let fx = (dx/dist)*force, fy = (dy/dist)*force;
+      nodes[i].vx -= fx; nodes[i].vy -= fy;
+      nodes[j].vx += fx; nodes[j].vy += fy;
+    }
+  }
+  // Edge attraction
+  edges.forEach(e => {
+    let dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+    let dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    let force = (dist - 180) * 0.004;
+    e.source.vx += (dx/dist)*force; e.source.vy += (dy/dist)*force;
+    e.target.vx -= (dx/dist)*force; e.target.vy -= (dy/dist)*force;
+  });
+  // Satellites to parent
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.name] = n);
+  symbolNodes.forEach(s => {
+    const p = nodeMap[s.parent];
+    if (!p) return;
+    let dx = p.x - s.x, dy = p.y - s.y;
+    let dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    let idealDist = p.radius + 25;
+    s.vx += (dx/dist) * (dist - idealDist) * 0.03;
+    s.vy += (dy/dist) * (dist - idealDist) * 0.03;
+  });
+  // Center gravity + damping
+  const all = [...nodes, ...symbolNodes];
+  all.forEach(n => {
+    n.vx += (W/2 - n.x) * 0.0003;
+    n.vy += (H/2 - n.y) * 0.0003;
+    n.vx *= 0.88; n.vy *= 0.88;
+    n.x += n.vx; n.y += n.vy;
+  });
+  simFrame++;
+}
+
+// ============= DRAW =============
+function screenToWorld(sx, sy) {
+  // sx, sy are relative to canvas (already offset by 44px tab bar)
+  const wx = (sx - W/2*(1-zoom)) / zoom - panX;
+  const wy = (sy - H/2*(1-zoom)) / zoom - panY;
+  return [wx, wy];
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W/2 * (1 - zoom) + panX * zoom, H/2 * (1 - zoom) + panY * zoom);
+  ctx.scale(zoom, zoom);
+
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.name] = n);
+
+  // Satellite lines
+  ctx.globalAlpha = 0.12;
+  symbolNodes.forEach(s => {
+    const p = nodeMap[s.parent];
+    if (!p) return;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(s.x, s.y);
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1; ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+
+  // Module edges with curves and arrows
+  edges.forEach(e => {
+    const sx = e.source.x, sy = e.source.y, tx = e.target.x, ty = e.target.y;
+    const dx = tx-sx, dy = ty-sy, dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    const ux = dx/dist, uy = dy/dist;
+    const mx = (sx+tx)/2 + uy * 20, my = (sy+ty)/2 - ux * 20;
+    const startX = sx + ux*e.source.radius, startY = sy + uy*e.source.radius;
+    const endX = tx - ux*e.target.radius, endY = ty - uy*e.target.radius;
+
+    // Highlight if connected to selected node
+    const isHighlighted = selectedNode && selectedNode.isModule &&
+      (e.source.name === selectedNode.name || e.target.name === selectedNode.name);
+    const isDimmed = selectedNode && selectedNode.isModule && !isHighlighted;
+
+    const alpha = isHighlighted ? 0.7 : isDimmed ? 0.05 : (0.15 + e.weight * 0.08);
+    const lineW = isHighlighted ? 2.5 + e.weight : (1 + e.weight * 0.5);
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(mx, my, endX, endY);
+    ctx.strokeStyle = isHighlighted ? '#ffa657' : `rgba(88,166,255,${alpha})`;
+    ctx.lineWidth = lineW;
+    ctx.stroke();
+
+    // Arrow
+    const adx = endX - mx, ady = endY - my;
+    const aAngle = Math.atan2(ady, adx);
+    const aLen = isHighlighted ? 12 : 8;
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - aLen*Math.cos(aAngle-0.35), endY - aLen*Math.sin(aAngle-0.35));
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - aLen*Math.cos(aAngle+0.35), endY - aLen*Math.sin(aAngle+0.35));
+    ctx.strokeStyle = isHighlighted ? '#ffa657' : `rgba(88,166,255,${alpha + 0.15})`;
+    ctx.lineWidth = isHighlighted ? 2.5 : 1.5;
+    ctx.stroke();
+  });
+
+  // Determine which nodes are "connected" to selected node (for highlighting)
+  const connectedNames = new Set();
+  if (selectedNode && selectedNode.isModule) {
+    connectedNames.add(selectedNode.name);
+    edges.forEach(e => {
+      if (e.source.name === selectedNode.name) connectedNames.add(e.target.name);
+      if (e.target.name === selectedNode.name) connectedNames.add(e.source.name);
+    });
+  }
+  const hasSelection = !!selectedNode;
+
+  // Symbol nodes
+  symbolNodes.forEach(s => {
+    const isActive = !hasSelection || (selectedNode === s) ||
+      (selectedNode && selectedNode.isModule && selectedNode.name === s.parent) ||
+      (selectedNode && !selectedNode.isModule && selectedNode.parent === s.parent);
+
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = (hoveredNode === s || selectedNode === s) ? 1 : isActive ? 0.6 : 0.12;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Show label on hover or select
+    if (hoveredNode === s || selectedNode === s) {
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.radius + 3, 0, Math.PI*2);
+      ctx.strokeStyle = selectedNode === s ? '#ffa657' : '#fff';
+      ctx.lineWidth = selectedNode === s ? 2.5 : 1.5; ctx.stroke();
+      ctx.font = `bold 11px -apple-system, sans-serif`;
+      ctx.fillStyle = var_text_bright; ctx.textAlign = 'center';
+      ctx.fillText(s.name, s.x, s.y - s.radius - 8);
+    }
+  });
+
+  // Module nodes
+  nodes.forEach(n => {
+    const isActive = !hasSelection || connectedNames.has(n.name) ||
+      (selectedNode && !selectedNode.isModule && selectedNode.parent === n.name);
+    const isSelected = selectedNode === n;
+    const isHovered = hoveredNode === n;
+    const dimmed = hasSelection && !isActive;
+
+    // Glow
+    const grd = ctx.createRadialGradient(n.x, n.y, n.radius*0.3, n.x, n.y, n.radius*3);
+    grd.addColorStop(0, n.color + (dimmed ? '08' : '25'));
+    grd.addColorStop(1, 'transparent');
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.radius*3, 0, Math.PI*2);
+    ctx.fillStyle = grd; ctx.fill();
+
+    // Circle
+    ctx.globalAlpha = dimmed ? 0.2 : 1;
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.radius, 0, Math.PI*2);
+    ctx.fillStyle = n.color + ((isHovered || isSelected) ? 'ff' : 'cc');
+    ctx.fill();
+
+    // Cohesion arc
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.radius + 4, -Math.PI/2, -Math.PI/2 + (n.cohesion/100) * Math.PI * 2);
+    ctx.strokeStyle = n.color + '80'; ctx.lineWidth = 2; ctx.stroke();
+
+    // Selection ring
+    if (isSelected) {
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.radius + 7, 0, Math.PI*2);
+      ctx.strokeStyle = '#ffa657'; ctx.lineWidth = 3; ctx.stroke();
+    } else if (isHovered) {
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.radius + 6, 0, Math.PI*2);
+      ctx.strokeStyle = '#f0f6fc'; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    ctx.globalAlpha = dimmed ? 0.25 : 1;
+
+    // Label
+    const fontSize = Math.max(10, Math.min(14, n.radius * 0.5));
+    ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(n.name, n.x, n.y);
+
+    // Count below
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.fillStyle = '#8b949e';
+    ctx.fillText(`${n.symbols} sym`, n.x, n.y + n.radius + 16);
+
+    ctx.globalAlpha = 1;
+  });
+
+  ctx.restore();
+}
+const var_text_bright = '#f0f6fc';
+
+// ============= UI =============
+function renderTabs() {
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = '';
+  Object.entries(repos).forEach(([key, repo]) => {
+    const tab = document.createElement('button');
+    tab.className = 'tab' + (key === activeRepo ? ' active' : '');
+    tab.innerHTML = `${repo.label}<span class="badge">${repo.stats.symbols.toLocaleString()}</span>`;
+    tab.onclick = () => switchRepo(key);
+    tabsEl.appendChild(tab);
+  });
+}
+
+function renderStats() {
+  const repo = repos[activeRepo];
+  const el = document.getElementById('stats');
+  el.innerHTML = `
+    <h2>${repo.label}</h2>
+    <div class="subtitle">GitNexus Code Intelligence Graph</div>
+    <div class="stat-row"><span class="label">Files</span><span class="value">${repo.stats.files}</span></div>
+    <div class="stat-row"><span class="label">Symbols</span><span class="value">${repo.stats.symbols.toLocaleString()}</span></div>
+    <div class="stat-row"><span class="label">Edges</span><span class="value">${repo.stats.edges.toLocaleString()}</span></div>
+    <div class="stat-row"><span class="label">Modules</span><span class="value">${repo.stats.modules}</span></div>
+    <div class="stat-row"><span class="label">Execution Flows</span><span class="value">${repo.stats.flows}</span></div>
+    <div style="margin-top:12px">
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Edge Distribution</div>
+      ${Object.entries(repo.edgeStats).slice(0, 6).map(([k, v]) => {
+        const max = Math.max(...Object.values(repo.edgeStats));
+        const pct = (v / max * 100).toFixed(0);
+        const color = edgeColors[k] || '#8b949e';
+        return `<div style="margin-bottom:4px">
+          <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--text-dim)">${k}</span><span style="color:var(--text)">${v.toLocaleString()}</span></div>
+          <div class="legend-bar" style="background:${color}30;width:100%"><div class="legend-bar" style="background:${color};width:${pct}%"></div></div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderLegend() {
+  const repo = repos[activeRepo];
+  const el = document.getElementById('legend');
+  el.innerHTML = '<h3>Modules</h3>';
+  repo.modules.forEach((m, i) => {
+    const color = palette[i % palette.length];
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="legend-dot" style="background:${color}"></span>${m.name} <span style="color:var(--text-dim);font-size:11px">(${m.symbols}, ${m.cohesion}%)</span>`;
+    el.appendChild(item);
+  });
+}
+
+function switchRepo(key) {
+  activeRepo = key;
+  zoom = 1; panX = 0; panY = 0;
+  simFrame = 0;
+  buildGraph(key);
+  renderTabs(); renderStats(); renderLegend();
+}
+
+// ============= INTERACTION =============
+// Helper: get canvas-local coords from mouse event
+function getCanvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
+}
+
+// Selected node state for click-to-select
+let selectedNode = null;
+
+canvas.addEventListener('mousemove', (e) => {
+  const { cx, cy } = getCanvasCoords(e);
+  const [wx, wy] = screenToWorld(cx, cy);
+
+  if (isPanning && panStart) {
+    panX = panStart.px + (cx - panStart.mx) / zoom;
+    panY = panStart.py + (cy - panStart.my) / zoom;
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+  if (dragging) {
+    dragging.x = wx; dragging.y = wy;
+    dragging.vx = 0; dragging.vy = 0;
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  hoveredNode = null;
+  // Check symbol nodes first (smaller, on top)
+  for (const s of symbolNodes) {
+    const hitR = (s.radius + 8) / zoom; // expand hit area when zoomed out
+    if (Math.hypot(s.x - wx, s.y - wy) < Math.max(hitR, 10)) { hoveredNode = s; break; }
+  }
+  if (!hoveredNode) {
+    for (const n of nodes) {
+      const hitR = (n.radius + 8) / zoom;
+      if (Math.hypot(n.x - wx, n.y - wy) < Math.max(hitR, n.radius)) { hoveredNode = n; break; }
+    }
+  }
+
+  canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+
+  const tooltip = document.getElementById('tooltip');
+  if (hoveredNode) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = Math.min(e.clientX + 16, window.innerWidth - 340) + 'px';
+    tooltip.style.top = Math.min(e.clientY + 16, window.innerHeight - 200) + 'px';
+    tooltip.querySelector('.tt-name').textContent = hoveredNode.name;
+    if (hoveredNode.isModule) {
+      tooltip.querySelector('.tt-type').textContent = 'Module / Functional Area';
+      tooltip.querySelector('.tt-stats').innerHTML = `
+        <div class="tt-stat"><span class="k">Symbols</span><span class="v">${hoveredNode.symbols}</span></div>
+        <div class="tt-stat"><span class="k">Cohesion</span><span class="v">${hoveredNode.cohesion}%</span></div>
+      `;
+    } else {
+      tooltip.querySelector('.tt-type').textContent = `${hoveredNode.type} in ${hoveredNode.parent}`;
+      tooltip.querySelector('.tt-stats').innerHTML = hoveredNode.methods
+        ? `<div class="tt-stat"><span class="k">Methods</span><span class="v">${hoveredNode.methods}</span></div>`
+        : '';
+    }
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+canvas.addEventListener('mousedown', (e) => {
+  const { cx, cy } = getCanvasCoords(e);
+  const [wx, wy] = screenToWorld(cx, cy);
+
+  // Check if clicking a node — try all nodes
+  let clickedNode = null;
+  for (const s of symbolNodes) {
+    const hitR = (s.radius + 8) / zoom;
+    if (Math.hypot(s.x - wx, s.y - wy) < Math.max(hitR, 10)) { clickedNode = s; break; }
+  }
+  if (!clickedNode) {
+    for (const n of nodes) {
+      const hitR = (n.radius + 8) / zoom;
+      if (Math.hypot(n.x - wx, n.y - wy) < Math.max(hitR, n.radius)) { clickedNode = n; break; }
+    }
+  }
+
+  if (clickedNode) {
+    dragging = clickedNode;
+    selectedNode = clickedNode;
+    simFrame = 999; // pause sim while dragging
+    return;
+  }
+
+  // Click on empty space — deselect
+  selectedNode = null;
+  isPanning = true;
+  panStart = { mx: cx, my: cy, px: panX, py: panY };
+});
+
+canvas.addEventListener('mouseup', () => {
+  dragging = null; isPanning = false; panStart = null;
+  canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.92 : 1.08;
+  zoom = Math.max(0.2, Math.min(5, zoom * factor));
+}, { passive: false });
+
+document.getElementById('zoomIn').onclick = () => { zoom = Math.min(5, zoom * 1.2); };
+document.getElementById('zoomOut').onclick = () => { zoom = Math.max(0.2, zoom * 0.8); };
+document.getElementById('resetView').onclick = () => { zoom = 1; panX = 0; panY = 0; };
+
+// ============= INIT =============
+buildGraph(activeRepo);
+renderTabs(); renderStats(); renderLegend();
+
+function loop() {
+  simulate();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
