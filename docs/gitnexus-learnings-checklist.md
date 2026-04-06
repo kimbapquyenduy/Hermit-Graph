@@ -92,5 +92,5 @@
 ## Notes
 
 - deep-scan improvements: update `.claude/skills/deep-scan/SKILL.md`
-- GUARDRAILS: check `.claude/workflows/` trước khi tạo mới
+- GUARDRAILS: check `.claude/rules/` trước khi tạo mới
 - libsql: cân nhắc khi JSONL > 500 entities và query performance degraded
