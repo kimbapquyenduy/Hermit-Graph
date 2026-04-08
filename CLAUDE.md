@@ -96,7 +96,7 @@ We keep all important docs in `./docs` folder and keep updating them, structure 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **claude-code-brain** (227 symbols, 373 relationships, 13 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hermit-graph** (227 symbols, 373 relationships, 13 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -112,7 +112,7 @@ This project is indexed by GitNexus as **claude-code-brain** (227 symbols, 373 r
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/claude-code-brain/process/{processName}` — trace the full execution flow step by step
+3. `READ gitnexus://repo/hermit-graph/process/{processName}` — trace the full execution flow step by step
 4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
 
 ## When Refactoring
@@ -151,10 +151,10 @@ This project is indexed by GitNexus as **claude-code-brain** (227 symbols, 373 r
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/claude-code-brain/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/claude-code-brain/clusters` | All functional areas |
-| `gitnexus://repo/claude-code-brain/processes` | All execution flows |
-| `gitnexus://repo/claude-code-brain/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/hermit-graph/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/hermit-graph/clusters` | All functional areas |
+| `gitnexus://repo/hermit-graph/processes` | All execution flows |
+| `gitnexus://repo/hermit-graph/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 

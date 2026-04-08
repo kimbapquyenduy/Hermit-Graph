@@ -1,0 +1,2 @@
+# Custom merge driver for brain.jsonl (entity-level 3-way merge)
+data/brain.jsonl merge=brain-jsonl

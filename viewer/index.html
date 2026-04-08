@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Code Brain - Knowledge Graph Viewer</title>
+  <title>Hermit Graph - Knowledge Graph Viewer</title>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -308,7 +308,7 @@
 </head>
 <body>
   <div class="header">
-    <div class="title">Claude Code Brain</div>
+    <div class="title">Hermit Graph</div>
     <div class="controls">
       <input type="file" id="fileInput" accept=".jsonl">
       <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load File</button>
@@ -434,13 +434,21 @@
         try {
           const data = JSON.parse(line);
           if (data.type === 'entity') {
+            // Check if entity has any stale observations
+            const obs = data.observations || [];
+            const hasStale = obs.some(o => {
+              const p = parseObs(o);
+              return isStaleObs(p.date);
+            });
+            const baseColor = getColor(data.entityType);
             entities[data.name] = {
               id: data.name, label: shortenLabel(data.name),
-              color: getColor(data.entityType),
+              color: hasStale ? { background: baseColor, border: '#EF4444', highlight: { background: baseColor, border: '#EF4444' } } : baseColor,
+              opacity: hasStale ? 0.6 : 1.0,
               group: data.entityType,
-              observations: data.observations || []
+              observations: obs
             };
-            observations[data.name] = data.observations || [];
+            observations[data.name] = obs;
             allData.nodes.push(entities[data.name]);
           } else if (data.type === 'relation') {
             allData.edges.push({
@@ -533,7 +541,13 @@
       const filterType = document.getElementById('filterType').value;
 
       let filteredNodes = allData.nodes.filter(node => {
-        const matchesSearch = node.label.toLowerCase().includes(searchTerm);
+        // Search: match full entity name, label, AND observations
+        let matchesSearch = !searchTerm;
+        if (searchTerm) {
+          matchesSearch = node.id.toLowerCase().includes(searchTerm) ||
+            node.label.toLowerCase().includes(searchTerm) ||
+            (observations[node.id] || []).some(o => normalizeObs(o).toLowerCase().includes(searchTerm));
+        }
         const matchesType = filterType === 'all' || node.group === filterType;
         return matchesSearch && matchesType;
       });
