@@ -5,6 +5,8 @@
  * Usage: hermit <command> [args]
  *
  * Commands:
+ *   skills           List, add, or remove AI agent skills
+ *   setup            Full project setup (skills + commands + hooks)
  *   search <query>   Hybrid semantic + keyword search
  *   health           Run graph health checks
  *   index [--force]  Build/rebuild embedding index
@@ -29,6 +31,16 @@ const COMMANDS = {
     desc: 'Hybrid semantic + keyword search',
     usage: 'hermit search <query>',
     run: runSearch,
+  },
+  skills: {
+    desc: 'List, add, or remove AI agent skills',
+    usage: 'hermit skills [list|add|remove|info|installed]',
+    run: runSkills,
+  },
+  setup: {
+    desc: 'Project setup (auto-detects agent: claude, cursor, windsurf, cline, codex)',
+    usage: 'hermit setup [--agent <name>] [--mcp-only] [--only x,y] [--skip x,y]',
+    run: () => runScript('setup-project.mjs', args),
   },
   health: {
     desc: 'Run graph health checks',
@@ -68,6 +80,11 @@ const COMMANDS = {
 };
 
 // ── Command runners ──
+
+async function runSkills() {
+  const { run } = await import('./skills-manager.mjs');
+  run(args);
+}
 
 async function runSearch() {
   const query = args.join(' ');
@@ -115,6 +132,9 @@ function showHelp() {
   }
   console.log('');
   console.log('  Examples:');
+  console.log('    hermit skills                          List available skills');
+  console.log('    hermit skills add biz-guard api-design  Install specific skills');
+  console.log('    hermit skills add --all                 Install everything');
   console.log('    hermit search "payment integration"');
   console.log('    hermit health');
   console.log('    hermit index --force');
