@@ -67,8 +67,8 @@ test-ck
 # Gemini CLI
 .gemini/settings.json
 
-# Claude Code settings backup
-.claude/settings.bak.json
+# Claude Code (local — CK skills not distributed, hermit skills in catalog/)
+.claude/
 
 # Serena cache
 .serena/cache

@@ -1,10 +1,40 @@
 {
   "name": "hermit-graph",
-  "version": "3.0.0",
-  "description": "Hermit Graph — A knowledge graph with the Hermit's wisdom. Persistent memory for AI coding agents.",
+  "version": "3.1.0",
+  "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Windsurf, Cline, and more.",
   "type": "module",
   "bin": {
     "hermit": "./scripts/brain-cli.mjs"
+  },
+  "files": [
+    "scripts/",
+    "catalog/",
+    "templates/",
+    ".claude-settings.json",
+    "viewer/index.html",
+    "README.md"
+  ],
+  "keywords": [
+    "ai",
+    "memory",
+    "knowledge-graph",
+    "mcp",
+    "claude",
+    "cursor",
+    "windsurf",
+    "cline",
+    "codex",
+    "coding-agent",
+    "persistent-memory",
+    "brain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kimbapquyenduy/hermit-graph.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "sync": "node scripts/sync-to-neo4j.mjs",
