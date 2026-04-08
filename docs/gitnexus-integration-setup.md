@@ -1,6 +1,6 @@
 # GitNexus + Memory MCP Integration Setup
 
-> Quick guide to run GitNexus alongside claude-code-brain memory server
+> Quick guide to run GitNexus alongside hermit-graph memory server
 > Time: ~5 minutes
 
 ---
@@ -31,7 +31,7 @@ Add `gitnexus` alongside existing `memory` server in `~/.claude/settings.json`:
       "command": "npx",
       "args": ["-y", "@sockeye44/better-memory-mcp"],
       "env": {
-        "MEMORY_FILE_PATH": "D:/AI/claude-code-brain/data/brain.jsonl"
+        "MEMORY_FILE_PATH": "D:/AI/hermit-graph/data/brain.jsonl"
       }
     },
     "gitnexus": {

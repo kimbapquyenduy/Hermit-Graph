@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Setup Claude Code Brain cho project mới
+ * Setup Hermit Graph cho project mới
  * 
  * Usage:
- *   node path/to/claude-code-brain/scripts/setup-project.mjs              ← Setup all skills
- *   node path/to/claude-code-brain/scripts/setup-project.mjs --list       ← List available skills
- *   node path/to/claude-code-brain/scripts/setup-project.mjs --only biz-guard,api-design  ← Chọn skill
- *   node path/to/claude-code-brain/scripts/setup-project.mjs --skip db-migrations         ← Bỏ skill
+ *   node path/to/hermit-graph/scripts/setup-project.mjs              ← Setup all skills
+ *   node path/to/hermit-graph/scripts/setup-project.mjs --list       ← List available skills
+ *   node path/to/hermit-graph/scripts/setup-project.mjs --only biz-guard,api-design  ← Chọn skill
+ *   node path/to/hermit-graph/scripts/setup-project.mjs --skip db-migrations         ← Bỏ skill
  */
 
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from 'fs';
@@ -27,7 +27,7 @@ const allSkills = readdirSync(skillsDir).filter(d => {
 
 // --list: show skills and exit
 if (args.includes('--list')) {
-  console.log('📚 Available skills in Claude Code Brain:\n');
+  console.log('📚 Available skills in Hermit Graph:\n');
   for (const skill of allSkills) {
     const content = readFileSync(join(skillsDir, skill, 'SKILL.md'), 'utf-8');
     const title = content.split('\n').find(l => l.startsWith('# '))?.replace('# ', '') || skill;
@@ -57,7 +57,7 @@ if (skipIdx !== -1 && args[skipIdx + 1]) {
   selectedSkills = selectedSkills.filter(s => !skip.includes(s));
 }
 
-console.log('🧠 Claude Code Brain — Setup Project');
+console.log('🧠 Hermit Graph — Setup Project');
 console.log(`📁 Project: ${projectRoot}`);
 console.log(`📚 Skills: ${selectedSkills.join(', ') || '(none)'}`);
 console.log('');

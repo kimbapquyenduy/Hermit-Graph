@@ -1,7 +1,11 @@
 {
-  "name": "claude-code-brain",
-  "version": "2.3.0",
+  "name": "hermit-graph",
+  "version": "3.0.0",
+  "description": "Hermit Graph — A knowledge graph with the Hermit's wisdom. Persistent memory for AI coding agents.",
   "type": "module",
+  "bin": {
+    "hermit": "./scripts/brain-cli.mjs"
+  },
   "scripts": {
     "sync": "node scripts/sync-to-neo4j.mjs",
     "view": "npx serve viewer",
@@ -15,10 +19,13 @@
     "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
     "health": "node scripts/brain-health.mjs",
     "export": "node scripts/export-db-to-jsonl.mjs",
-    "view:live": "node scripts/export-db-to-jsonl.mjs && npx serve viewer"
+    "view:live": "node scripts/export-db-to-jsonl.mjs && npx serve viewer",
+    "build:index": "node scripts/build-embedding-index.mjs",
+    "build:index:force": "node scripts/build-embedding-index.mjs --force"
   },
   "dependencies": {
-    "neo4j-driver": "^5.27.0",
-    "dotenv": "^16.4.0"
+    "@huggingface/transformers": "^4.0.1",
+    "dotenv": "^16.4.0",
+    "neo4j-driver": "^5.27.0"
   }
 }

@@ -1,4 +1,4 @@
-# So sánh chi tiết: claude-code-brain vs GitNexus
+# So sánh chi tiết: hermit-graph vs GitNexus
 
 > Date: 2026-03-28
 
@@ -6,7 +6,7 @@
 
 ## TL;DR — Khác nhau ở gốc rễ
 
-| | **claude-code-brain** | **GitNexus** |
+| | **hermit-graph** | **GitNexus** |
 |--|--|--|
 | **Giải quyết vấn đề gì?** | Claude quên hết giữa các session | Agent bị mù về code structure, break call chains |
 | **Đối tượng của graph** | Knowledge của developer (rules, decisions, patterns) | Structure của codebase (functions, calls, imports) |
@@ -20,7 +20,7 @@
 
 ### 1. Mục đích cốt lõi
 
-**claude-code-brain** = **Developer's long-term memory**
+**hermit-graph** = **Developer's long-term memory**
 ```
 Problem: Mỗi session mới, Claude Code không nhớ gì
 Solution: JSONL Knowledge Graph lưu:
@@ -48,7 +48,7 @@ Solution: AST graph lưu:
 
 ### 2. Cách data được tạo ra
 
-| | **claude-code-brain** | **GitNexus** |
+| | **hermit-graph** | **GitNexus** |
 |--|--|--|
 | **Ai tạo data?** | Claude Code (AI interpretation) | Tree-sitter (deterministic parser) |
 | **Input** | Conversations, file reads, user explanations | Raw source code files |
@@ -61,7 +61,7 @@ Solution: AST graph lưu:
 
 ### 3. Data model
 
-**claude-code-brain — Semantic KG:**
+**hermit-graph — Semantic KG:**
 ```
 Entities: BIZ, RULE, FLOW, ENTITY, PATTERN, TECH, INCIDENT
 Relations: affects, uses, built_with, has_data_model, integrates_with
@@ -87,14 +87,14 @@ Function(validateUser, filePath="auth/validator.ts", startLine=42)
 ```
 
 **Sự khác biệt:**
-- claude-code-brain: nodes = concepts/knowledge
+- hermit-graph: nodes = concepts/knowledge
 - GitNexus: nodes = code artifacts
 
 ---
 
 ### 4. Query model
 
-**claude-code-brain:**
+**hermit-graph:**
 ```js
 // Natural language, approximate
 search_nodes("authentication pattern")
@@ -118,27 +118,27 @@ query("user authentication flow")
 ```
 
 **Sự khác biệt:**
-- claude-code-brain: queries → textual context cho Claude
+- hermit-graph: queries → textual context cho Claude
 - GitNexus: queries → structured data cho agents/tools
 
 ---
 
 ### 5. Search capability
 
-| | **claude-code-brain** | **GitNexus** |
+| | **hermit-graph** | **GitNexus** |
 |--|--|--|
 | **Keyword** | search_nodes() — BM25 trên entity names+obs | BM25 + FTS index |
 | **Semantic** | ModernColBERT (optional, Python needed) | HuggingFace Transformers (optional) |
 | **Graph traversal** | Không có (flat entity lookup) | Cypher: traverse N hops, filter by type |
 | **Hybrid** | Dual-layer (keyword + vector) — đã research | Reciprocal Rank Fusion (production) |
 
-**Gap:** claude-code-brain thiếu graph traversal. Mọi entity đều flat — không thể query "tất cả flows liên quan đến RULE:X".
+**Gap:** hermit-graph thiếu graph traversal. Mọi entity đều flat — không thể query "tất cả flows liên quan đến RULE:X".
 
 ---
 
 ### 6. Agent integration
 
-**claude-code-brain:**
+**hermit-graph:**
 ```
 MCP Tools (15): create_entities, search_nodes, open_nodes,
                add_observations, create_relations, semantic_search...
@@ -155,14 +155,14 @@ Hooks: PreToolUse (augment search), PostToolUse (re-index after commit)
 ```
 
 **Sự khác biệt:**
-- claude-code-brain: memory layer (passive, background)
+- hermit-graph: memory layer (passive, background)
 - GitNexus: safety layer (active, blocking)
 
 ---
 
 ### 7. Privacy & storage model
 
-| | **claude-code-brain** | **GitNexus** |
+| | **hermit-graph** | **GitNexus** |
 |--|--|--|
 | **Format** | JSONL flat file | LadybugDB (binary, custom graph DB) |
 | **Location** | 1 file/brain per installation | 1 `.gitnexus/` per repository |
@@ -201,7 +201,7 @@ Hooks: PreToolUse (augment search), PostToolUse (re-index after commit)
 
 ```
 GitNexus answers:          "How does this code WORK?"
-claude-code-brain answers: "What should I KNOW about this project?"
+hermit-graph answers: "What should I KNOW about this project?"
 
 Combined = Agent hiểu cả CODE và BUSINESS
 ```
@@ -210,7 +210,7 @@ Combined = Agent hiểu cả CODE và BUSINESS
 
 ```
 1. User: "Thêm discount validation vào checkout"
-2. claude-code-brain → recall: RULE:DiscountMax50, PATTERN:CheckoutFlow
+2. hermit-graph → recall: RULE:DiscountMax50, PATTERN:CheckoutFlow
 3. GitNexus impact    → "applyDiscount() có 4 callers, RISK: HIGH"
 4. Agent code với đầy đủ context: biết rule + biết blast radius
 ```
@@ -219,12 +219,12 @@ Combined = Agent hiểu cả CODE và BUSINESS
 
 ## Cơ hội tích hợp
 
-- GitNexus community labels → auto-import vào claude-code-brain entities
+- GitNexus community labels → auto-import vào hermit-graph entities
 - GitNexus impact data → enrich BLAST_RADIUS observations
 - deep-scan skill → call `gitnexus context` thay vì đọc file manually
 
 ## Unresolved questions
 
-1. Ship claude-code-brain với `.mcp.json` template kết nối cả hai?
+1. Ship hermit-graph với `.mcp.json` template kết nối cả hai?
 2. GitNexus PolyForm Noncommercial license — restrict commercial use nếu integrate?
 3. libsql tốt hơn JSONL khi scale > 1000 entities?

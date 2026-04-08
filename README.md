@@ -1,14 +1,16 @@
-# Claude Code Brain — Persistent Memory for Claude Code
+# Hermit Graph — Persistent Memory for AI Coding Agents
 
-Give Claude Code a **shared brain** that remembers across all your projects. Built on a Knowledge Graph with 4-tier organization.
+Give your AI coding agents a **knowledge graph** that remembers across all your projects. Built on a 4-tier taxonomy with confidence-scored observations, semantic search, and multi-agent support.
+
+> *The Hermit carries a lantern to illuminate hidden truths — this graph carries your codebase wisdom.*
 
 ## Setup (3 steps)
 
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/kimbapquyenduy/claude-code-brain.git
-cd claude-code-brain
+git clone https://github.com/kimbapquyenduy/hermit-graph.git
+cd hermit-graph
 npm install
 ```
 
@@ -23,7 +25,7 @@ Create `~/.claude/settings.json` (or merge into your existing one):
       "command": "npx",
       "args": ["-y", "@sockeye44/better-memory-mcp"],
       "env": {
-        "MEMORY_FILE_PATH": "<YOUR_PATH>/claude-code-brain/data/brain.jsonl",
+        "MEMORY_FILE_PATH": "<YOUR_PATH>/hermit-graph/data/brain.jsonl",
         "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"
       }
     }
@@ -54,7 +56,7 @@ Requires [uv](https://docs.astral.sh/uv/). Add to your `mcpServers`:
   "env": {
     "LOG_LEVEL": "INFO",
     "MAX_MEMORY_ITEMS": "500",
-    "DATA_DIR": "<YOUR_PATH>/claude-code-brain/data/conventions"
+    "DATA_DIR": "<YOUR_PATH>/hermit-graph/data/conventions"
   }
 }
 ```
@@ -81,7 +83,7 @@ Add to your `~/.claude/settings.json`. This runs after every Claude Code respons
 
 ### Copy global instructions
 
-Copy `templates/global-CLAUDE.md` to `~/.claude/CLAUDE.md`. This teaches Claude Code the 4-tier naming convention and auto-save rules.
+Copy `templates/global-CLAUDE.md` to `~/.claude/CLAUDE.md`. This teaches AI agents the 4-tier naming convention and auto-save rules.
 
 ### Enable semantic search (for large brains, >500 entities)
 
@@ -109,9 +111,9 @@ Then switch memory config to use the launcher:
 ~/.claude/settings.json    ← MCP server config (global)
 ~/.claude/CLAUDE.md        ← Brain instructions (global)
        ↓
-Open ANY project → claude → brain is active
+Open ANY project → AI agent → hermit graph is active
        ↓
-Claude reads/writes → data/brain.jsonl (one shared file)
+Agent reads/writes → data/brain.jsonl (one shared file)
 ```
 
 ## 4-Tier Naming
@@ -130,7 +132,7 @@ Claude reads/writes → data/brain.jsonl (one shared file)
 | `/remember` | Save info to memory |
 | `/recall` | Search saved info |
 | `/brain-dump` | End-of-session save-all |
-| `/brain-health` | Health check, score 0-100 |
+| `/brain-health` | Graph health check, score 0-100 |
 | `/impact` | Analyze blast radius before code changes |
 | `/biz-review` | Review code against business rules |
 | `/biz-init` | Create BUSINESS.md for new project |
@@ -156,8 +158,8 @@ npm run sync
 
 ```bash
 npm test           # Run tests
-npm run health     # Brain health check (score 0-100)
-npm run sync       # Sync brain → Neo4j
+npm run health     # Graph health check (score 0-100)
+npm run sync       # Sync graph → Neo4j
 npm run view       # Serve HTML viewer on localhost
 npm run migrate    # Migrate v1 → v2 format
 npm run backfill   # Add confidence prefix to legacy data
@@ -169,9 +171,9 @@ npm run setup:all  # Setup semantic + conventions + project
 ## Project Structure
 
 ```
-claude-code-brain/
+hermit-graph/
 ├── data/
-│   ├── brain.jsonl           ← Memory file (Claude writes here)
+│   ├── brain.jsonl           ← Memory file (agents write here)
 │   ├── brain-sample.jsonl    ← Sample data
 │   └── conventions/          ← Auto-learned conventions (SQLite)
 ├── scripts/                  ← All utility scripts
@@ -186,8 +188,8 @@ claude-code-brain/
 
 ## FAQ
 
-**Claude Code doesn't remember anything?**
-Check `~/.claude/settings.json` exists, JSON is valid, `MEMORY_FILE_PATH` is correct. Restart Claude Code after changes.
+**Agent doesn't remember anything?**
+Check `~/.claude/settings.json` exists, JSON is valid, `MEMORY_FILE_PATH` is correct. Restart your AI agent after changes.
 
 **Viewer shows nothing?**
 Make sure `data/brain.jsonl` has data. If `file://` is blocked, use `npm run view`.
@@ -195,9 +197,13 @@ Make sure `data/brain.jsonl` has data. If `file://` is blocked, use `npm run vie
 **Want to reset?**
 Clear contents of `data/brain.jsonl` (keep file, delete contents).
 
-**Brain file too large?**
+**Data file too large?**
 Works fine up to several MB. Over 10MB, consider archiving old entries.
 
 ---
 
 > Built on [ClaudeKit Engineer](https://github.com/claudekit/claudekit-engineer). Ships with 47+ dev skills — see `.claude/skills/`.
+
+---
+
+*Formerly Claude Code Brain. Rebranded as Hermit Graph v3.0 — universal AI agent memory, not just for Claude.*

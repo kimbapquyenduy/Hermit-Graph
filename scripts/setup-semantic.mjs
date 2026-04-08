@@ -1,60 +1,72 @@
+#!/usr/bin/env node
 /**
- * Setup script for semantic search via better-memory-mcp.
- * Checks Python, pip, PyTorch availability.
+ * Setup script for semantic search (JS-native, no Python).
+ * Verifies Node.js 18+, @huggingface/transformers installed,
+ * downloads embedding model on first run.
  *
  * Usage: node scripts/setup-semantic.mjs
  */
 
-import { execSync } from 'child_process';
+import { existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-function run(cmd) {
-  try {
-    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  } catch { return null; }
-}
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = join(__dirname, '..');
 
-console.log('=== Semantic Search Setup (better-memory-mcp) ===\n');
+console.log('=== Semantic Search Setup (JS-native) ===\n');
 
-// 1. Check Python
-const python = run('python3 --version') || run('python --version');
-if (!python) {
-  console.log('❌ Python not found. Install Python 3.8+ from https://python.org');
-  console.log('   Windows: winget install Python.Python.3.12');
+// 1. Check Node.js version
+const nodeVersion = parseInt(process.versions.node.split('.')[0], 10);
+if (nodeVersion < 18) {
+  console.log(`❌ Node.js ${process.versions.node} detected. Requires Node.js 18+`);
   process.exit(1);
 }
-console.log('✅ ' + python);
+console.log(`✅ Node.js ${process.versions.node}`);
 
-// 2. Check pip
-const pip = run('pip3 --version') || run('pip --version');
-if (!pip) {
-  console.log('❌ pip not found. Run: python -m ensurepip --upgrade');
+// 2. Check @huggingface/transformers
+try {
+  await import('@huggingface/transformers');
+  console.log('✅ @huggingface/transformers installed');
+} catch {
+  console.log('❌ @huggingface/transformers not found');
+  console.log('   Run: npm install @huggingface/transformers');
   process.exit(1);
 }
-console.log('✅ pip available');
 
-// 3. Check PyTorch
-const torch = run('python3 -c "import torch; print(torch.__version__)"') ||
-              run('python -c "import torch; print(torch.__version__)"');
-if (torch) {
-  console.log('✅ PyTorch ' + torch);
+// 3. Download model (first run)
+console.log('\nDownloading embedding model (first time only, ~23MB)...');
+try {
+  const { isAvailable, MODEL_ID } = await import('./lib/embedding-service.mjs');
+  const available = await isAvailable();
+  if (available) {
+    console.log(`✅ Model loaded: ${MODEL_ID}`);
+  } else {
+    console.log('❌ Model failed to load. Check error above.');
+    process.exit(1);
+  }
+} catch (err) {
+  console.log(`❌ Model load error: ${err.message}`);
+  process.exit(1);
+}
+
+// 4. Check brain.jsonl
+const brainPath = join(PROJECT_ROOT, 'data', 'brain.jsonl');
+if (existsSync(brainPath)) {
+  console.log('✅ brain.jsonl found');
 } else {
-  console.log('⚠️  PyTorch not installed. Install CPU-only version:');
-  console.log('   pip install torch --index-url https://download.pytorch.org/whl/cpu');
-  console.log('   (This is ~200MB download)\n');
-  console.log('   After installing, run this script again.');
-  process.exit(1);
+  console.log('⚠️  brain.jsonl not found — embedding index cannot be built yet');
 }
 
-// 4. Check better-memory-mcp
-const bm = run('npx better-memory-mcp --version 2>/dev/null');
-if (bm) {
-  console.log('✅ better-memory-mcp available');
+// 5. Check embedding index
+const indexPath = join(PROJECT_ROOT, 'data', 'brain-embeddings.json');
+if (existsSync(indexPath)) {
+  console.log('✅ Embedding index exists');
 } else {
-  console.log('ℹ️  better-memory-mcp will be auto-installed on first use via npx');
+  console.log('ℹ️  No embedding index yet. Run: npm run build:index');
 }
 
 console.log('\n=== Setup Complete ===');
-console.log('To enable semantic search, update .claude-settings.json:');
-console.log('  Change: "@modelcontextprotocol/server-memory"');
-console.log('  To:     "better-memory-mcp"');
-console.log('\nFallback: If Python/PyTorch unavailable, keyword search still works.');
+console.log('Next steps:');
+console.log('  npm run build:index   — Build embedding index from brain.jsonl');
+console.log('  npm run search        — Search the knowledge graph');

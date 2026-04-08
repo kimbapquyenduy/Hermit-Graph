@@ -46,7 +46,7 @@
 
 ---
 
-## 🔴 GUARDRAILS cho skills claude-code-brain
+## 🔴 GUARDRAILS cho skills hermit-graph
 
 - [ ] Tạo file `.claude/GUARDRAILS.md` với explicit rules:
   - MUST chạy `/impact` trước khi sửa business logic
