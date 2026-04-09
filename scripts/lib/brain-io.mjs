@@ -3,18 +3,29 @@
  * Source of truth: data/brain.jsonl (one JSON object per line).
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { dirname } from 'path';
 import { withLock } from './file-lock.mjs';
 
+// ── Mtime-based read cache (Phase 3a) ──
+let _cachedBrain = null;
+let _cachedMtimeMs = null;
+let _cachedPath = null;
+
 /**
  * Read brain.jsonl into entities Map + relations array.
- * Lock-free — safe for concurrent reads.
+ * Lock-free — safe for concurrent reads. Mtime-cached for repeated reads.
  * @param {string} brainPath
  * @returns {{ entities: Map<string, object>, relations: object[] }}
  */
 export function readBrain(brainPath) {
   if (!existsSync(brainPath)) return { entities: new Map(), relations: [] };
+
+  const mtime = statSync(brainPath).mtimeMs;
+  if (_cachedBrain && _cachedPath === brainPath && _cachedMtimeMs === mtime) {
+    return _cachedBrain;
+  }
+
   const lines = readFileSync(brainPath, 'utf-8').split('\n').filter(Boolean);
   const entities = new Map();
   const relations = [];
@@ -25,7 +36,12 @@ export function readBrain(brainPath) {
       else if (obj.type === 'relation') relations.push(obj);
     } catch { /* skip malformed lines */ }
   }
-  return { entities, relations };
+
+  const result = { entities, relations };
+  _cachedBrain = result;
+  _cachedMtimeMs = mtime;
+  _cachedPath = brainPath;
+  return result;
 }
 
 /**
@@ -43,6 +59,9 @@ export function writeBrain(brainPath, entities, relations) {
   for (const entity of values) lines.push(JSON.stringify(entity));
   for (const rel of relations) lines.push(JSON.stringify(rel));
   writeFileSync(brainPath, lines.join('\n') + (lines.length ? '\n' : ''));
+  // Invalidate read cache after write
+  _cachedBrain = null;
+  _cachedMtimeMs = null;
 }
 
 /**

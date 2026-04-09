@@ -73,6 +73,7 @@ test-ck
 # Temp & test artifacts
 tmp/
 er.name
+BUSINESS.md
 
 # IDE (non-VSCode)
 .cursor/

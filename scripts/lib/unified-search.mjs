@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { basename } from 'path';
 import { search } from './semantic-search.mjs';
 import { runGitNexus } from './gitnexus-runner.mjs';
 import {
@@ -80,15 +81,20 @@ async function searchKG(query, limit) {
 }
 
 async function searchCode(query, limit, cwd) {
-  const raw = await runGitNexus('query', ['--query', query, '--json'], cwd);
+  if (!cwd) return [];
+  const repoName = basename(cwd.replace(/[\\/]+$/, ''));
+  const repoArgs = repoName ? ['-r', repoName] : [];
+  const raw = await runGitNexus('query', [query, ...repoArgs], cwd);
   const data = tryParse(raw);
-  if (!Array.isArray(data)) return [];
-  return data.slice(0, limit).map(r => ({
-    name: r.symbol || r.name || 'unknown',
+  if (!data) return [];
+  // GitNexus returns {processes, process_symbols, definitions} object
+  const definitions = Array.isArray(data) ? data : (data.definitions || []);
+  return definitions.slice(0, limit).map(r => ({
+    name: r.name || r.symbol || 'unknown',
     type: 'code-symbol',
-    score: normalizeCodeScore(r.score),
+    score: normalizeCodeScore(r.score || r.priority),
     source: 'code',
-    detail: `${r.file || '?'}:${r.line || '?'}`,
+    detail: `${r.filePath || r.file || '?'}:${r.line || r.startLine || '?'}`,
   }));
 }
 
