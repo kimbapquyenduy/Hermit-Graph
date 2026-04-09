@@ -2,9 +2,9 @@
 
 ## Overview
 
-hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions.
+hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v4:** Unified MCP server with 19 tools across 4 modules.
 
-**Core technology:** JSONL-based knowledge graph + Neo4j sync + semantic embeddings (v3+)
+**Core technology:** JSONL-based knowledge graph + MCP server v1.29.0 + semantic embeddings + GitNexus integration
 
 ---
 
@@ -14,7 +14,9 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 
 #### Brain JSONL (Single Source of Truth)
 - **File:** `data/brain.jsonl`
-- **Format:** Newline-delimited JSON entities
+- **Format:** Newline-delimited JSON (entities + relations)
+- **Entity format:** `{type: 'entity', name, entityType, observations: [...], _branch?, _archived?, _archivedAt?, _history?[]}`
+- **Relation format:** `{type: 'relation', from, to, relationType}`
 - **Entity types:** 13 types (biz-domain, biz-rule, biz-flow, biz-entity, pattern-code, pattern-arch, pattern-integration, tech-stack, tech-config, tech-person, tech-decision, incident-bug, incident-gotcha)
 - **Access control:** File-level locking (see File Lock Service below)
 - **Merge strategy:** Custom git merge driver (`merge-brain-jsonl.mjs`) for branch-aware conflict resolution
@@ -102,22 +104,51 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 
 ---
 
-### 5. MCP Integration Layer
+### 5. MCP Integration Layer (v4)
 
-#### Memory MCP Server (`scripts/launch-memory-mcp.mjs`)
-- **Role:** Provides Claude with search + recall capabilities
-- **Exports:**
-  - `search_nodes(query)` — Find entities by keyword
-  - `read_graph(options)` — Read full/partial graph
-  - `open_nodes(names)` — Get details on specific entities
-  - `get_entity_details(names)` — Detailed view with all observations
-- **Data source:** brain.jsonl + file locking
-- **Concurrency:** Safe multi-client access via file lock service
+#### Hermit Graph MCP Server (`scripts/hermit-mcp-server.mjs`)
+**Single unified server with 19 tools across 4 modules (stdio JSON-RPC transport)**
 
-#### Conventions MCP Server (`scripts/launch-conventions-mcp.mjs`)
-- **Role:** Manages project conventions and standards
-- **Data store:** `data/conventions/`
-- **Purpose:** Encode project-specific rules (naming, patterns, deployment)
+**Module Architecture:**
+```
+hermit-mcp-server.mjs (entry point)
+  ├── Memory Module (10 tools) — KG CRUD
+  ├── CodeGraph Module (4 tools) — GitNexus wrapper
+  ├── Intelligence Module (3 tools) — Audit trail, consolidation, branch context
+  └── Unified Search (2 tools) — Cross-KG + code search, health checks
+```
+
+**Module Registration Pattern:**
+Each module exports `register(server, context)` function, called sequentially by server entry point. Shared context provides `brainPath`, `packageRoot`, `log`, and module refs (`getEntities`, `getRelations`).
+
+**Memory Module Tools (10):**
+1. `hermit_create_entities` — Create/merge entities in KG (dedup by name, case-insensitive)
+2. `hermit_create_relations` — Add relation edges (from/to/relationType)
+3. `hermit_search_entities` — Keyword + semantic search in KG (hybrid scoring)
+4. `hermit_get_entity` — Fetch single entity with all observations
+5. `hermit_update_entity` — Append observations to existing entity
+6. `hermit_delete_entity` — Archive/remove entity
+7. `hermit_list_entities` — List entities (by type, limit)
+8. `hermit_bulk_import` — Batch create from external source
+9. `hermit_export_subgraph` — Export filtered entity set to JSON
+10. `hermit_get_relations` — List relations (optionally filtered)
+
+**CodeGraph Module Tools (4):**
+1. `hermit_query` — Concept-based code search via GitNexus
+2. `hermit_context` — 360-degree symbol view (callers, callees, flows)
+3. `hermit_impact` — Blast radius analysis (upstream/downstream/both)
+4. `hermit_detect_changes` — Pre-commit scope check (staged/all/compare)
+
+**Intelligence Module Tools (3):**
+1. `hermit_audit_trail` — Observation change history (append-only log)
+2. `hermit_consolidate` — Dedupe entities, flag contradictions (dry-run support)
+3. `hermit_branch_context` — Detect git branch, set/clear branch filter
+
+**Unified Search Module Tools (2):**
+1. `hermit_unified_search` — Parallel KG + code search, ranked by relevance
+2. `hermit_health` — Brain health check (5 automated checks, score 0-100)
+
+**Transport:** stdio (JSON-RPC over stdin/stdout) — direct integration with Claude Code
 
 ---
 
@@ -221,37 +252,47 @@ npm run view:live
 
 ---
 
-## API Contracts
+## Supporting Modules
 
-### Embedding Service
-```typescript
-embed(text: string): Promise<Float32Array | null>
-embedBatch(texts: string[]): Promise<Float32Array[] | null>
-isAvailable(): Promise<boolean>
-```
+### Brain I/O Layer (`scripts/lib/brain-io.mjs`)
+- `readBrain(brainPath)` — Load entities Map + relations array (lock-free, safe for concurrent reads)
+- `writeBrain(brainPath, entities, relations)` — Serialize to JSONL (call inside `withBrainLock`)
+- `withBrainLock(brainPath, fn)` — Acquire exclusive write lock, execute callback, release
 
-### Semantic Search
-```typescript
-search(query: string, options?: {
-  maxResults?: number,
-  entityType?: string,
-  minConfidence?: number
-}): Promise<SearchResult[]>
-```
+### Audit Trail (`scripts/lib/audit-trail.mjs`)
+- Append-only observation history tracking
+- `getEntityHistory(entity)` — Extract change log from `_history[]` metadata
+- Supports `_archivedAt`, `_reason` fields for observation deletion
 
-### File Lock
-```typescript
-acquireLock(filepath: string, timeout?: number): Promise<LockHandle>
-releaseLock(handle: LockHandle): Promise<void>
-```
+### Branch Context (`scripts/lib/branch-context.mjs`)
+- Detect current git branch via `git rev-parse --abbrev-ref HEAD`
+- Store branch-specific filters in `~/.hermit-branch-context.json`
+- Allow filtering search/export by branch
+
+### GitNexus Runner (`scripts/lib/gitnexus-runner.mjs`)
+- Subprocess wrapper around `npx gitnexus` CLI
+- 30s timeout per invocation
+- Handles JSON output parsing and error propagation
+
+### Brain Health Checks (`scripts/lib/brain-health-checks.mjs`)
+Five automated checks:
+1. **Stale Entries** — observations >180 days without update
+2. **Duplicates** — entities with similar names (Levenshtein distance)
+3. **Orphan Nodes** — entities with no relations to other entities
+4. **Low Confidence** — observations with confidence <0.7
+5. **Missing Relations** — potential unmapped connections (ML-based)
+
+Returns score 0-100 with recommendations.
 
 ---
 
-## Dependencies
+## Dependencies (v4)
 
 | Package | Version | Purpose |
 |---------|---------|---------|
+| @modelcontextprotocol/sdk | ^1.29.0 | MCP server framework |
 | @huggingface/transformers | ^4.0.1 | Semantic embeddings (ONNX) |
+| zod | ^3.x | Tool parameter validation |
 | neo4j-driver | ^5.27.0 | Graph sync (optional) |
 | dotenv | ^16.4.0 | Environment config |
 
