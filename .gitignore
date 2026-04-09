@@ -70,6 +70,13 @@ test-ck
 # Claude Code (local — CK skills not distributed, hermit skills in catalog/)
 .claude/
 
+# Temp & test artifacts
+tmp/
+er.name
+
+# IDE (non-VSCode)
+.cursor/
+
 # Serena cache
 .serena/cache
 .gitnexus

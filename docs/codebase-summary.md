@@ -2,11 +2,12 @@
 
 ## Quick Overview
 
-**hermit-graph** is a knowledge graph system for capturing and retrieving project intelligence across development sessions. Built on JSONL + semantic embeddings (v3), with Neo4j optional sync and custom git merge support.
+**hermit-graph v4** is a unified knowledge graph system with MCP server integration. Single server provides 19 tools across 4 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), and Unified Search. Built on JSONL + semantic embeddings + MCP v1.29.0.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
 **Package manager:** npm
+**MCP Server:** stdio JSON-RPC transport, v4-native entry point at `scripts/hermit-mcp-server.mjs`
 
 ---
 
@@ -22,27 +23,34 @@ D:/Project/Personal Project/hermit-graph/
 │
 ├── scripts/
 │   ├── lib/
-│   │   ├── embedding-service.mjs       # Embedding generation (Hugging Face)
-│   │   ├── semantic-search.mjs         # Hybrid search (semantic + keyword)
-│   │   ├── file-lock.mjs               # Cross-process file locking
-│   │   ├── parse-observation.mjs       # Observation parsing utility
-│   │   └── [others]
+│   │   ├── memory-module.mjs                # 10 KG CRUD tools (create/search/get/update/delete/etc)
+│   │   ├── codegraph-module.mjs             # 4 GitNexus tools (query/context/impact/detect-changes)
+│   │   ├── intelligence-module.mjs          # 3 intelligence tools (audit-trail/consolidate/branch-context)
+│   │   ├── unified-search.mjs               # 2 cross-module tools (unified-search/health)
+│   │   ├── brain-io.mjs                     # Read/write JSONL with lock wrapper
+│   │   ├── audit-trail.mjs                  # Append-only observation history
+│   │   ├── branch-context.mjs               # Git branch detection + filter
+│   │   ├── gitnexus-runner.mjs              # Subprocess runner for GitNexus CLI
+│   │   ├── brain-health-checks.mjs          # 5 health check implementations
+│   │   ├── embedding-service.mjs            # Embedding generation (Hugging Face ONNX)
+│   │   ├── semantic-search.mjs              # Hybrid search (semantic + keyword)
+│   │   ├── file-lock.mjs                    # Cross-process file locking
+│   │   ├── parse-observation.mjs            # Observation parsing utility
+│   │   └── resolve-brain-path.mjs           # Brain path resolver
 │   │
-│   ├── brain-cli.mjs                   # Unified CLI entry point (v3)
-│   ├── build-embedding-index.mjs       # Index builder (v3)
-│   ├── merge-brain-jsonl.mjs           # Git merge driver (v3)
-│   ├── brain-health.mjs                # Health check script
-│   ├── sync-to-neo4j.mjs               # Neo4j synchronizer
-│   ├── stale-report.mjs                # Stale observation reporter
-│   ├── export-db-to-jsonl.mjs          # MCP DB exporter
-│   ├── launch-memory-mcp.mjs           # Memory MCP server
-│   ├── launch-conventions-mcp.mjs      # Conventions MCP server
-│   ├── setup-project.mjs               # Project initialization
+│   ├── hermit-mcp-server.mjs           # MCP server entry point (v4) — loads 4 modules
+│   ├── migrate-v3-to-v4.mjs            # Migration script (v3 → v4 data format)
+│   ├── test-v4.mjs                     # 36 v4 test cases
+│   ├── brain-cli.mjs                   # Unified CLI (backward compat)
+│   ├── build-embedding-index.mjs       # Index builder
+│   ├── merge-brain-jsonl.mjs           # Git merge driver
+│   ├── brain-health.mjs                # Health check script (uses brain-health-checks.mjs)
+│   ├── setup-project.mjs               # Project initialization (updated for v4)
 │   ├── setup-semantic.mjs              # Semantic setup
-│   ├── backfill-confidence.mjs         # Confidence backfiller
-│   ├── migrate-brain-v1-to-v2.mjs      # Migration script
-│   ├── test.mjs                        # Unit tests
-│   └── test-v3-comprehensive.mjs       # v3 feature tests
+│   ├── sync-to-neo4j.mjs               # Neo4j synchronizer
+│   ├── stale-report.mjs               # Stale observation report
+│   ├── backfill-confidence.mjs        # Add confidence prefix to legacy data
+│   └── export-db-to-jsonl.mjs         # Export DB to JSONL
 │
 ├── viewer/
 │   ├── index.html                      # Dashboard UI (enhanced in v3)
@@ -57,8 +65,8 @@ D:/Project/Personal Project/hermit-graph/
 │   ├── gitnexus-*.md                   # GitNexus integration docs
 │   └── [other docs]
 │
-├── .gitattributes                      # Git merge driver config (v3)
-├── package.json                        # npm config + brain CLI bin (v3)
+├── .gitattributes                      # Git merge driver config
+├── package.json                        # npm config + brain CLI bin (v4)
 ├── README.md                           # Project introduction
 └── CLAUDE.md                           # Claude Code instructions
 
@@ -66,32 +74,38 @@ D:/Project/Personal Project/hermit-graph/
 
 ---
 
-## Core Modules (v3)
+## Core Modules (v4)
 
-### Data Access
+### MCP Server Entry & Modules
+| Module | Purpose | Tools |
+|--------|---------|-------|
+| `hermit-mcp-server.mjs` | Unified server entry point | Loads 4 modules via `register()` pattern |
+| `scripts/lib/memory-module.mjs` | KG CRUD operations | 10 tools (create/search/get/update/delete/export/etc) |
+| `scripts/lib/codegraph-module.mjs` | GitNexus wrapper | 4 tools (query/context/impact/detect-changes) |
+| `scripts/lib/intelligence-module.mjs` | Audit + consolidation | 3 tools (audit-trail/consolidate/branch-context) |
+| `scripts/lib/unified-search.mjs` | Cross-module search | 2 tools (unified-search/health) |
+
+### Supporting Libraries
 | Module | Purpose | Key Exports |
 |--------|---------|-------------|
-| `scripts/lib/embedding-service.mjs` | Semantic embeddings (ONNX) | `embed()`, `embedBatch()`, `isAvailable()` |
-| `scripts/lib/semantic-search.mjs` | Hybrid search engine | `search()`, `prepareIndex()` |
-| `scripts/lib/file-lock.mjs` | Cross-process sync | `acquireLock()`, `releaseLock()` |
-| `scripts/lib/parse-observation.mjs` | Observation parsing | `parseObservation()` |
+| `scripts/lib/brain-io.mjs` | Read/write JSONL with locking | `readBrain()`, `writeBrain()`, `withBrainLock()` |
+| `scripts/lib/audit-trail.mjs` | Append-only history | `getEntityHistory()`, `archiveObservation()` |
+| `scripts/lib/branch-context.mjs` | Git branch detection | `detectBranch()`, `getBranchFilter()`, `setBranchFilter()` |
+| `scripts/lib/gitnexus-runner.mjs` | CLI subprocess wrapper | `runGitNexus()` (30s timeout, JSON parsing) |
+| `scripts/lib/brain-health-checks.mjs` | Health check logic | `checkStale()`, `checkDuplicates()`, `checkOrphans()`, etc. |
+| `scripts/lib/embedding-service.mjs` | ONNX embeddings | `embed()`, `embedBatch()`, `isAvailable()` |
+| `scripts/lib/semantic-search.mjs` | Hybrid search | `search()` (0.7 semantic + 0.3 keyword) |
+| `scripts/lib/file-lock.mjs` | Cross-process sync | `withLock()`, `acquireLock()`, `releaseLock()` |
+| `scripts/lib/parse-observation.mjs` | Observation parsing | `parseObservation()`, `obsText()` |
 
-### CLI & Scripts
+### CLI & Utility Scripts
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `scripts/brain-cli.mjs` | Unified CLI | `brain search`, `brain health`, `brain index`, etc. |
-| `scripts/build-embedding-index.mjs` | Index builder | `npm run build:index` |
+| `scripts/brain-cli.mjs` | Unified CLI (backward compat) | `brain search`, `brain health`, `brain index`, etc. |
+| `scripts/migrate-v3-to-v4.mjs` | Data migration | `node scripts/migrate-v3-to-v4.mjs` |
+| `scripts/setup-project.mjs` | Project init (updated for v4) | `npm run setup:all` |
+| `scripts/brain-health.mjs` | Health check (uses health-checks.mjs) | `brain health` |
 | `scripts/merge-brain-jsonl.mjs` | Git merge driver | Auto-invoked by git merge |
-| `scripts/brain-health.mjs` | Health check | `brain health` |
-| `scripts/sync-to-neo4j.mjs` | Neo4j sync | `npm run sync` |
-| `scripts/stale-report.mjs` | Stale node reporter | `brain stale` |
-| `scripts/export-db-to-jsonl.mjs` | MCP export | `brain export` |
-
-### MCP Servers
-| Server | Purpose |
-|--------|---------|
-| `scripts/launch-memory-mcp.mjs` | Claude search/recall interface |
-| `scripts/launch-conventions-mcp.mjs` | Convention management |
 
 ### UI
 | File | Purpose |
@@ -215,28 +229,51 @@ node scripts/test-v3-comprehensive.mjs  # Test v3 features
 
 ---
 
-## Dependencies
+## Dependencies (v4)
 
 ```json
 {
-  "@huggingface/transformers": "^4.0.1",  // ONNX embeddings
+  "@modelcontextprotocol/sdk": "^1.29.0", // MCP server framework
+  "@huggingface/transformers": "^4.0.1",  // ONNX embeddings (Xenova/all-MiniLM-L6-v2)
+  "zod": "^3.x",                          // Tool parameter validation
   "neo4j-driver": "^5.27.0",              // Graph database (optional)
   "dotenv": "^16.4.0"                     // Environment config
 }
 ```
 
+## v3 → v4 Migration
+
+**Data Format Change:**
+Old: Simple string observations
+New: Object observations with `content`, `_branch`, `_archived`, `_archivedAt`, `_history[]` fields
+
+**Server Change:**
+Old: Two separate MCP servers (launch-memory-mcp.mjs, launch-conventions-mcp.mjs)
+New: Single unified server (hermit-mcp-server.mjs) with 4 registered modules
+
+**Run migration script before using v4 MCP:**
+```bash
+node scripts/migrate-v3-to-v4.mjs
+```
+
+Maps old brain.jsonl entities to v4 format (preserves all observations).
+
 ---
 
-## v3 Changes (Latest)
+## v4 Changes (Latest)
 
 | Component | Change | Status |
 |-----------|--------|--------|
-| Embedding Service | New ONNX-based semantic search module | Complete |
-| File Locking | Cross-process synchronization for brain.jsonl | Complete |
-| Git Merge Driver | Entity-level 3-way merge strategy | Complete |
-| Brain CLI | Unified command-line interface | Complete |
-| Dashboard | Enhanced search + stale node indicators | Complete |
-| Package.json | Added `bin` field for brain CLI | Complete |
+| MCP Server | Unified hermit-mcp-server.mjs (19 tools, 4 modules) | Complete |
+| Memory Module | 10 KG CRUD tools (replaces launch-memory-mcp.mjs) | Complete |
+| CodeGraph Module | 4 GitNexus tools (query/context/impact/detect-changes) | Complete |
+| Intelligence Module | 3 tools (audit-trail/consolidate/branch-context) | Complete |
+| Brain I/O | Refactored read/write with explicit locking interface | Complete |
+| Audit Trail | Append-only observation history tracking | Complete |
+| Health Checks | 5 automated checks, refactored to reusable module | Complete |
+| Migration Script | migrate-v3-to-v4.mjs for data format upgrade | Complete |
+| Tests | 36 comprehensive v4 test cases (test-v4.mjs) | Complete |
+| Setup | Updated for v4 MCP config in .claude-settings.json | Complete |
 
 ---
 

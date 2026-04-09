@@ -94,9 +94,9 @@ If `hermit setup` can't auto-configure your agent, add this MCP server config ma
 ```json
 {
   "mcpServers": {
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@sockeye44/better-memory-mcp"],
+    "hermit": {
+      "command": "node",
+      "args": ["<ABSOLUTE_PATH>/hermit-graph/scripts/hermit-mcp-server.mjs"],
       "env": {
         "MEMORY_FILE_PATH": "<ABSOLUTE_PATH>/hermit-graph/data/brain.jsonl"
       }
@@ -211,7 +211,7 @@ npm run view              # Serve HTML dashboard
 npm run build:index       # Build semantic embedding index
 npm run export            # Export MCP DB to brain.jsonl
 npm run stale             # Stale observation report
-npm run migrate           # Migrate v1 to v2 format
+npm run migrate           # Migrate v3 to v4 format
 npm run backfill          # Add confidence prefix to legacy data
 npm run setup             # Setup Hermit Graph for a new project
 npm run setup:semantic    # Setup semantic search (JS-native)

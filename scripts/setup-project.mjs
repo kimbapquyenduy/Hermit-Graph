@@ -32,10 +32,11 @@ const userHome = process.env.USERPROFILE || process.env.HOME || '';
 // brain.jsonl absolute path (resolved for git-clone or npm-install mode)
 const brainJsonlPath = resolveBrainPath();
 
-// MCP server config (shared across all agents)
+// MCP server config (shared across all agents) — v4: native hermit-mcp-server
+const hermitServerPath = join(getPackageRoot(), 'scripts', 'hermit-mcp-server.mjs').replace(/\\/g, '/');
 const MCP_SERVER_CONFIG = {
-  command: 'npx',
-  args: ['-y', '@sockeye44/better-memory-mcp'],
+  command: 'node',
+  args: [hermitServerPath],
   env: {
     MEMORY_FILE_PATH: brainJsonlPath,
     HF_HUB_DISABLE_SYMLINKS_WARNING: '1'
@@ -619,15 +620,15 @@ function configureClineInstructions() {
   console.log('  Option A: Add to VS Code settings.json:');
   console.log('    "cline.mcpServers": {');
   console.log('      "memory": {');
-  console.log(`        "command": "npx",`);
-  console.log(`        "args": ["-y", "@sockeye44/better-memory-mcp"],`);
+  console.log(`        "command": "node",`);
+  console.log(`        "args": ["${hermitServerPath}"],`);
   console.log(`        "env": { "MEMORY_FILE_PATH": "${brainJsonlPath}" }`);
   console.log('      }');
   console.log('    }');
   console.log('');
   console.log('  Option B: Use Cline MCP settings UI:');
   console.log('    1. Open Cline sidebar → Settings → MCP Servers');
-  console.log('    2. Add server: name=memory, command=npx, args=-y @sockeye44/better-memory-mcp');
+  console.log(`    2. Add server: name=memory, command=node, args=${hermitServerPath}`);
   console.log(`    3. Set env: MEMORY_FILE_PATH=${brainJsonlPath}`);
   console.log('');
 }

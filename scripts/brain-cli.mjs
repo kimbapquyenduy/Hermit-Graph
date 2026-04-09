@@ -63,9 +63,14 @@ const COMMANDS = {
     run: () => runScript('stale-report.mjs'),
   },
   serve: {
-    desc: 'Start MCP memory server',
+    desc: 'Start Hermit MCP server (unified)',
     usage: 'hermit serve',
-    run: () => runScript('launch-memory-mcp.mjs'),
+    run: () => runScript('hermit-mcp-server.mjs'),
+  },
+  migrate: {
+    desc: 'Migrate brain.jsonl from v3 to v4 format',
+    usage: 'hermit migrate [path]',
+    run: () => runScript('migrate-v3-to-v4.mjs', args),
   },
   view: {
     desc: 'Open dashboard viewer',
@@ -123,7 +128,7 @@ function runScript(name, extraArgs = []) {
 
 function showHelp() {
   console.log('');
-  console.log('  hermit — Hermit Graph CLI v3.0');
+  console.log('  hermit — Hermit Graph CLI v4.0');
   console.log('');
   console.log('  Usage: hermit <command> [args]');
   console.log('');

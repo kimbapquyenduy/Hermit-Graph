@@ -1,6 +1,6 @@
 {
   "name": "hermit-graph",
-  "version": "3.1.0",
+  "version": "4.0.0",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Windsurf, Cline, and more.",
   "type": "module",
   "bin": {
@@ -37,25 +37,27 @@
     "node": ">=18"
   },
   "scripts": {
-    "sync": "node scripts/sync-to-neo4j.mjs",
-    "view": "npx serve viewer",
-    "test": "node scripts/test.mjs",
+    "serve": "node scripts/hermit-mcp-server.mjs",
+    "test": "node scripts/test-v4.mjs",
     "setup": "node scripts/setup-project.mjs",
-    "migrate": "node scripts/migrate-brain-v1-to-v2.mjs",
+    "health": "node scripts/brain-health.mjs",
+    "migrate": "node scripts/migrate-v3-to-v4.mjs",
     "backfill": "node scripts/backfill-confidence.mjs",
     "stale": "node scripts/stale-report.mjs",
+    "export": "node scripts/export-db-to-jsonl.mjs",
+    "sync": "node scripts/sync-to-neo4j.mjs",
+    "view": "npx serve viewer",
+    "view:live": "node scripts/export-db-to-jsonl.mjs && npx serve viewer",
     "setup:semantic": "node scripts/setup-semantic.mjs",
     "setup:conventions": "node scripts/setup-conventions.mjs",
     "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
-    "health": "node scripts/brain-health.mjs",
-    "export": "node scripts/export-db-to-jsonl.mjs",
-    "view:live": "node scripts/export-db-to-jsonl.mjs && npx serve viewer",
     "build:index": "node scripts/build-embedding-index.mjs",
     "build:index:force": "node scripts/build-embedding-index.mjs --force"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^16.4.0",
-    "neo4j-driver": "^5.27.0"
+    "zod": "^4.3.6"
   }
 }
