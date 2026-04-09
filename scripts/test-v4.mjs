@@ -399,7 +399,7 @@ async function mcpIntegrationTests() {
     assert(init.result.serverInfo.version === '4.0.0');
   });
 
-  await test('MCP: tools/list returns 19 tools', async () => {
+  await test('MCP: tools/list returns 20 tools', async () => {
     const responses = await sendMcp([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '0.1' } } },
       { jsonrpc: '2.0', method: 'notifications/initialized' },
@@ -407,7 +407,7 @@ async function mcpIntegrationTests() {
     ]);
     const list = responses.find(r => r.id === 2);
     assert(list, 'Should get tools/list response');
-    assert(list.result.tools.length === 19, `Expected 19 tools, got ${list.result.tools.length}`);
+    assert(list.result.tools.length === 20, `Expected 20 tools, got ${list.result.tools.length}`);
   });
 
   await test('MCP: hermit_search_nodes returns results', async () => {
