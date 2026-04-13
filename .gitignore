@@ -16,6 +16,7 @@ pnpm-lock.yaml
 # Environment files
 .env*
 !.env.example
+.npmrc
 
 # Python
 __pycache__/

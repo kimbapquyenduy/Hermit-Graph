@@ -32,6 +32,12 @@ A **knowledge graph** that gives your AI coding agents long-term memory across a
 - **HTML Dashboard** — vis.js graph viewer with search, filter, dark theme. No build tools needed
 - **Neo4j (Optional)** — Full graph database with Cypher queries via Docker
 
+### Skill Distribution
+- **Multi-Agent Export** — Export skills to Claude Code, Cursor, Gemini CLI, Codex in their native formats
+- **Write Strategies** — Per-file (Claude `.claude/skills/`, Cursor `.mdc`), merge-single (Gemini `GEMINI.md`, Codex `AGENTS.md`)
+- **Idempotent Merge** — Section markers for merge-single agents ensure re-export replaces, not duplicates
+- **MCP Tools** — `hermit_skill_list` and `hermit_skill_export` callable from any agent
+
 ### Developer Tools
 - **14 Slash Commands** — `/remember`, `/recall`, `/brain-dump`, `/diagnose`, `/ingest`, and more
 - **6 Skills** — Business guard, auto-memory, code patterns, API design, DB migrations, tech advisor
@@ -75,13 +81,13 @@ hermit setup --mcp-only         # Any agent — just prints MCP config
 |---------|:-----------:|:------:|:--------:|:-----:|:-----:|
 | MCP memory server | auto | auto | auto | manual | manual |
 | brain.jsonl | auto | auto | auto | auto | auto |
-| Skills (6) | auto | — | — | — | — |
+| Skills (6) | auto | export | export | — | export |
 | Slash commands (14) | auto | — | — | — | — |
 | Auto-recall hook | auto | — | — | — | — |
 | Auto-save hook | auto | — | — | — | — |
 | BUSINESS.md template | auto | auto | auto | auto | auto |
 
-> **Why the difference?** Skills, slash commands, and hooks are Claude Code-specific features (`.claude/` directory). Other agents connect via MCP protocol only — they get the same knowledge graph, just without the Claude Code integrations.
+> **Why the difference?** Skills, slash commands, and hooks are Claude Code-specific features (`.claude/` directory). Other agents connect via MCP protocol only — they get the same knowledge graph, just without the Claude Code integrations. Use `hermit skills export` to distribute skills to Cursor, Gemini, and Codex in their native formats.
 
 ### 3. Verify
 
@@ -180,6 +186,12 @@ hermit skills remove <name>            # Remove a skill
 hermit skills info <name>              # Show skill details
 hermit skills installed                # Show what's installed in current project
 
+# Skill distribution (multi-agent export)
+hermit skills export biz-guard --agent cursor --project /path  # Export to Cursor (MDC)
+hermit skills export --all --agent gemini --global             # All skills to ~/.gemini/GEMINI.md
+hermit skills export --all --agent codex --project /path       # All skills to AGENTS.md
+hermit skills export biz-guard --agent all --global            # Export to all 4 agents
+
 # Project setup (multi-agent)
 hermit setup                           # Auto-detect agent, install everything
 hermit setup --agent cursor            # Setup for Cursor
@@ -258,7 +270,7 @@ hermit-graph/
 │   └── conventions/             # Auto-learned conventions (SQLite)
 ├── scripts/
 │   ├── brain-cli.mjs            # Hermit CLI entry point
-│   ├── skills-manager.mjs       # Skill install/remove/list manager
+│   ├── skills-manager.mjs       # Skill install/remove/list/export manager
 │   ├── brain-health.mjs         # Health check (5 checks, score 0-100)
 │   ├── build-embedding-index.mjs # Semantic index builder
 │   ├── merge-brain-jsonl.mjs    # Multi-agent merge utility
@@ -266,6 +278,9 @@ hermit-graph/
 │   ├── setup-semantic.mjs       # Semantic search setup
 │   ├── sync-to-neo4j.mjs        # Neo4j sync
 │   └── lib/
+│       ├── skill-adapters.mjs   # Agent configs + transforms (4 agents)
+│       ├── skill-export.mjs     # Export engine (discover, compat, write)
+│       ├── skills-module.mjs    # MCP tools (hermit_skill_list/export)
 │       ├── semantic-search.mjs  # Hybrid search engine
 │       ├── embedding-service.mjs # transformers.js wrapper
 │       └── file-lock.mjs        # Multi-agent write coordination
@@ -273,7 +288,7 @@ hermit-graph/
 ├── docker/docker-compose.yml    # Neo4j (optional)
 ├── templates/                   # CLAUDE.md, BUSINESS.md, global instructions
 ├── .claude-settings.json        # MCP + hooks config template
-└── package.json                 # v3.0.0
+└── package.json                 # v4.1.0
 ```
 
 ## FAQ

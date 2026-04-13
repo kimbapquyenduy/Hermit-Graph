@@ -281,7 +281,7 @@ function showInstalled() {
 
 // ── Main ──
 
-export function run(args) {
+export async function run(args) {
   const [subcommand, ...rest] = args;
 
   if (!subcommand || subcommand === 'list') {
@@ -309,6 +309,53 @@ export function run(args) {
     showInfo(rest[0]);
   } else if (subcommand === 'installed') {
     showInstalled();
+  } else if (subcommand === 'export') {
+    const { exportSkill, exportAll } = await import('./lib/skill-export.mjs');
+    const { AGENTS } = await import('./lib/skill-adapters.mjs');
+    const agentNames = Object.keys(AGENTS);
+
+    // Parse flags
+    const agentIdx = rest.indexOf('--agent');
+    const agent = agentIdx !== -1 ? rest[agentIdx + 1] : null;
+    const projectIdx = rest.indexOf('--project');
+    const project = projectIdx !== -1 ? rest[projectIdx + 1] : null;
+    const isGlobal = rest.includes('--global') || !project;
+    const isAll = rest.includes('--all');
+    const skillName = rest.find(a => !a.startsWith('--') && a !== agent && a !== project);
+
+    if (project && (!existsSync(project) || !statSync(project).isDirectory())) {
+      console.error(`Project path not found or not a directory: ${project}`);
+      process.exit(1);
+    }
+
+    if (!agent || (agent !== 'all' && !agentNames.includes(agent))) {
+      console.error(`Invalid agent. Use: ${agentNames.join(', ')}, all`);
+      process.exit(1);
+    }
+    if (!isAll && !skillName) {
+      console.error('Usage: hermit skills export <name|--all> --agent <agent> [--project /path] [--global]');
+      process.exit(1);
+    }
+
+    const agents = agent === 'all' ? agentNames : [agent];
+    const opts = { project, global: isGlobal };
+    const results = [];
+
+    for (const ag of agents) {
+      if (isAll) {
+        results.push(...exportAll(ag, opts));
+      } else {
+        results.push(exportSkill(skillName, ag, opts));
+      }
+    }
+
+    for (const r of results) {
+      const icon = r.action === 'created' ? '+' : r.action === 'updated' ? '~' : '-';
+      const skipLabel = r.name ? `${r.name} skipped (${r.reason})` : `skipped (${r.reason})`;
+      const detail = r.action === 'skipped' ? skipLabel : `${r.path} (${r.action})`;
+      console.log(`  ${icon} [${r.agent}] ${detail}`);
+    }
+    console.log(`\n  Done! ${results.filter(r => r.action !== 'skipped').length} exported.`);
   } else {
     const available = getAvailableSkills();
     if (available.includes(subcommand)) {
@@ -322,6 +369,7 @@ export function run(args) {
       console.log('  hermit skills remove <n>   Remove skill(s)');
       console.log('  hermit skills info <name>  Show skill details');
       console.log('  hermit skills installed    Show installed skills');
+      console.log('  hermit skills export       Export skill(s) to other AI agents');
     }
     process.exit(1);
   }
@@ -329,5 +377,8 @@ export function run(args) {
 
 // Direct execution
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
-  run(process.argv.slice(2));
+  run(process.argv.slice(2)).catch(err => {
+    console.error(err.message);
+    process.exit(1);
+  });
 }

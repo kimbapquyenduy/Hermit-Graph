@@ -2,12 +2,13 @@
 
 ## Quick Overview
 
-**hermit-graph v4** is a unified knowledge graph system with MCP server integration. Single server provides 19 tools across 4 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), and Unified Search. Built on JSONL + semantic embeddings + MCP v1.29.0.
+**hermit-graph v4** is a unified knowledge graph system with MCP server integration. Single server provides 21 tools across 5 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, and Skills Distribution. Built on JSONL + semantic embeddings + MCP v1.29.0.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
 **Package manager:** npm
 **MCP Server:** stdio JSON-RPC transport, v4-native entry point at `scripts/hermit-mcp-server.mjs`
+**Skill Distribution:** Export skills to 4 AI agents (Claude, Cursor, Gemini, Codex) via adapter transforms
 
 ---
 
@@ -35,6 +36,9 @@ D:/Project/Personal Project/hermit-graph/
 │   │   ├── embedding-service.mjs            # Embedding generation (Hugging Face ONNX)
 │   │   ├── semantic-search.mjs              # Hybrid search (semantic + keyword)
 │   │   ├── file-lock.mjs                    # Cross-process file locking
+│   │   ├── skill-adapters.mjs               # Agent configs + transforms (Claude/Cursor/Gemini/Codex)
+│   │   ├── skill-export.mjs                 # Export engine (discover, compat check, write strategies)
+│   │   ├── skills-module.mjs                # MCP tools (hermit_skill_list + hermit_skill_export)
 │   │   ├── parse-observation.mjs            # Observation parsing utility
 │   │   └── resolve-brain-path.mjs           # Brain path resolver
 │   │
@@ -84,6 +88,7 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/codegraph-module.mjs` | GitNexus wrapper | 4 tools (query/context/impact/detect-changes) |
 | `scripts/lib/intelligence-module.mjs` | Audit + consolidation | 3 tools (audit-trail/consolidate/branch-context) |
 | `scripts/lib/unified-search.mjs` | Cross-module search | 2 tools (unified-search/health) |
+| `scripts/lib/skills-module.mjs` | Skill distribution | 2 tools (skill-list/skill-export) |
 
 ### Supporting Libraries
 | Module | Purpose | Key Exports |
@@ -96,12 +101,15 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/embedding-service.mjs` | ONNX embeddings | `embed()`, `embedBatch()`, `isAvailable()` |
 | `scripts/lib/semantic-search.mjs` | Hybrid search | `search()` (0.7 semantic + 0.3 keyword) |
 | `scripts/lib/file-lock.mjs` | Cross-process sync | `withLock()`, `acquireLock()`, `releaseLock()` |
+| `scripts/lib/skill-adapters.mjs` | Agent configs + transforms | `AGENTS`, `parseFrontmatter()` |
+| `scripts/lib/skill-export.mjs` | Export engine | `discoverSkills()`, `exportSkill()`, `exportAll()`, `checkCompat()` |
 | `scripts/lib/parse-observation.mjs` | Observation parsing | `parseObservation()`, `obsText()` |
 
 ### CLI & Utility Scripts
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `scripts/brain-cli.mjs` | Unified CLI (backward compat) | `brain search`, `brain health`, `brain index`, etc. |
+| `scripts/brain-cli.mjs` | Unified CLI (backward compat) | `hermit search`, `hermit health`, `hermit index`, etc. |
+| `scripts/skills-manager.mjs` | Skill install/remove/export | `hermit skills [list\|add\|remove\|export]` |
 | `scripts/migrate-v3-to-v4.mjs` | Data migration | `node scripts/migrate-v3-to-v4.mjs` |
 | `scripts/setup-project.mjs` | Project init (updated for v4) | `npm run setup:all` |
 | `scripts/brain-health.mjs` | Health check (uses health-checks.mjs) | `brain health` |
@@ -274,6 +282,10 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 | Migration Script | migrate-v3-to-v4.mjs for data format upgrade | Complete |
 | Tests | 36 comprehensive v4 test cases (test-v4.mjs) | Complete |
 | Setup | Updated for v4 MCP config in .claude-settings.json | Complete |
+| Skills Module | 2 MCP tools (hermit_skill_list/hermit_skill_export) | Complete |
+| Skill Adapters | 4 agent configs (Claude/Cursor/Gemini/Codex) + transforms | Complete |
+| Skill Export Engine | Discover, compat check, per-file + merge-single write | Complete |
+| CLI Export | `hermit skills export` subcommand with --agent/--project/--global | Complete |
 
 ---
 
