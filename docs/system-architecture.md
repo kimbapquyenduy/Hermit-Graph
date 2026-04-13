@@ -2,7 +2,7 @@
 
 ## Overview
 
-hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v4:** Unified MCP server with 19 tools across 4 modules.
+hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v4.2:** Unified MCP server with 22 tools + 1 resource across 6 modules.
 
 **Core technology:** JSONL-based knowledge graph + MCP server v1.29.0 + semantic embeddings + GitNexus integration
 
@@ -126,6 +126,7 @@ hermit-mcp-server.mjs (entry point)
   ├── CodeGraph Module (4 tools) — GitNexus wrapper
   ├── Intelligence Module (3 tools) — Audit trail, consolidation, branch context
   ├── Unified Search (2 tools) — Cross-KG + code search, health checks
+  ├── Session Module (1 tool + 1 resource) — Cross-agent session context
   └── Skills Module (2 tools) — Multi-agent skill distribution
 ```
 
@@ -158,6 +159,10 @@ Each module exports `register(server, context)` function, called sequentially by
 **Unified Search Module Tools (2):**
 1. `hermit_unified_search` — Parallel KG + code search, ranked by relevance
 2. `hermit_health` — Brain health check (5 automated checks, score 0-100)
+
+**Session Module (1 tool + 1 resource):**
+1. `hermit_session_start` — Auto-detect project scope, return relevant entities + branch + graph stats
+2. `hermit://context/auto` — MCP resource returning markdown-formatted session context
 
 **Skills Module Tools (2):**
 1. `hermit_skill_list` — List available skills with per-agent compatibility matrix
@@ -249,6 +254,8 @@ Commit merged brain.jsonl
 | Branch-aware merge | merge-brain-jsonl.mjs | Done |
 | Unified CLI | brain-cli.mjs | Done |
 | Skill Distribution (v4.1) | skill-adapters, skill-export, skills-module | Done |
+| Cross-Agent Session Context (v4.2) | session-module, session-recall | Done |
+| Rules File Setup (v4.2) | setup-project (Cursor/Windsurf/Cline/Codex) | Done |
 
 ---
 

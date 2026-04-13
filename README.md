@@ -32,6 +32,12 @@ A **knowledge graph** that gives your AI coding agents long-term memory across a
 - **HTML Dashboard** — vis.js graph viewer with search, filter, dark theme. No build tools needed
 - **Neo4j (Optional)** — Full graph database with Cypher queries via Docker
 
+### Cross-Agent Session Context
+- **Auto-Context Loading** — `hermit_session_start` detects project scope and returns relevant entities automatically
+- **MCP Resource** — `hermit://context/auto` provides markdown-formatted context for resource-capable agents
+- **Rules File Setup** — `hermit setup` installs rules files for Cursor (`.mdc`), Windsurf (`.windsurfrules`), Cline (`.clinerules`), Codex (`AGENTS.md`)
+- **Scope Detection** — Matches CWD against entity project scopes for targeted recall
+
 ### Skill Distribution
 - **Multi-Agent Export** — Export skills to Claude Code, Cursor, Gemini CLI, Codex in their native formats
 - **Write Strategies** — Per-file (Claude `.claude/skills/`, Cursor `.mdc`), merge-single (Gemini `GEMINI.md`, Codex `AGENTS.md`)
