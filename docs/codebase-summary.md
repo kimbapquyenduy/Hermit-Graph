@@ -2,7 +2,7 @@
 
 ## Quick Overview
 
-**hermit-graph v4** is a unified knowledge graph system with MCP server integration. Single server provides 21 tools across 5 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, and Skills Distribution. Built on JSONL + semantic embeddings + MCP v1.29.0.
+**hermit-graph v4.2** is a unified knowledge graph system with MCP server integration. Single server provides 22 tools + 1 resource across 6 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, Session Context, and Skills Distribution. Built on JSONL + semantic embeddings + MCP v1.29.0.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
@@ -36,13 +36,15 @@ D:/Project/Personal Project/hermit-graph/
 │   │   ├── embedding-service.mjs            # Embedding generation (Hugging Face ONNX)
 │   │   ├── semantic-search.mjs              # Hybrid search (semantic + keyword)
 │   │   ├── file-lock.mjs                    # Cross-process file locking
+│   │   ├── session-module.mjs               # MCP tool (hermit_session_start) + resource (context/auto)
+│   │   ├── session-recall.mjs               # Scope detection, keyword matching, entity scoring
 │   │   ├── skill-adapters.mjs               # Agent configs + transforms (Claude/Cursor/Gemini/Codex)
 │   │   ├── skill-export.mjs                 # Export engine (discover, compat check, write strategies)
 │   │   ├── skills-module.mjs                # MCP tools (hermit_skill_list + hermit_skill_export)
 │   │   ├── parse-observation.mjs            # Observation parsing utility
 │   │   └── resolve-brain-path.mjs           # Brain path resolver
 │   │
-│   ├── hermit-mcp-server.mjs           # MCP server entry point (v4) — loads 4 modules
+│   ├── hermit-mcp-server.mjs           # MCP server entry point (v4) — loads 6 modules
 │   ├── migrate-v3-to-v4.mjs            # Migration script (v3 → v4 data format)
 │   ├── test-v4.mjs                     # 36 v4 test cases
 │   ├── brain-cli.mjs                   # Unified CLI (backward compat)
@@ -83,11 +85,12 @@ D:/Project/Personal Project/hermit-graph/
 ### MCP Server Entry & Modules
 | Module | Purpose | Tools |
 |--------|---------|-------|
-| `hermit-mcp-server.mjs` | Unified server entry point | Loads 4 modules via `register()` pattern |
+| `hermit-mcp-server.mjs` | Unified server entry point | Loads 6 modules via `register()` pattern |
 | `scripts/lib/memory-module.mjs` | KG CRUD operations | 10 tools (create/search/get/update/delete/export/etc) |
 | `scripts/lib/codegraph-module.mjs` | GitNexus wrapper | 4 tools (query/context/impact/detect-changes) |
 | `scripts/lib/intelligence-module.mjs` | Audit + consolidation | 3 tools (audit-trail/consolidate/branch-context) |
 | `scripts/lib/unified-search.mjs` | Cross-module search | 2 tools (unified-search/health) |
+| `scripts/lib/session-module.mjs` | Cross-agent session context | 1 tool (session-start) + 1 resource (context/auto) |
 | `scripts/lib/skills-module.mjs` | Skill distribution | 2 tools (skill-list/skill-export) |
 
 ### Supporting Libraries
@@ -103,6 +106,7 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/file-lock.mjs` | Cross-process sync | `withLock()`, `acquireLock()`, `releaseLock()` |
 | `scripts/lib/skill-adapters.mjs` | Agent configs + transforms | `AGENTS`, `parseFrontmatter()` |
 | `scripts/lib/skill-export.mjs` | Export engine | `discoverSkills()`, `exportSkill()`, `exportAll()`, `checkCompat()` |
+| `scripts/lib/session-recall.mjs` | Session context scoring | `recallForScope()`, `detectScope()`, `scoreEntity()` |
 | `scripts/lib/parse-observation.mjs` | Observation parsing | `parseObservation()`, `obsText()` |
 
 ### CLI & Utility Scripts
