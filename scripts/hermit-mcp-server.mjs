@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Hermit Graph MCP Server — unified brain for AI agents.
- * Modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence, Cross-Module Search.
+ * Modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence, Cross-Module Search, Session Context, Skills Distribution.
  * Transport: stdio (JSON-RPC over stdin/stdout).
  */
 

@@ -2,7 +2,7 @@
 
 ## Quick Overview
 
-**hermit-graph v4.2** is a unified knowledge graph system with MCP server integration. Single server provides 22 tools + 1 resource across 6 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, Session Context, and Skills Distribution. Built on JSONL + semantic embeddings + MCP v1.29.0.
+**hermit-graph v4.2** is a unified knowledge graph system with MCP server integration. Single server provides 23 tools + 1 resource across 6 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, Session Context, and Skills Distribution. Built on JSONL + semantic embeddings + MCP v1.29.0.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
@@ -87,7 +87,7 @@ D:/Project/Personal Project/hermit-graph/
 |--------|---------|-------|
 | `hermit-mcp-server.mjs` | Unified server entry point | Loads 6 modules via `register()` pattern |
 | `scripts/lib/memory-module.mjs` | KG CRUD operations | 10 tools (create/search/get/update/delete/export/etc) |
-| `scripts/lib/codegraph-module.mjs` | GitNexus wrapper | 4 tools (query/context/impact/detect-changes) |
+| `scripts/lib/codegraph-module.mjs` | GitNexus wrapper | 5 tools (query/context/impact/detect-changes/index) |
 | `scripts/lib/intelligence-module.mjs` | Audit + consolidation | 3 tools (audit-trail/consolidate/branch-context) |
 | `scripts/lib/unified-search.mjs` | Cross-module search | 2 tools (unified-search/health) |
 | `scripts/lib/session-module.mjs` | Cross-agent session context | 1 tool (session-start) + 1 resource (context/auto) |
@@ -261,7 +261,7 @@ New: Object observations with `content`, `_branch`, `_archived`, `_archivedAt`, 
 
 **Server Change:**
 Old: Two separate MCP servers (launch-memory-mcp.mjs, launch-conventions-mcp.mjs)
-New: Single unified server (hermit-mcp-server.mjs) with 4 registered modules
+New: Single unified server (hermit-mcp-server.mjs) with 6 registered modules
 
 **Run migration script before using v4 MCP:**
 ```bash
@@ -276,7 +276,7 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 
 | Component | Change | Status |
 |-----------|--------|--------|
-| MCP Server | Unified hermit-mcp-server.mjs (19 tools, 4 modules) | Complete |
+| MCP Server | Unified hermit-mcp-server.mjs (23 tools + 1 resource, 6 modules) | Complete |
 | Memory Module | 10 KG CRUD tools (replaces launch-memory-mcp.mjs) | Complete |
 | CodeGraph Module | 4 GitNexus tools (query/context/impact/detect-changes) | Complete |
 | Intelligence Module | 3 tools (audit-trail/consolidate/branch-context) | Complete |
@@ -286,6 +286,8 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 | Migration Script | migrate-v3-to-v4.mjs for data format upgrade | Complete |
 | Tests | 36 comprehensive v4 test cases (test-v4.mjs) | Complete |
 | Setup | Updated for v4 MCP config in .claude-settings.json | Complete |
+| Session Module | 1 MCP tool (hermit_session_start) + 1 resource (context/auto) | Complete |
+| Session Recall | Scope detection, keyword matching, entity scoring | Complete |
 | Skills Module | 2 MCP tools (hermit_skill_list/hermit_skill_export) | Complete |
 | Skill Adapters | 4 agent configs (Claude/Cursor/Gemini/Codex) + transforms | Complete |
 | Skill Export Engine | Discover, compat check, per-file + merge-single write | Complete |

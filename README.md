@@ -287,6 +287,8 @@ hermit-graph/
 │       ├── skill-adapters.mjs   # Agent configs + transforms (4 agents)
 │       ├── skill-export.mjs     # Export engine (discover, compat, write)
 │       ├── skills-module.mjs    # MCP tools (hermit_skill_list/export)
+│       ├── session-module.mjs   # MCP tool (hermit_session_start) + resource
+│       ├── session-recall.mjs   # Scope detection + entity scoring
 │       ├── semantic-search.mjs  # Hybrid search engine
 │       ├── embedding-service.mjs # transformers.js wrapper
 │       └── file-lock.mjs        # Multi-agent write coordination
@@ -294,7 +296,7 @@ hermit-graph/
 ├── docker/docker-compose.yml    # Neo4j (optional)
 ├── templates/                   # CLAUDE.md, BUSINESS.md, global instructions
 ├── .claude-settings.json        # MCP + hooks config template
-└── package.json                 # v4.1.0
+└── package.json                 # v4.2.x
 ```
 
 ## FAQ
