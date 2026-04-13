@@ -9,7 +9,7 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 ### Fixed
 
 - Session module missing from all documentation (README, system-architecture, codebase-summary)
-- Module count in docs now correctly shows 6 modules / 22 tools + 1 resource
+- Module count in docs now correctly shows 6 modules / 23 tools + 1 resource
 
 ---
 

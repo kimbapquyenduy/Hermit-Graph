@@ -2,7 +2,7 @@
 
 ## Overview
 
-hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v4.2:** Unified MCP server with 22 tools + 1 resource across 6 modules.
+hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v4.2:** Unified MCP server with 23 tools + 1 resource across 6 modules.
 
 **Core technology:** JSONL-based knowledge graph + MCP server v1.29.0 + semantic embeddings + GitNexus integration
 
@@ -117,13 +117,13 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 ### 5. MCP Integration Layer (v4)
 
 #### Hermit Graph MCP Server (`scripts/hermit-mcp-server.mjs`)
-**Single unified server with 21 tools across 5 modules (stdio JSON-RPC transport)**
+**Single unified server with 23 tools + 1 resource across 6 modules (stdio JSON-RPC transport)**
 
 **Module Architecture:**
 ```
 hermit-mcp-server.mjs (entry point)
   ├── Memory Module (10 tools) — KG CRUD
-  ├── CodeGraph Module (4 tools) — GitNexus wrapper
+  ├── CodeGraph Module (5 tools) — GitNexus wrapper
   ├── Intelligence Module (3 tools) — Audit trail, consolidation, branch context
   ├── Unified Search (2 tools) — Cross-KG + code search, health checks
   ├── Session Module (1 tool + 1 resource) — Cross-agent session context
@@ -145,11 +145,12 @@ Each module exports `register(server, context)` function, called sequentially by
 9. `hermit_export_subgraph` — Export filtered entity set to JSON
 10. `hermit_get_relations` — List relations (optionally filtered)
 
-**CodeGraph Module Tools (4):**
+**CodeGraph Module Tools (5):**
 1. `hermit_query` — Concept-based code search via GitNexus
 2. `hermit_context` — 360-degree symbol view (callers, callees, flows)
 3. `hermit_impact` — Blast radius analysis (upstream/downstream/both)
 4. `hermit_detect_changes` — Pre-commit scope check (staged/all/compare)
+5. `hermit_index` — Index/re-index a project for code intelligence (runs GitNexus analyze)
 
 **Intelligence Module Tools (3):**
 1. `hermit_audit_trail` — Observation change history (append-only log)
