@@ -4,6 +4,141 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [4.2.1] — 2026-04-13
+
+### Fixed
+
+- Session module missing from all documentation (README, system-architecture, codebase-summary)
+- Module count in docs now correctly shows 6 modules / 22 tools + 1 resource
+
+---
+
+## [4.2.0] — 2026-04-13
+
+### Added
+
+#### Cross-Agent Session Context (2 new files)
+- `scripts/lib/session-module.mjs` (123 LOC) — MCP tool + resource for auto-context loading
+  - `hermit_session_start` — Detects project scope from CWD, returns relevant entities + branch + graph stats
+  - `hermit://context/auto` — MCP resource returning markdown-formatted session context
+- `scripts/lib/session-recall.mjs` (191 LOC) — Scope detection, keyword matching, entity scoring engine
+  - Matches CWD against entity project scopes for targeted recall
+  - Scoring: scope match weight + keyword relevance + recency bonus
+
+#### Skill Distribution System (3 new files)
+- `scripts/lib/skill-adapters.mjs` (90 LOC) — Agent configs + transforms for 4 agents
+  - **Claude** — per-file copy to `.claude/skills/{name}/SKILL.md`
+  - **Cursor** — per-file wrap as `.cursor/rules/hermit-{name}.mdc` (MDC frontmatter)
+  - **Gemini** — merge-single into `GEMINI.md` with section markers
+  - **Codex** — merge-single into `AGENTS.md` with section markers
+- `scripts/lib/skill-export.mjs` (166 LOC) — Export engine (discover, compat check, write strategies, backup)
+  - Per-file: mkdir + writeFile (Claude, Cursor)
+  - Merge-single: section markers `<!-- hermit:skill:{name} start/end -->` for idempotent merge (Gemini, Codex)
+  - Backup: `.hermit/backups/{filename}.bak` per export batch
+- `scripts/lib/skills-module.mjs` (106 LOC) — 2 MCP tools: `hermit_skill_list` + `hermit_skill_export`
+- **CLI:** `hermit skills export <name|--all> --agent <agent> [--project /path] [--global]`
+
+#### Rules File Setup (non-Claude agents)
+- `templates/hermit-rules.md` — Shared rules template for non-Claude agents
+- `scripts/setup-project.mjs` — New `installRulesFile()` for agent-specific formats:
+  - Cursor → `.cursor/rules/hermit.mdc` (MDC frontmatter)
+  - Windsurf → `.windsurfrules` (append with separator)
+  - Cline → `.clinerules` (standalone file)
+  - Codex → `AGENTS.md` (standalone file)
+
+### Changed
+
+- `hermit-mcp-server.mjs` registers 2 new modules (session-module + skills-module) — now 6 modules total
+- `kg-auto-recall.cjs` reads `MEMORY_FILE_PATH` from `~/.claude/settings.json` MCP config as fallback
+- `brain-cli.mjs` — `await run(args)` fix for async skill manager
+- `.gitignore` — Added `.npmrc`
+
+### Fixed
+
+- Code review fixes applied: C1 (backup overwrite), C2 (partial failure), H1 (compat gate key check), H2 (path validation), M1 (MDC escaping), M2 (skip names), M4 (newline normalization)
+
+### Testing
+
+- **Main suite:** 36/36 tests passing (version 4.2.0, 21 tools)
+- **E2E skill distribution:** 36/36 assertions (discovery, all 4 agents, idempotent merge, backup, error handling)
+- **Session module:** Manual verification (scope detection, JSON-RPC, resource, setup for Cursor/Windsurf)
+
+---
+
+## [4.1.0] — 2026-04-09
+
+### Added
+
+- In-process GitNexus LocalBackend as execution tier 0 (zero IPC overhead)
+- Brain mtime cache for repeated reads
+- TTL cache layer + output formatters for codegraph module
+
+### Performance
+
+| Metric | Before | After | Speedup |
+|--------|--------|-------|---------|
+| `hermit_context` | 303ms | 36ms | 8.4x |
+| `hermit_impact` | 303ms | 66ms | 4.6x |
+| Brain repeated reads | 6ms | 0.3ms | 22x |
+
+### Changed
+
+- `engines` field bumped to Node >=20 (ESM dynamic import required)
+- `unified-search.mjs` updated for positional args + new GitNexus output format
+
+---
+
+## [4.0.0] — 2026-04-09
+
+### Added
+
+- **Unified MCP server** (`hermit-mcp-server.mjs`) — single entry point, 19 tools across 4 modules
+  - Memory Module (10 tools) — KG CRUD: create/search/get/update/delete/list/bulk-import/export/relations
+  - CodeGraph Module (4 tools) — GitNexus wrapper: query/context/impact/detect-changes
+  - Intelligence Module (3 tools) — audit-trail/consolidate/branch-context
+  - Unified Search (2 tools) — cross-KG + code search, health checks
+- **Module registration pattern** — each module exports `register(server, ctx)`, loaded sequentially
+- **Server-side observation validation** — universal for all agents (not just Claude hooks)
+- `kg-write-validator.cjs` hook added to catalog (optional Claude Code layer)
+- Modularized `scripts/lib/` — 11 focused modules extracted from monolithic v3 scripts
+
+### Removed
+
+- 7 obsolete v3 scripts: `launch-memory-mcp.mjs`, `launch-conventions-mcp.mjs`, `launch-memory-mcp.cmd`, `fix-brain-format.mjs`, old test/migration files
+- Two separate MCP servers replaced by single unified server
+
+### Breaking Changes
+
+- MCP server entry point changed from `launch-memory-mcp.mjs` to `hermit-mcp-server.mjs`
+- Tool names changed from `search_nodes`/`create_entities` to `hermit_search_entities`/`hermit_create_entities` (hermit prefix)
+- Requires data migration: `node scripts/migrate-v3-to-v4.mjs`
+
+### Testing
+
+- **Total Tests:** 36/36 passing (comprehensive v4 test suite)
+
+---
+
+## [3.1.0] — 2026-04-08
+
+### Added
+
+- **Multi-agent setup:** `hermit setup --agent <cursor|windsurf|cline|codex>` configures any AI agent
+- **Auto-detect:** Detects agent from project files (`.cursor/` → Cursor, `.claude/` → Claude)
+- **MCP-only mode:** `hermit setup --mcp-only` prints generic MCP config for any agent
+- **Skills catalog:** `catalog/` directory with 6 skills, 14 commands, 1 hook (git-tracked source)
+- **Skills manager:** `hermit skills [list|add|remove|info|installed]` for individual skill management
+- `resolve-brain-path.mjs` — detects git-clone vs npm-install for brain.jsonl path resolution
+- npm publish metadata (files, keywords, repository, engines)
+
+### Changed
+
+- README rewritten with multi-agent setup guide and agent comparison table
+- Non-Claude agents get MCP config + brain.jsonl + BUSINESS.md (no skills/commands/hooks)
+- Claude gets full package (skills, commands, hooks, CLAUDE.md, auto-recall/save hooks)
+
+---
+
 ## [3.0.0] — 2026-04-08
 
 ### Added (Competitive Evolution Phase)
@@ -211,13 +346,13 @@ None. All v2.3 USPs (4-tier taxonomy, confidence scoring, brain health, biz-guar
 
 ## Unreleased
 
-### Planned (v3.2+)
+### Planned
 
+- Persistent session module tests in test-v4.mjs
 - Telemetry & observability dashboard
 - Automated stale cleanup policies
 - Multi-machine brain sync & backup
-- IDE integrations (VSCode, Cursor, JetBrains)
 
 ---
 
-*Last updated: 2026-04-08 | Current version: 3.0.0*
+*Last updated: 2026-04-13 | Current version: 4.2.1*
