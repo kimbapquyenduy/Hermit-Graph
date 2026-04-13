@@ -1,6 +1,6 @@
 {
   "name": "hermit-graph",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Windsurf, Cline, and more.",
   "type": "module",
   "bin": {
