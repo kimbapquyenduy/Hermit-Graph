@@ -44,6 +44,8 @@ async function loadModules() {
     './lib/codegraph-module.mjs',
     './lib/intelligence-module.mjs',
     './lib/unified-search.mjs',
+    './lib/session-module.mjs',
+    './lib/skills-module.mjs',
   ];
 
   for (const mod of modules) {

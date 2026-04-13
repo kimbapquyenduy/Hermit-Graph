@@ -78,17 +78,18 @@ const AGENTS = {
     supportsSkills: false,
     supportsCommands: false,
     supportsHooks: false,
+    rulesFile: () => join(projectRoot, '.cursor', 'rules', 'hermit.mdc'),
+    rulesFormat: 'mdc',
     configureGlobalMcp: configureCursorGlobalMcp,
     configureProjectMcp: configureCursorProjectMcp,
     nextSteps: [
       '1. Edit BUSINESS.md with your project business rules',
       '2. Restart Cursor — it now has memory via MCP!',
-      '3. Ask: "Do you have memory tools? Try search_nodes with keyword test."',
+      '3. Agent will auto-load context via hermit_session_start (see .cursor/rules/hermit.mdc)',
     ],
     commandsHelp: [
       'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
-      'Ask agent: "Remember that..." → it saves to knowledge graph',
-      'Ask agent: "What do you know about..." → it searches memory',
+      'Session: hermit_session_start loads project context automatically',
     ],
   },
   windsurf: {
@@ -99,16 +100,18 @@ const AGENTS = {
     supportsSkills: false,
     supportsCommands: false,
     supportsHooks: false,
+    rulesFile: () => join(projectRoot, '.windsurfrules'),
+    rulesFormat: 'append',
     configureGlobalMcp: configureWindsurfGlobalMcp,
     configureProjectMcp: () => {},
     nextSteps: [
       '1. Edit BUSINESS.md with your project business rules',
       '2. Restart Windsurf — it now has memory via MCP!',
-      '3. Ask: "Do you have memory tools? Try search_nodes with keyword test."',
+      '3. Agent will auto-load context via hermit_session_start',
     ],
     commandsHelp: [
       'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
-      'Ask agent: "Remember that..." → it saves to knowledge graph',
+      'Session: hermit_session_start loads project context automatically',
     ],
   },
   cline: {
@@ -119,6 +122,8 @@ const AGENTS = {
     supportsSkills: false,
     supportsCommands: false,
     supportsHooks: false,
+    rulesFile: () => join(projectRoot, '.clinerules'),
+    rulesFormat: 'file',
     configureGlobalMcp: configureClineInstructions,
     configureProjectMcp: () => {},
     nextSteps: [
@@ -128,6 +133,7 @@ const AGENTS = {
     ],
     commandsHelp: [
       'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
+      'Session: hermit_session_start loads project context automatically',
     ],
   },
   codex: {
@@ -138,6 +144,8 @@ const AGENTS = {
     supportsSkills: false,
     supportsCommands: false,
     supportsHooks: false,
+    rulesFile: () => join(projectRoot, 'AGENTS.md'),
+    rulesFormat: 'file',
     configureGlobalMcp: configureCodexInstructions,
     configureProjectMcp: () => {},
     nextSteps: [
@@ -147,6 +155,7 @@ const AGENTS = {
     ],
     commandsHelp: [
       'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
+      'Session: hermit_session_start loads project context automatically',
     ],
   },
 };
@@ -284,6 +293,11 @@ if (agent.supportsHooks) {
 // ── 4. Copy templates ──
 copyBusinessTemplate();
 
+// ── 4b. Rules file (non-Claude agents) ──
+if (!agent.supportsHooks && agent.rulesFile) {
+  installRulesFile();
+}
+
 // ── 5. CLAUDE.md (Claude only) ──
 if (agentKey === 'claude') {
   setupClaudeMd();
@@ -351,6 +365,52 @@ function copyBusinessTemplate() {
       console.log(`  + Template: ${to} — ${note}`);
       installed++;
     } else if (existsSync(dst)) {
+      skipped++;
+    }
+  }
+}
+
+function installRulesFile() {
+  const dst = agent.rulesFile();
+  if (!dst) return;
+
+  const src = join(brainRoot, 'templates', 'hermit-rules.md');
+  if (!existsSync(src)) return;
+
+  const content = readFileSync(src, 'utf-8');
+
+  if (agent.rulesFormat === 'mdc') {
+    // Cursor MDC format: YAML frontmatter + content
+    if (!existsSync(dst)) {
+      const mdcContent = `---\ndescription: Hermit Graph persistent memory instructions\nglobs: \nalwaysApply: true\n---\n\n${content}`;
+      const dstDir = dirname(dst);
+      if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
+      writeFileSync(dst, mdcContent);
+      console.log(`  + Rules: ${dst.replace(projectRoot, '.')}`);
+      installed++;
+    } else {
+      skipped++;
+    }
+  } else if (agent.rulesFormat === 'append') {
+    // Append to existing rules file (Windsurf)
+    const existing = existsSync(dst) ? readFileSync(dst, 'utf-8') : '';
+    if (!existing.includes('Hermit Graph')) {
+      const separator = existing ? '\n\n---\n\n' : '';
+      writeFileSync(dst, existing + separator + content);
+      console.log(`  + Rules: appended to ${dst.replace(projectRoot, '.')}`);
+      installed++;
+    } else {
+      skipped++;
+    }
+  } else {
+    // Standalone file (Cline, Codex)
+    if (!existsSync(dst)) {
+      const dstDir = dirname(dst);
+      if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
+      writeFileSync(dst, content);
+      console.log(`  + Rules: ${dst.replace(projectRoot, '.')}`);
+      installed++;
+    } else {
       skipped++;
     }
   }

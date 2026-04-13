@@ -88,7 +88,7 @@ const COMMANDS = {
 
 async function runSkills() {
   const { run } = await import('./skills-manager.mjs');
-  run(args);
+  await run(args);
 }
 
 async function runSearch() {
