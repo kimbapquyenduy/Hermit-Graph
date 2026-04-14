@@ -1,3 +1,9 @@
+---
+description: "Business-aware coding guard — validates changes against business rules before editing"
+tags: "business, rules, guard, validation, impact"
+complexity: "moderate"
+requires-tools: "file-ops, mcp"
+---
 # Biz Guard — Business-Aware Coding Skill
 
 ## Mục đích

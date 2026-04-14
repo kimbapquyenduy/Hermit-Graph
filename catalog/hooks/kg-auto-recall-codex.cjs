@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * kg-auto-recall.cjs — Claude Code UserPromptSubmit Hook
+ * kg-auto-recall-codex.cjs — Codex CLI Hook
  *
  * Thin adapter: reads stdin JSON {prompt}, calls recall-core, outputs plain text.
+ * Codex CLI uses the same plain-text stdout format as Claude Code.
  * All core logic lives in lib/recall-core.cjs.
  *
  * Exit Codes:
@@ -19,15 +20,18 @@ function main() {
     if (!stdin) process.exit(0);
 
     const payload = JSON.parse(stdin);
-    const prompt = payload.prompt || '';
+    const prompt = payload.prompt || payload.message || '';
     if (prompt.length < 10) process.exit(0);
 
     const keywords = core.extractKeywords(prompt);
-    if (keywords.length === 0) process.exit(0);
+    if (!keywords.length) process.exit(0);
 
-    const projectScope = core.detectProjectScope();
-    const results = core.searchBrain(keywords, projectScope);
-    const output = core.formatResults(results, keywords, projectScope);
+    const cwd = payload.cwd || '';
+    const scope = cwd
+      ? core.detectProjectScopeFromPath(cwd)
+      : core.detectProjectScope();
+    const results = core.searchBrain(keywords, scope);
+    const output = core.formatResults(results, keywords, scope);
 
     if (output) console.log(output);
     process.exit(0);

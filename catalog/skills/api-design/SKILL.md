@@ -1,3 +1,10 @@
+---
+description: "Guide API endpoint design with consistency checks and naming conventions"
+tags: "api, rest, graphql, endpoints, routes, design"
+complexity: "moderate"
+requires-tools: "file-ops, mcp"
+paths: "**/api/**, **/routes/**, **/endpoints/**, **/controllers/**"
+---
 # API Design — Consistent Endpoint Design and Review
 
 ## Purpose

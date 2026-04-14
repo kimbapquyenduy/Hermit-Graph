@@ -1,3 +1,10 @@
+---
+description: "Safe database migration practices with pre-flight checks and gotcha warnings"
+tags: "database, migration, prisma, knex, sql, schema"
+complexity: "complex"
+requires-tools: "bash, file-ops, mcp"
+paths: "**/migrations/**, **/prisma/**, **/knex/**, **/db/**, **/schema/**"
+---
 # DB Migrations — Safe Database Migration Practices
 
 ## Purpose

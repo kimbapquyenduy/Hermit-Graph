@@ -1,107 +1,136 @@
-# Hermit Graph — Persistent Memory for AI Coding Agents
+<p align="center">
+  <img src="https://img.shields.io/npm/v/hermit-graph?style=flat-square&color=blue" alt="npm version" />
+  <img src="https://img.shields.io/github/stars/kimbapquyenduy/hermit-graph?style=flat-square&logo=github" alt="GitHub stars" />
+  <img src="https://img.shields.io/badge/agents-Claude%20%7C%20Cursor%20%7C%20Gemini%20%7C%20Cline%20%7C%20Codex-blueviolet?style=flat-square" alt="Supported agents" />
+  <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square" alt="Node 20+" />
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" />
+  <img src="https://img.shields.io/badge/MCP-v1.29-orange?style=flat-square" alt="MCP Protocol" />
+</p>
 
-A **knowledge graph** that gives your AI coding agents long-term memory across all projects. Built on a 4-tier taxonomy with confidence-scored observations, semantic search, and multi-agent support.
+# Hermit Graph
+
+**Your AI coding agents remember what they learned — across projects, across time.**
+
+One persistent memory for Claude Code, Cursor, Gemini CLI, Cline, and Codex. Install once, every agent stays in context.
+
+```bash
+npm install -g hermit-graph && cd your-project && hermit setup
+```
 
 > *The Hermit carries a lantern to illuminate hidden truths — this graph carries your codebase wisdom.*
 
-## Features
+---
 
-### Core
-- **4-Tier Knowledge Graph** — Structured taxonomy: BIZ (business), PATTERN (code/arch), TECH (stack/config), INCIDENT (bugs/gotchas)
-- **Confidence-Scored Observations** — Every fact tagged `[confidence|date]` (0.0-1.0). Stale entries auto-flagged after 180 days
-- **13 Entity Types** — `biz-domain`, `biz-rule`, `biz-flow`, `biz-entity`, `pattern-code`, `pattern-arch`, `pattern-integration`, `tech-stack`, `tech-config`, `tech-person`, `tech-decision`, `incident-bug`, `incident-gotcha`
-- **JSONL Storage** — Git-friendly, zero database. One shared file across all projects
+## The Problem
 
-### Search
-- **Hybrid Search** — Semantic (vector) + keyword (BM25-like) via `hermit search`
-- **JS-Native Embeddings** — transformers.js + all-MiniLM-L6-v2 ONNX (~23MB, offline, no Python)
-- **Embedding Index** — Pre-built vector index for fast similarity search
+AI coding agents forget everything between sessions. You re-explain the same architecture. They make the same mistakes. Business rules get violated because the agent didn't know they existed.
 
-### Intelligence
-- **Brain Health Check** — 5-check scoring system (stale, dupes, orphans, low-confidence, missing relations). Score 0-100
-- **Business Rule Guard** — `/biz-review` validates code against documented business rules
-- **Impact Analysis** — `/impact` shows blast radius before code changes
-- **Cross-Project Reuse** — `/suggest-reuse` finds reusable patterns from other projects
+**Hermit Graph fixes this.** It gives your agents a shared brain that persists across projects, sessions, and teams — automatically.
 
-### Multi-Agent
-- **File-Lock Coordination** — Multiple AI agents can read/write the same brain.jsonl safely
-- **MCP Protocol** — Any MCP-compatible agent connects (Claude Code, Cursor, Codex, etc.)
-- **Auto-Save Hooks** — Stop hook reviews every response and reminds agent to save new knowledge
+## How It Works
 
-### Visualization
-- **HTML Dashboard** — vis.js graph viewer with search, filter, dark theme. No build tools needed
-- **Neo4j (Optional)** — Full graph database with Cypher queries via Docker
+```
+You → AI Agent → Hermit Brain (brain.jsonl)
+                     ↕
+              Search · Recall · Learn
+                     ↕
+         All your other projects & agents
+```
 
-### Cross-Agent Session Context
-- **Auto-Context Loading** — `hermit_session_start` detects project scope and returns relevant entities automatically
-- **MCP Resource** — `hermit://context/auto` provides markdown-formatted context for resource-capable agents
-- **Rules File Setup** — `hermit setup` installs rules files for Cursor (`.mdc`), Windsurf (`.windsurfrules`), Cline (`.clinerules`), Codex (`AGENTS.md`)
-- **Scope Detection** — Matches CWD against entity project scopes for targeted recall
-
-### Skill Distribution
-- **Multi-Agent Export** — Export skills to Claude Code, Cursor, Gemini CLI, Codex in their native formats
-- **Write Strategies** — Per-file (Claude `.claude/skills/`, Cursor `.mdc`), merge-single (Gemini `GEMINI.md`, Codex `AGENTS.md`)
-- **Idempotent Merge** — Section markers for merge-single agents ensure re-export replaces, not duplicates
-- **MCP Tools** — `hermit_skill_list` and `hermit_skill_export` callable from any agent
-
-### Developer Tools
-- **14 Slash Commands** — `/remember`, `/recall`, `/brain-dump`, `/diagnose`, `/ingest`, and more
-- **6 Skills** — Business guard, auto-memory, code patterns, API design, DB migrations, tech advisor
-- **Hermit CLI** — `hermit skills`, `hermit search`, `hermit health`, `hermit index`, etc.
+Your agents save decisions, patterns, rules, and bugs into a structured knowledge graph. Next time — in any project, with any agent — they find it instantly.
 
 ---
 
-## Setup
+## Quick Start
 
-### 1. Install
-
-**Option A: npm (recommended)**
+**1. Install**
 ```bash
 npm install -g hermit-graph
 ```
 
-**Option B: git clone**
-```bash
-git clone https://github.com/kimbapquyenduy/hermit-graph.git
-cd hermit-graph
-npm install && npm link
-```
-
-### 2. Setup for your AI agent
-
-Navigate to your project and run `hermit setup`. It auto-detects your agent and configures everything.
-
+**2. Setup in your project**
 ```bash
 cd /path/to/your-project
+hermit setup                    # Auto-detects your AI agent
+```
+
+**3. Verify** — ask your agent:
+> *"Do you have memory tools? Try `search_nodes` with keyword test."*
+
+That's it. Memory is live.
+
+---
+
+## What You Get
+
+### Keep Agents in Context
+- **Cross-project memory** — Learn a pattern in Project A, recall it in Project B
+- **Semantic + keyword search** — Find knowledge by concept or exact phrase
+- **Automatic staleness detection** — Flags old knowledge (180+ days) for review
+- **Confidence scoring** — Distinguish verified facts `[0.95]` from experiments `[0.5]`
+
+### Enforce Business Rules
+- **Business rule guard** — `/biz-review` validates code against documented rules before merge
+- **Impact analysis** — `/impact` shows blast radius before you change anything
+- **Cross-project reuse** — `/suggest-reuse` finds reusable patterns from your other projects
+
+### Automate Knowledge Capture
+- **Auto-recall hooks** — Before each response, agents search the brain for relevant context
+- **Auto-update hooks** — After each response, entities are extracted from conversation automatically
+- **Entity extraction** — 6 regex extractors catch tech decisions, error patterns, explicit refs, and more
+- **14 slash commands** — `/remember`, `/recall`, `/brain-dump`, `/diagnose`, `/ingest`, etc.
+
+### Work Across 5 Agents
+- **One memory, five agents, zero conflicts** — File-lock safe concurrent access
+- **MCP protocol** — Standard integration via 28 tools + 1 resource
+- **Native hooks for all agents** — Auto-recall and auto-update hooks for Claude, Cursor, Gemini, Cline, Codex
+- **Skill distribution** — Export skills, commands, and hooks to any agent in their native format
+
+### Visualize & Audit
+- **HTML dashboard** — vis.js graph viewer with search, filter, dark theme
+- **Brain health check** — 5-check scoring (stale, dupes, orphans, low-confidence, missing relations). Score 0-100
+- **Neo4j (optional)** — Full graph database with Cypher queries via Docker
+
+---
+
+## Why Hermit Graph?
+
+| | Hermit Graph | CLAUDE.md (manual) | Git Notes | Linear / Notion |
+|---|:---:|:---:|:---:|:---:|
+| **Searchable** | Semantic + keyword | Manual search | Limited | External |
+| **Multi-agent** | 5 agents, file-lock safe | Per-project | Per-branch | Per-workspace |
+| **Structured** | 4-tier taxonomy, 13 types | Unstructured | Unstructured | Manual structure |
+| **Auto-capture** | Hooks extract entities | Manual save | Manual | Manual |
+| **Works offline** | Local JSONL | Local | Local | Needs internet |
+| **Cost** | Free (MIT) | Free | Free | $10-20/mo |
+
+---
+
+## Agent Support
+
+| Feature | Claude Code | Cursor | Gemini CLI | Cline | Codex |
+|---------|:-----------:|:------:|:----------:|:-----:|:-----:|
+| MCP memory server | auto | auto | auto | manual | manual |
+| brain.jsonl | auto | auto | auto | auto | auto |
+| Skills (6) | auto | export | export | export | export |
+| Slash commands (14) | auto | export | export | — | export |
+| Auto-recall hook | auto | export | export | export | export |
+| Auto-update hook | auto | export | export | export | export |
+| BUSINESS.md template | auto | auto | auto | auto | auto |
+
+```bash
 hermit setup                    # Auto-detect (defaults to Claude Code)
 hermit setup --agent cursor     # Cursor
-hermit setup --agent windsurf   # Windsurf
+hermit setup --agent gemini     # Gemini CLI
 hermit setup --agent cline      # Cline (VS Code extension)
 hermit setup --agent codex      # OpenAI Codex CLI
 hermit setup --mcp-only         # Any agent — just prints MCP config
 ```
 
-**What each agent gets:**
+> Claude Code gets native `.claude/` integration. Other agents get the same features via `hermit hooks export` and `hermit skills export` in their native formats.
 
-| Feature | Claude Code | Cursor | Windsurf | Cline | Codex |
-|---------|:-----------:|:------:|:--------:|:-----:|:-----:|
-| MCP memory server | auto | auto | auto | manual | manual |
-| brain.jsonl | auto | auto | auto | auto | auto |
-| Skills (6) | auto | export | export | — | export |
-| Slash commands (14) | auto | — | — | — | — |
-| Auto-recall hook | auto | — | — | — | — |
-| Auto-save hook | auto | — | — | — | — |
-| BUSINESS.md template | auto | auto | auto | auto | auto |
-
-> **Why the difference?** Skills, slash commands, and hooks are Claude Code-specific features (`.claude/` directory). Other agents connect via MCP protocol only — they get the same knowledge graph, just without the Claude Code integrations. Use `hermit skills export` to distribute skills to Cursor, Gemini, and Codex in their native formats.
-
-### 3. Verify
-
-Open your project with your AI agent and ask: *"Do you have memory tools? Try `search_nodes` with keyword test."*
-
-### Manual MCP setup (any agent)
-
-If `hermit setup` can't auto-configure your agent, add this MCP server config manually:
+<details>
+<summary><strong>Manual MCP setup (any agent)</strong></summary>
 
 ```json
 {
@@ -119,7 +148,6 @@ If `hermit setup` can't auto-configure your agent, add this MCP server config ma
 
 Replace `<ABSOLUTE_PATH>` with your clone path. Use forward slashes on all platforms.
 
-**Config file locations:**
 | Agent | Config path |
 |-------|------------|
 | Claude Code | `~/.claude/settings.json` |
@@ -128,86 +156,13 @@ Replace `<ABSOLUTE_PATH>` with your clone path. Use forward slashes on all platf
 | Cline | VS Code `settings.json` → `cline.mcpServers` |
 | Codex | `~/.codex/config.json` |
 
-### Claude Code extras (optional)
-
-For Claude Code users, `hermit setup` also installs:
-- **Global instructions** (`~/.claude/CLAUDE.md`) — teaches the 4-tier naming convention
-- **Auto-recall hook** — searches brain.jsonl before every response
-- **Auto-save hook** — reminds agent to save new knowledge after each response
-
-These are auto-configured by `hermit setup`. No manual steps needed.
-
----
-
-## Optional: Semantic Search
-
-Enables vector-based similarity search on top of keyword matching.
-
-```bash
-npm run setup:semantic    # Verifies Node 18+, downloads model (~23MB)
-npm run build:index       # Builds embedding index from brain.jsonl
-```
-
-## Optional: Auto-Save Hook
-
-Add to your `~/.claude/settings.json` under `"hooks"`. This runs after every AI response and prompts it to save new knowledge.
-
-```json
-"hooks": {
-  "Stop": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "prompt",
-          "prompt": "Review the conversation. If NEW knowledge was learned (business rules, patterns, tech decisions, bugs), remind assistant to save using create_entities. If nothing new, respond PASS."
-        }
-      ]
-    }
-  ]
-}
-```
-
-See `.claude-settings.json` for the full detailed hook prompt.
-
-## Optional: Neo4j Viewer
-
-```bash
-cd docker && docker compose up -d
-cp .env.example .env    # set password
-npm run sync
-# Open http://localhost:7474
-```
+</details>
 
 ---
 
 ## CLI Reference
 
 ```bash
-# Skills (no ClaudeKit needed)
-hermit skills                          # List all 6 skills + 14 commands
-hermit skills add biz-guard api-design # Install specific skills
-hermit skills add --all                # Install all skills + commands + hooks
-hermit skills remove <name>            # Remove a skill
-hermit skills info <name>              # Show skill details
-hermit skills installed                # Show what's installed in current project
-
-# Skill distribution (multi-agent export)
-hermit skills export biz-guard --agent cursor --project /path  # Export to Cursor (MDC)
-hermit skills export --all --agent gemini --global             # All skills to ~/.gemini/GEMINI.md
-hermit skills export --all --agent codex --project /path       # All skills to AGENTS.md
-hermit skills export biz-guard --agent all --global            # Export to all 4 agents
-
-# Project setup (multi-agent)
-hermit setup                           # Auto-detect agent, install everything
-hermit setup --agent cursor            # Setup for Cursor
-hermit setup --agent windsurf          # Setup for Windsurf
-hermit setup --agent cline             # Setup for Cline
-hermit setup --agent codex             # Setup for Codex CLI
-hermit setup --mcp-only                # Just print MCP config (any agent)
-hermit setup --only biz-guard,api-design  # Claude: selected skills only
-hermit setup --skip db-migrations      # Claude: skip specific skills
-
 # Knowledge graph
 hermit search <query>     # Hybrid semantic + keyword search
 hermit health             # Brain health check (score 0-100)
@@ -216,13 +171,24 @@ hermit export             # Export MCP DB to brain.jsonl
 hermit stale              # Report stale observations (>180 days)
 hermit serve              # Start MCP memory server
 hermit view               # Open dashboard viewer on localhost
-hermit help               # Show all commands
+
+# Skills management
+hermit skills                          # List all 6 skills + 14 commands
+hermit skills add --all                # Install all skills + commands + hooks
+hermit skills info <name>              # Show skill details
+hermit skills installed                # Show what's installed
+
+# Multi-agent distribution
+hermit skills export --all --agent cursor --project /path   # Skills to Cursor
+hermit skills export --all --agent gemini --global          # Skills to Gemini
+hermit hooks export --all --agent all --project /path       # Hooks to all agents
 ```
 
-## NPM Scripts
+<details>
+<summary><strong>NPM Scripts</strong></summary>
 
 ```bash
-npm test                  # Run test suite
+npm test                  # Run test suite (98 tests)
 npm run health            # Brain health check
 npm run sync              # Sync graph to Neo4j
 npm run view              # Serve HTML dashboard
@@ -230,13 +196,15 @@ npm run build:index       # Build semantic embedding index
 npm run export            # Export MCP DB to brain.jsonl
 npm run stale             # Stale observation report
 npm run migrate           # Migrate v3 to v4 format
-npm run backfill          # Add confidence prefix to legacy data
 npm run setup             # Setup Hermit Graph for a new project
 npm run setup:semantic    # Setup semantic search (JS-native)
 npm run setup:all         # Setup everything (project + semantic)
 ```
 
-## Slash Commands
+</details>
+
+<details>
+<summary><strong>Slash Commands (14)</strong></summary>
 
 | Command | What it does |
 |---------|-------------|
@@ -253,69 +221,144 @@ npm run setup:all         # Setup everything (project + semantic)
 | `/learn-project` | Auto-detect project conventions |
 | `/suggest-reuse` | Find reusable patterns from other projects |
 
-## 4-Tier Naming
+</details>
 
-| Tier | Prefix | Example |
-|------|--------|---------|
-| **BIZ** | `BIZ:`, `RULE:`, `FLOW:`, `ENTITY:` | `RULE:ShopX:DiscountMax50` |
-| **PATTERN** | `PATTERN:`, `PATTERN:ARCH:`, `PATTERN:INT:` | `PATTERN:INT:VNPay` |
-| **TECH** | `TECH:`, `PERSON:`, `DECISION:` | `TECH:EduMVP` |
-| **INCIDENT** | `INCIDENT:`, `GOTCHA:`, `BUG:` | `INCIDENT:ShopX:PaymentTimeout` |
+---
+
+## How Knowledge Is Organized
+
+Hermit uses a **4-tier taxonomy** to categorize everything your agents learn:
+
+| Tier | What it captures | Example |
+|------|-----------------|---------|
+| **BIZ** | Business rules, flows, domain entities | `RULE:ShopX:DiscountMax50` |
+| **PATTERN** | Code patterns, architecture, integrations | `PATTERN:INT:VNPay` |
+| **TECH** | Stack decisions, config, people | `TECH:EduMVP` |
+| **INCIDENT** | Bugs, gotchas, lessons learned | `INCIDENT:ShopX:PaymentTimeout` |
+
+Every observation is tagged with confidence `[0.0-1.0]` and date. Stale entries (180+ days) are auto-flagged for review.
+
+---
+
+## Optional Features
+
+<details>
+<summary><strong>Semantic Search</strong></summary>
+
+Enables vector-based similarity search on top of keyword matching.
+
+```bash
+npm run setup:semantic    # Downloads model (~23MB, offline, no Python)
+npm run build:index       # Builds embedding index from brain.jsonl
+```
+
+Uses transformers.js + all-MiniLM-L6-v2 ONNX. Fully offline, JS-native.
+
+</details>
+
+<details>
+<summary><strong>Auto-Update Hook (v5)</strong></summary>
+
+Scans assistant messages after each response and extracts entities via regex — no LLM re-parse needed. Entities written with `[0.5|date]` confidence (auto-extracted, unverified).
+
+**Claude Code** — auto-configured by `hermit setup`. Or add manually:
+
+```json
+"hooks": {
+  "Stop": [{
+    "matcher": "*",
+    "hooks": [{
+      "type": "command",
+      "command": "node <HERMIT_PATH>/catalog/hooks/kg-auto-update.cjs"
+    }]
+  }]
+}
+```
+
+**Other agents** — `hermit hooks export --all --agent <agent> --project /path`
+
+Set `HERMIT_AUTO_UPDATE=false` to disable.
+
+</details>
+
+<details>
+<summary><strong>Neo4j Viewer</strong></summary>
+
+```bash
+cd docker && docker compose up -d
+cp .env.example .env    # set password
+npm run sync
+# Open http://localhost:7474
+```
+
+</details>
+
+---
 
 ## Project Structure
+
+<details>
+<summary><strong>View full tree</strong></summary>
 
 ```
 hermit-graph/
 ├── catalog/
-│   ├── skills/                  # 6 hermit-graph skills (git-tracked)
-│   ├── commands/                # 14 slash commands (git-tracked)
-│   └── hooks/                   # Auto-save hook (git-tracked)
+│   ├── skills/                  # 6 hermit-graph skills
+│   ├── commands/                # 14 slash commands
+│   └── hooks/                   # Auto-recall + auto-update hooks (5 agents)
+│       ├── kg-auto-recall*.cjs  # Pre-response context recall
+│       ├── kg-auto-update*.cjs  # Post-response entity extraction
+│       ├── session-hook-*.cjs   # Session start hooks
+│       └── lib/                 # Shared hook logic
 ├── data/
-│   ├── brain.jsonl              # Knowledge graph data (agents write here)
+│   ├── brain.jsonl              # Knowledge graph data
 │   ├── brain-embeddings.json    # Semantic search index
-│   └── conventions/             # Auto-learned conventions (SQLite)
+│   └── conventions/             # Auto-learned conventions
 ├── scripts/
-│   ├── brain-cli.mjs            # Hermit CLI entry point
-│   ├── skills-manager.mjs       # Skill install/remove/list/export manager
-│   ├── brain-health.mjs         # Health check (5 checks, score 0-100)
-│   ├── build-embedding-index.mjs # Semantic index builder
-│   ├── merge-brain-jsonl.mjs    # Multi-agent merge utility
-│   ├── setup-project.mjs        # Full project setup wizard
-│   ├── setup-semantic.mjs       # Semantic search setup
-│   ├── sync-to-neo4j.mjs        # Neo4j sync
-│   └── lib/
-│       ├── skill-adapters.mjs   # Agent configs + transforms (4 agents)
-│       ├── skill-export.mjs     # Export engine (discover, compat, write)
-│       ├── skills-module.mjs    # MCP tools (hermit_skill_list/export)
-│       ├── session-module.mjs   # MCP tool (hermit_session_start) + resource
-│       ├── session-recall.mjs   # Scope detection + entity scoring
-│       ├── semantic-search.mjs  # Hybrid search engine
-│       ├── embedding-service.mjs # transformers.js wrapper
-│       └── file-lock.mjs        # Multi-agent write coordination
-├── viewer/index.html            # Graph dashboard (vis.js, dark theme)
+│   ├── brain-cli.mjs            # CLI entry point
+│   ├── skills-manager.mjs       # Skill install/remove/list/export
+│   ├── hermit-mcp-server.mjs    # MCP server (28 tools + 1 resource)
+│   └── lib/                     # 12 modules
+├── viewer/index.html            # Graph dashboard (vis.js)
 ├── docker/docker-compose.yml    # Neo4j (optional)
-├── templates/                   # CLAUDE.md, BUSINESS.md, global instructions
-├── .claude-settings.json        # MCP + hooks config template
-└── package.json                 # v4.2.x
+├── templates/                   # CLAUDE.md, BUSINESS.md templates
+└── package.json                 # v5.0.0
 ```
+
+</details>
 
 ## FAQ
 
-**Agent doesn't remember anything?**
-Check `~/.claude/settings.json` — JSON must be valid, `MEMORY_FILE_PATH` must be an absolute path to `data/brain.jsonl`. Restart your AI agent after changes.
+<details>
+<summary><strong>Agent doesn't remember anything?</strong></summary>
 
-**Viewer shows nothing?**
-Make sure `data/brain.jsonl` has data. If `file://` is blocked by browser, run `npm run view`.
+Check your agent's MCP config — JSON must be valid, `MEMORY_FILE_PATH` must be an absolute path to `data/brain.jsonl`. Restart your AI agent after changes.
 
-**Want to reset memory?**
+</details>
+
+<details>
+<summary><strong>Want to reset memory?</strong></summary>
+
 Clear contents of `data/brain.jsonl` (keep the file, delete all lines).
 
-**Data file too large?**
+</details>
+
+<details>
+<summary><strong>Data file too large?</strong></summary>
+
 Works fine up to several MB. Over 10MB, run `hermit stale` and archive old entries.
 
-**Semantic search not working?**
+</details>
+
+<details>
+<summary><strong>Semantic search not working?</strong></summary>
+
 Run `npm run setup:semantic` then `npm run build:index`. Requires Node.js 18+.
+
+</details>
 
 ---
 
-*Formerly Claude Code Brain. Rebranded as Hermit Graph v3.0 — universal AI agent memory, not just for Claude.*
+<p align="center">
+  <strong>MIT License</strong> · Built for developers who want their AI agents to actually learn.
+</p>

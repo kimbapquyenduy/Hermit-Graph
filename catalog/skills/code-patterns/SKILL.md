@@ -1,3 +1,9 @@
+---
+description: "Detect, save, and recall reusable coding patterns from the knowledge graph"
+tags: "patterns, reuse, architecture, conventions, best-practices"
+complexity: "simple"
+requires-tools: "mcp"
+---
 # Code Patterns — Detect, Save, and Recall Coding Patterns
 
 ## Purpose

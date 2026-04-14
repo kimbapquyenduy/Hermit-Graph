@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * kg-auto-recall.cjs — Claude Code UserPromptSubmit Hook
+ * kg-auto-recall-cursor.cjs — Cursor onPromptSubmit Hook
  *
  * Thin adapter: reads stdin JSON {prompt}, calls recall-core, outputs plain text.
+ * Cursor's hook format is identical to Claude Code (plain text stdout).
  * All core logic lives in lib/recall-core.cjs.
  *
  * Exit Codes:
@@ -23,11 +24,11 @@ function main() {
     if (prompt.length < 10) process.exit(0);
 
     const keywords = core.extractKeywords(prompt);
-    if (keywords.length === 0) process.exit(0);
+    if (!keywords.length) process.exit(0);
 
-    const projectScope = core.detectProjectScope();
-    const results = core.searchBrain(keywords, projectScope);
-    const output = core.formatResults(results, keywords, projectScope);
+    const scope = core.detectProjectScope();
+    const results = core.searchBrain(keywords, scope);
+    const output = core.formatResults(results, keywords, scope);
 
     if (output) console.log(output);
     process.exit(0);

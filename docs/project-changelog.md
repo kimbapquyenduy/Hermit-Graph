@@ -4,6 +4,120 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [5.0.0] — 2026-04-14 (v5 Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4)
+
+### Added
+
+#### Skill Search (Phase 0 + Phase 1)
+- `scripts/lib/skill-index.mjs` — unified skill metadata index from catalog + project skills, lazy singleton cache
+- `scripts/lib/skill-search-module.mjs` — `hermit_skill_search` MCP tool with weighted keyword scoring (name 5x, tags 3x, desc 1x)
+- 11 new tests: buildSkillIndex, caching, invalidation, searchSkills scoring/filtering/sorting
+
+#### Token-Aware KG Injection (Phase 2)
+- `estimateChars(results, level)` — char estimation at compact/standard/full detail levels
+- `selectDetailLevel(results, capOverride)` — auto-selects detail level vs token budget (default 3000 tokens via `HERMIT_RECALL_TOKEN_CAP`)
+- `formatResults()` now accepts optional `detailLevel` parameter; auto-detects if omitted
+- Progressive detail: compact (names only), standard (name + 1 obs), full (name + 3 obs)
+- Stderr debug logging when detail level is downgraded
+
+#### KG Context Forwarding (Phase 5)
+- `detectPromptType(prompt)` — classifies task (subagent) vs conversational (user) prompts; requires 2+ task signals
+- `extractTaskKeywords(prompt)` — specialized extraction for task payloads: file paths, entity refs, backtick terms, capped standard keywords
+- `expandRelations(results, brainPath)` — depth-1 relation traversal, max 3 extra entities
+- `recall(prompt)` — high-level orchestrator: prompt detection → smart keyword extraction → search → expansion → token-budgeted format
+- Task prompts get lower token cap (1500) and depth-1 relation expansion
+- 16 new tests: token estimation, detail level selection, prompt detection, keyword extraction, relation expansion, recall orchestration
+
+#### Smart Skill Activation (Phase 3)
+- `paths:` frontmatter field for conditional skill activation in Claude Code
+- Added paths to 2 catalog skills (api-design, db-migrations) and 15 project skills
+- Claude export preserves full frontmatter (paths, tags, complexity, requires-tools)
+- Non-Claude exports receive body only — frontmatter naturally excluded
+- Fixed `skill-export.mjs` to pass full content to Claude transform (was stripping frontmatter)
+
+#### OpenCode Export (Phase 6)
+- `opencode` added as 6th agent to AGENTS map in skill-adapters.mjs
+- Skills: per-file to `.opencode/skills/{name}/SKILL.md`
+- Commands: merge-single to `AGENTS.md`
+- Hooks: per-file to `.opencode/hooks/`
+- Strip options: preserveDelegation + preserveHooks (same as Cursor)
+- All 6 existing MCP export tools auto-include opencode via dynamic AGENT_NAMES
+
+#### Post-Response KG Update (Phase 4)
+- `catalog/hooks/lib/entity-extractor.cjs` — regex-based entity extraction from assistant messages
+- 6 regex extractors: explicit backtick refs, tech decisions, error patterns, PascalCase, ALL_CAPS, file paths
+- Classification pipeline: maps extractions to KG entity names + types (TIER:SCOPE:LABEL)
+- Frequency filter: noisy patterns (PascalCase/ALL_CAPS) require 3+ mentions
+- Deduplication: skips entities already in brain.jsonl (case-insensitive name match)
+- Auto-confidence: all entities written with `[0.5|date]` prefix (unverified)
+- Rate limit: max 10 entities per session
+- Kill switch: `HERMIT_AUTO_UPDATE=false` disables entirely
+- `catalog/hooks/kg-auto-update.cjs` — Claude Code Stop hook
+- Agent adapters: cursor, gemini, cline, codex variants
+- 20 new tests: individual extractors, classification, full pipeline, frequency filter, dedup, appendToBrain
+
+#### Richer Frontmatter (Phase 3 + 6)
+- `tags:` — comma-separated keywords for skill search discovery
+- `complexity:` — simple/moderate/complex model routing hint
+- `requires-tools:` — bash/file-ops/mcp/browser agent compat hint
+- Added to all 6 catalog skills + 15 domain project skills
+
+### Changed
+- **Agents** — 6 export targets (was 5): added opencode
+- **MCP tool count** — 28 tools + 1 resource (was 27+1)
+- **Test count** — 98 passing (was 51)
+
+---
+
+## [4.3.0] — 2026-04-13
+
+### Added
+
+#### Cross-Agent Command Export (P1)
+- `discoverCommands()` + `exportCommand()` + `exportAllCommands()` in skill-export.mjs
+- Commands use distinct `hermit:cmd:{name}` section markers (independent from skill markers)
+- 14 commands now exportable to all 4 agents (Claude per-file, Cursor MDC, Gemini/Codex merge-single)
+
+#### Auto-Recall Hook Adapters (P2)
+- `catalog/hooks/lib/recall-core.cjs` — extracted shared search logic from kg-auto-recall.cjs
+- `catalog/hooks/kg-auto-recall-cursor.cjs` — Cursor adapter (stdout text injection)
+- `catalog/hooks/kg-auto-recall-gemini.cjs` — Gemini CLI adapter (JSON `{context}`)
+- `catalog/hooks/kg-auto-recall-cline.cjs` — Cline adapter (JSON `{contextModification}`)
+- Refactored `kg-auto-recall.cjs` to thin adapter (38 LOC, was 364)
+
+#### Auto-Save Hook Adapters (P3)
+- `catalog/hooks/lib/session-core.cjs` — shared session lifecycle logic
+- `catalog/hooks/session-hook-cursor.cjs` — Cursor session adapter
+- `catalog/hooks/session-hook-gemini.cjs` — Gemini CLI session adapter
+- `catalog/hooks/session-hook-cline.cjs` — Cline session adapter
+
+#### Hook Export System (P4)
+- `scripts/lib/hook-export.mjs` — hook discovery, agent parsing, file copying + lib/ co-location
+- `parseHookName()` — extracts purpose + agent from `{purpose}-{agent}.cjs` convention
+- `exportHook()` / `exportAllHooks()` — copies hooks + lib/ deps to agent-specific locations
+- `catalog/hooks/HOOKS-README.md` — registration guide for Claude, Cursor, Gemini CLI, Cline
+
+#### 4 New MCP Tools
+- `hermit_command_list` — list available commands with per-agent export strategy info
+- `hermit_command_export` — export command(s) to target agent
+- `hermit_hook_list` — list available hooks grouped by purpose, filtered by agent
+- `hermit_hook_export` — export hook(s) + lib/ dependencies to target agent
+
+### Changed
+
+- **Unified AGENTS config** — `skill-adapters.mjs` now has nested `skills`, `commands`, `hooks` keys per agent (was flat skill-only)
+- **skills-module.mjs** — 6 tools registered (was 2)
+- **skills-manager.mjs** — `export` subcommand supports `--commands` and `--hooks` flags; `--all` exports skills+commands+hooks
+- **MCP tool count** — 27 tools + 1 resource (was 23+1)
+
+### Testing
+
+- **51/51 tests passing** (was 44): +6 command export tests, +7 hook export tests, +2 MCP integration tests, MCP tool count updated
+- Command export: discoverCommands, per-file, merge-single cmd markers, exportAllCommands, marker independence
+- Hook export: parseHookName, discoverHooks, copyLibDir, exportHook+lib, exportAllHooks agent filtering
+
+---
+
 ## [4.2.1] — 2026-04-13
 
 ### Fixed
@@ -355,4 +469,4 @@ None. All v2.3 USPs (4-tier taxonomy, confidence scoring, brain health, biz-guar
 
 ---
 
-*Last updated: 2026-04-13 | Current version: 4.2.1*
+*Last updated: 2026-04-14 | Current version: 5.0.0*

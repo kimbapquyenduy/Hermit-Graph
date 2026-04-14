@@ -46,6 +46,7 @@ async function loadModules() {
     './lib/unified-search.mjs',
     './lib/session-module.mjs',
     './lib/skills-module.mjs',
+    './lib/skill-search-module.mjs',
   ];
 
   for (const mod of modules) {

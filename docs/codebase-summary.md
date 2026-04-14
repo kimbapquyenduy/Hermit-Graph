@@ -2,7 +2,7 @@
 
 ## Quick Overview
 
-**hermit-graph v4.2** is a unified knowledge graph system with MCP server integration. Single server provides 23 tools + 1 resource across 6 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, Session Context, and Skills Distribution. Built on JSONL + semantic embeddings + MCP v1.29.0.
+**hermit-graph v5.0** is a unified knowledge graph system with MCP server integration. Single server provides 28 tools + 1 resource across 7 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, Session Context, Skills Distribution, and Skill Search. Multi-agent hooks (auto-recall + auto-update) across 5 agents. Built on JSONL + semantic embeddings + MCP v1.29.0.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
@@ -38,15 +38,20 @@ D:/Project/Personal Project/hermit-graph/
 │   │   ├── file-lock.mjs                    # Cross-process file locking
 │   │   ├── session-module.mjs               # MCP tool (hermit_session_start) + resource (context/auto)
 │   │   ├── session-recall.mjs               # Scope detection, keyword matching, entity scoring
-│   │   ├── skill-adapters.mjs               # Agent configs + transforms (Claude/Cursor/Gemini/Codex)
-│   │   ├── skill-export.mjs                 # Export engine (discover, compat check, write strategies)
-│   │   ├── skills-module.mjs                # MCP tools (hermit_skill_list + hermit_skill_export)
+│   │   ├── skill-adapters.mjs               # Unified agent configs (skills/commands/hooks per agent)
+│   │   ├── skill-export.mjs                 # Skill + command export engine (discover, compat, write)
+│   │   ├── hook-export.mjs                  # Hook export engine (discover, copy, lib/ co-location)
+│   │   ├── skills-module.mjs                # 6 MCP tools (skill/command/hook list+export)
+│   │   ├── skill-index.mjs                  # Skill metadata index (catalog + project skills)
+│   │   ├── skill-search-module.mjs          # hermit_skill_search MCP tool
+│   │   ├── project-skill-export.mjs         # Project skill export engine
+│   │   ├── md-strip.mjs                     # Claude-ref stripping for cross-agent export
 │   │   ├── parse-observation.mjs            # Observation parsing utility
 │   │   └── resolve-brain-path.mjs           # Brain path resolver
 │   │
 │   ├── hermit-mcp-server.mjs           # MCP server entry point (v4) — loads 6 modules
 │   ├── migrate-v3-to-v4.mjs            # Migration script (v3 → v4 data format)
-│   ├── test-v4.mjs                     # 36 v4 test cases
+│   ├── test-v4.mjs                     # 98 v4+v5 test cases
 │   ├── brain-cli.mjs                   # Unified CLI (backward compat)
 │   ├── build-embedding-index.mjs       # Index builder
 │   ├── merge-brain-jsonl.mjs           # Git merge driver
@@ -57,6 +62,17 @@ D:/Project/Personal Project/hermit-graph/
 │   ├── stale-report.mjs               # Stale observation report
 │   ├── backfill-confidence.mjs        # Add confidence prefix to legacy data
 │   └── export-db-to-jsonl.mjs         # Export DB to JSONL
+│
+├── catalog/hooks/
+│   ├── lib/
+│   │   ├── recall-core.cjs              # Shared recall logic (keyword extraction, search, token budget, expansion)
+│   │   ├── entity-extractor.cjs         # Regex entity extraction from assistant messages (v5 P4)
+│   │   └── session-core.cjs             # Session lifecycle management
+│   ├── kg-auto-recall.cjs               # Claude Code UserPromptSubmit hook
+│   ├── kg-auto-recall-{cursor,gemini,cline,codex}.cjs  # Agent-specific recall adapters
+│   ├── kg-auto-update.cjs               # Claude Code Stop hook (v5 P4)
+│   ├── kg-auto-update-{cursor,gemini,cline,codex}.cjs  # Agent-specific update adapters
+│   └── session-hook-{cursor,gemini,cline,codex}.cjs    # Session lifecycle adapters
 │
 ├── viewer/
 │   ├── index.html                      # Dashboard UI (enhanced in v3)
@@ -91,7 +107,7 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/intelligence-module.mjs` | Audit + consolidation | 3 tools (audit-trail/consolidate/branch-context) |
 | `scripts/lib/unified-search.mjs` | Cross-module search | 2 tools (unified-search/health) |
 | `scripts/lib/session-module.mjs` | Cross-agent session context | 1 tool (session-start) + 1 resource (context/auto) |
-| `scripts/lib/skills-module.mjs` | Skill distribution | 2 tools (skill-list/skill-export) |
+| `scripts/lib/skills-module.mjs` | Skill/command/hook distribution | 6 tools (skill/command/hook list+export) |
 
 ### Supporting Libraries
 | Module | Purpose | Key Exports |
@@ -104,8 +120,9 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/embedding-service.mjs` | ONNX embeddings | `embed()`, `embedBatch()`, `isAvailable()` |
 | `scripts/lib/semantic-search.mjs` | Hybrid search | `search()` (0.7 semantic + 0.3 keyword) |
 | `scripts/lib/file-lock.mjs` | Cross-process sync | `withLock()`, `acquireLock()`, `releaseLock()` |
-| `scripts/lib/skill-adapters.mjs` | Agent configs + transforms | `AGENTS`, `parseFrontmatter()` |
-| `scripts/lib/skill-export.mjs` | Export engine | `discoverSkills()`, `exportSkill()`, `exportAll()`, `checkCompat()` |
+| `scripts/lib/skill-adapters.mjs` | Unified agent configs | `AGENTS`, `parseFrontmatter()` |
+| `scripts/lib/skill-export.mjs` | Skill + command export | `discoverSkills()`, `discoverCommands()`, `exportSkill()`, `exportCommand()` |
+| `scripts/lib/hook-export.mjs` | Hook export | `discoverHooks()`, `exportHook()`, `exportAllHooks()`, `parseHookName()` |
 | `scripts/lib/session-recall.mjs` | Session context scoring | `recallForScope()`, `detectScope()`, `scoreEntity()` |
 | `scripts/lib/parse-observation.mjs` | Observation parsing | `parseObservation()`, `obsText()` |
 
@@ -276,7 +293,7 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 
 | Component | Change | Status |
 |-----------|--------|--------|
-| MCP Server | Unified hermit-mcp-server.mjs (23 tools + 1 resource, 6 modules) | Complete |
+| MCP Server | Unified hermit-mcp-server.mjs (28 tools + 1 resource, 7 modules) | Complete |
 | Memory Module | 10 KG CRUD tools (replaces launch-memory-mcp.mjs) | Complete |
 | CodeGraph Module | 4 GitNexus tools (query/context/impact/detect-changes) | Complete |
 | Intelligence Module | 3 tools (audit-trail/consolidate/branch-context) | Complete |
@@ -284,14 +301,23 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 | Audit Trail | Append-only observation history tracking | Complete |
 | Health Checks | 5 automated checks, refactored to reusable module | Complete |
 | Migration Script | migrate-v3-to-v4.mjs for data format upgrade | Complete |
-| Tests | 36 comprehensive v4 test cases (test-v4.mjs) | Complete |
+| Skill Search | hermit_skill_search MCP tool (keyword scoring) | Complete |
+| Token-Aware KG Injection | Progressive detail levels (compact/standard/full) with token budget | Complete |
+| Smart Skill Activation | `paths:` frontmatter for conditional Claude skill activation | Complete |
+| Post-Response KG Update | Stop hook entity extraction (tech decisions, errors, explicit refs) | Complete |
+| KG Context Forwarding | Task detection, smart keywords, depth-1 relation expansion, `recall()` | Complete |
+| OpenCode Export | 6th agent target (per-file skills, merge-single commands) | Complete |
+| Tests | 98 comprehensive v4+v5 test cases (test-v4.mjs) | Complete |
 | Setup | Updated for v4 MCP config in .claude-settings.json | Complete |
 | Session Module | 1 MCP tool (hermit_session_start) + 1 resource (context/auto) | Complete |
 | Session Recall | Scope detection, keyword matching, entity scoring | Complete |
-| Skills Module | 2 MCP tools (hermit_skill_list/hermit_skill_export) | Complete |
-| Skill Adapters | 4 agent configs (Claude/Cursor/Gemini/Codex) + transforms | Complete |
+| Skills Module | 6 MCP tools (skill/command/hook list+export) | Complete |
+| Skill Adapters | Unified AGENTS config with nested skills/commands/hooks keys | Complete |
 | Skill Export Engine | Discover, compat check, per-file + merge-single write | Complete |
-| CLI Export | `hermit skills export` subcommand with --agent/--project/--global | Complete |
+| Command Export | 14 commands exported to all 5 agents via command-specific transforms | Complete |
+| Hook Export | Hook discovery + file copying + lib/ co-location | Complete |
+| Hook Adapters | Auto-recall + session + auto-update hooks for Cursor, Gemini CLI, Cline, Codex | Complete |
+| CLI Export | `hermit skills export` with --agent/--project/--global/--commands/--hooks | Complete |
 
 ---
 

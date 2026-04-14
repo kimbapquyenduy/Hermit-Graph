@@ -1,3 +1,9 @@
+---
+description: "Technology stack recommendations with KG-backed decision history"
+tags: "tech-stack, comparison, recommendation, decision, framework"
+complexity: "moderate"
+requires-tools: "mcp"
+---
 # Tech Advisor — Technology Stack Recommendations and Comparisons
 
 ## Purpose
