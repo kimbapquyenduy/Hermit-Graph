@@ -1,7 +1,7 @@
 /**
- * skill-export.mjs — Export engine for multi-agent skill distribution.
+ * skill-export.mjs — Export engine for multi-agent skill + command distribution.
  *
- * Discovers skills from catalog/, checks agent compatibility,
+ * Discovers skills/commands from catalog/, checks agent compatibility,
  * transforms content via adapters, and writes to target locations.
  *
  * Write strategies: per-file (Claude/Cursor), merge-single (Gemini/Codex)
@@ -16,8 +16,8 @@ import { getPackageRoot } from './resolve-brain-path.mjs';
 // ── Skill discovery ────────────────────────────────────────────────────
 
 /** Discover all skills from catalog/skills/. Returns [{ name, content, fm, body }]. */
-export function discoverSkills() {
-  const catalogDir = join(getPackageRoot(), 'catalog', 'skills');
+export function discoverSkills(catalogRoot) {
+  const catalogDir = join(catalogRoot || getPackageRoot(), 'catalog', 'skills');
   if (!existsSync(catalogDir)) return [];
 
   return readdirSync(catalogDir).filter(d => {
@@ -27,6 +27,23 @@ export function discoverSkills() {
     const { fm, body } = parseFrontmatter(content);
     return { name, content, fm, body };
   });
+}
+
+// ── Command discovery ──────────────────────────────────────────────────
+
+/** Discover all commands from catalog/commands/. Returns [{ name, content, fm, body }]. */
+export function discoverCommands(catalogRoot) {
+  const catalogDir = join(catalogRoot || getPackageRoot(), 'catalog', 'commands');
+  if (!existsSync(catalogDir)) return [];
+
+  return readdirSync(catalogDir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => {
+      const name = f.replace('.md', '');
+      const content = readFileSync(join(catalogDir, f), 'utf-8');
+      const { fm, body } = parseFrontmatter(content);
+      return { name, content, fm, body };
+    });
 }
 
 // ── Compatibility check ────────────────────────────────────────────────
@@ -41,7 +58,7 @@ export function checkCompat(fm, agentConfig) {
 // ── Write strategies ───────────────────────────────────────────────────
 
 /** Write a single file (mkdir + overwrite). Returns 'created' | 'updated'. */
-function writePerFile(targetPath, content) {
+export function writePerFile(targetPath, content) {
   const existed = existsSync(targetPath);
   mkdirSync(dirname(targetPath), { recursive: true });
   writeFileSync(targetPath, content, 'utf-8');
@@ -57,12 +74,15 @@ function backupOnce(targetPath) {
   writeFileSync(join(backupDir, basename(targetPath) + '.bak'), readFileSync(targetPath, 'utf-8'), 'utf-8');
   _backedUp.add(targetPath);
 }
-function resetBackupTracking() { _backedUp = new Set(); }
+export function resetBackupTracking() { _backedUp = new Set(); }
 
-/** Merge content into a shared file using section markers. Backup before first modify. */
-function mergeSingleWrite(targetPath, sectionContent, skillName) {
-  const startMarker = `<!-- hermit:skill:${skillName} start -->`;
-  const endMarker = `<!-- hermit:skill:${skillName} end -->`;
+/**
+ * Merge content into a shared file using section markers. Backup before first modify.
+ * @param {string} markerPrefix - 'skill' or 'cmd' for distinct marker namespaces
+ */
+export function mergeSingleWrite(targetPath, sectionContent, itemName, markerPrefix = 'skill') {
+  const startMarker = `<!-- hermit:${markerPrefix}:${itemName} start -->`;
+  const endMarker = `<!-- hermit:${markerPrefix}:${itemName} end -->`;
 
   let existing = '';
   let existed = false;
@@ -92,24 +112,28 @@ function mergeSingleWrite(targetPath, sectionContent, skillName) {
   return existed ? 'updated' : 'created';
 }
 
-// ── Export orchestration ───────────────────────────────────────────────
+// ── Skill export ─────────────────────────────────────────────────────
 
 /**
  * Export a single skill to a single agent.
  * @param {string} skillName - Skill name from catalog
  * @param {string} agentName - Agent key (claude/cursor/gemini/codex)
  * @param {{ project?: string, global?: boolean }} opts
+ * @param {string} [catalogRoot] - Override catalog root (for testing)
  * @returns {{ path: string, action: string, agent: string }}
  */
-export function exportSkill(skillName, agentName, opts = {}) {
+export function exportSkill(skillName, agentName, opts = {}, catalogRoot) {
   resetBackupTracking();
   const agentConfig = AGENTS[agentName];
   if (!agentConfig) throw new Error(`Unknown agent: ${agentName}`);
 
-  // Find skill in catalog
-  const skills = discoverSkills();
+  // TODO(v4.4): Cache discoverSkills() result across calls in same export batch.
+  // Currently re-reads catalog for each single-skill export. Acceptable for <20 skills.
+  const skills = discoverSkills(catalogRoot);
   const skill = skills.find(s => s.name === skillName);
   if (!skill) throw new Error(`Skill not found: ${skillName}`);
+
+  const skillCfg = agentConfig.skills;
 
   // Compat check
   if (!checkCompat(skill.fm, agentConfig)) {
@@ -119,16 +143,18 @@ export function exportSkill(skillName, agentName, opts = {}) {
   // Resolve target path
   const useGlobal = opts.global || !opts.project;
   const targetPath = useGlobal
-    ? agentConfig.globalSkillPath(skillName)
-    : agentConfig.skillPath(skillName, opts.project);
+    ? skillCfg.globalPath(skillName)
+    : skillCfg.path(skillName, opts.project);
 
-  // Transform content
+  // Transform content — Claude gets full content (preserves frontmatter for paths: activation),
+  // non-Claude agents get body only (frontmatter already stripped by parseFrontmatter)
   const meta = { name: skillName, description: skill.fm?.description || skillName };
-  const transformed = agentConfig.transform(skill.body || skill.content, meta);
+  const source = agentName === 'claude' ? (skill.content || skill.body) : (skill.body || skill.content);
+  const transformed = skillCfg.transform(source, meta);
 
   // Write using appropriate strategy
-  const action = agentConfig.strategy === 'merge-single'
-    ? mergeSingleWrite(targetPath, transformed, skillName)
+  const action = skillCfg.strategy === 'merge-single'
+    ? mergeSingleWrite(targetPath, transformed, skillName, 'skill')
     : writePerFile(targetPath, transformed);
 
   return { path: targetPath.replace(/\\/g, '/'), action, agent: agentName };
@@ -138,11 +164,13 @@ export function exportSkill(skillName, agentName, opts = {}) {
  * Export all compatible skills to a single agent.
  * @returns {Array<{ path, action, agent }>}
  */
-export function exportAll(agentName, opts = {}) {
+export function exportAll(agentName, opts = {}, catalogRoot) {
   resetBackupTracking();
-  const skills = discoverSkills();
+  const skills = discoverSkills(catalogRoot);
   const agentConfig = AGENTS[agentName];
   if (!agentConfig) throw new Error(`Unknown agent: ${agentName}`);
+
+  const skillCfg = agentConfig.skills;
 
   return skills.map(skill => {
     if (!checkCompat(skill.fm, agentConfig)) {
@@ -151,16 +179,84 @@ export function exportAll(agentName, opts = {}) {
 
     const useGlobal = opts.global || !opts.project;
     const targetPath = useGlobal
-      ? agentConfig.globalSkillPath(skill.name)
-      : agentConfig.skillPath(skill.name, opts.project);
+      ? skillCfg.globalPath(skill.name)
+      : skillCfg.path(skill.name, opts.project);
 
     const meta = { name: skill.name, description: skill.fm?.description || skill.name };
-    const transformed = agentConfig.transform(skill.body || skill.content, meta);
+    const source = agentName === 'claude' ? (skill.content || skill.body) : (skill.body || skill.content);
+    const transformed = skillCfg.transform(source, meta);
 
-    const action = agentConfig.strategy === 'merge-single'
-      ? mergeSingleWrite(targetPath, transformed, skill.name)
+    const action = skillCfg.strategy === 'merge-single'
+      ? mergeSingleWrite(targetPath, transformed, skill.name, 'skill')
       : writePerFile(targetPath, transformed);
 
     return { path: targetPath.replace(/\\/g, '/'), action, agent: agentName };
+  });
+}
+
+// ── Command export ───────────────────────────────────────────────────
+
+/**
+ * Export a single command to a single agent.
+ * @param {string} cmdName - Command name from catalog
+ * @param {string} agentName - Agent key (claude/cursor/gemini/codex)
+ * @param {{ project?: string, global?: boolean }} opts
+ * @param {string} [catalogRoot] - Override catalog root (for testing)
+ */
+export function exportCommand(cmdName, agentName, opts = {}, catalogRoot) {
+  resetBackupTracking();
+  const agentConfig = AGENTS[agentName];
+  if (!agentConfig) throw new Error(`Unknown agent: ${agentName}`);
+
+  const commands = discoverCommands(catalogRoot);
+  const cmd = commands.find(c => c.name === cmdName);
+  if (!cmd) throw new Error(`Command not found: ${cmdName}`);
+
+  const cmdCfg = agentConfig.commands;
+
+  // Resolve target path
+  const useGlobal = opts.global || !opts.project;
+  const targetPath = useGlobal
+    ? cmdCfg.globalPath(cmdName)
+    : cmdCfg.path(cmdName, opts.project);
+
+  // Transform content
+  const meta = { name: cmdName, description: cmd.fm?.description || cmdName };
+  const transformed = cmdCfg.transform(cmd.body || cmd.content, meta);
+
+  // Write using appropriate strategy — commands use 'cmd' marker prefix
+  const action = cmdCfg.strategy === 'merge-single'
+    ? mergeSingleWrite(targetPath, transformed, cmdName, 'cmd')
+    : writePerFile(targetPath, transformed);
+
+  return { path: targetPath.replace(/\\/g, '/'), action, agent: agentName, name: cmdName };
+}
+
+/**
+ * Export all commands to a single agent.
+ * @returns {Array<{ path, action, agent, name }>}
+ */
+export function exportAllCommands(agentName, opts = {}, catalogRoot) {
+  resetBackupTracking();
+  const commands = discoverCommands(catalogRoot);
+  const agentConfig = AGENTS[agentName];
+  if (!agentConfig) throw new Error(`Unknown agent: ${agentName}`);
+
+  const cmdCfg = agentConfig.commands;
+
+  return commands.map(cmd => {
+    const useGlobal = opts.global || !opts.project;
+    const targetPath = useGlobal
+      ? cmdCfg.globalPath(cmd.name)
+      : cmdCfg.path(cmd.name, opts.project);
+
+    const meta = { name: cmd.name, description: cmd.fm?.description || cmd.name };
+    const transformed = cmdCfg.transform(cmd.body || cmd.content, meta);
+
+    const action = cmdCfg.strategy === 'merge-single'
+      ? mergeSingleWrite(targetPath, transformed, cmd.name, 'cmd')
+      : writePerFile(targetPath, transformed);
+
+    return { path: targetPath.replace(/\\/g, '/'), action, agent: agentName, name: cmd.name };
   });
 }

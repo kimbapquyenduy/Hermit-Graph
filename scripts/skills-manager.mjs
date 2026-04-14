@@ -2,7 +2,7 @@
 /**
  * Hermit Graph — Skills Manager
  *
- * Install, list, and remove AI agent skills without needing ClaudeKit.
+ * Install, list, and remove AI agent skills.
  * Sources from catalog/ directory (tracked in git).
  *
  * Usage:
@@ -10,6 +10,8 @@
  *   hermit skills list               List all available skills
  *   hermit skills add <name...>      Install specific skills
  *   hermit skills add --all          Install all skills + commands + hooks
+ *   hermit skills export --all --agent cursor --global
+ *   hermit skills export --project-skills --agent cursor --global
  *   hermit skills remove <name...>   Remove skills from current project
  *   hermit skills info <name>        Show skill details
  *   hermit skills installed          Show skills installed in current project
@@ -310,7 +312,9 @@ export async function run(args) {
   } else if (subcommand === 'installed') {
     showInstalled();
   } else if (subcommand === 'export') {
-    const { exportSkill, exportAll } = await import('./lib/skill-export.mjs');
+    const { exportSkill, exportAll, exportAllCommands } = await import('./lib/skill-export.mjs');
+    const { exportAllHooks } = await import('./lib/hook-export.mjs');
+    const { exportAllProjectSkills, exportProjectSkill } = await import('./lib/project-skill-export.mjs');
     const { AGENTS } = await import('./lib/skill-adapters.mjs');
     const agentNames = Object.keys(AGENTS);
 
@@ -319,9 +323,15 @@ export async function run(args) {
     const agent = agentIdx !== -1 ? rest[agentIdx + 1] : null;
     const projectIdx = rest.indexOf('--project');
     const project = projectIdx !== -1 ? rest[projectIdx + 1] : null;
+    const sourceIdx = rest.indexOf('--source');
+    const sourceProject = sourceIdx !== -1 ? rest[sourceIdx + 1] : null;
     const isGlobal = rest.includes('--global') || !project;
     const isAll = rest.includes('--all');
-    const skillName = rest.find(a => !a.startsWith('--') && a !== agent && a !== project);
+    const includeProjectSkills = rest.includes('--project-skills') || isAll;
+    const includeCommands = rest.includes('--commands') || isAll;
+    const includeHooks = rest.includes('--hooks') || isAll;
+    const flagValues = new Set([agent, project, sourceProject].filter(Boolean));
+    const skillName = rest.find(a => !a.startsWith('--') && !flagValues.has(a));
 
     if (project && (!existsSync(project) || !statSync(project).isDirectory())) {
       console.error(`Project path not found or not a directory: ${project}`);
@@ -332,8 +342,8 @@ export async function run(args) {
       console.error(`Invalid agent. Use: ${agentNames.join(', ')}, all`);
       process.exit(1);
     }
-    if (!isAll && !skillName) {
-      console.error('Usage: hermit skills export <name|--all> --agent <agent> [--project /path] [--global]');
+    if (!isAll && !skillName && !includeCommands && !includeHooks && !includeProjectSkills) {
+      console.error('Usage: hermit skills export <name|--all> --agent <agent> [--project-skills] [--commands] [--hooks] [--project /path] [--global]');
       process.exit(1);
     }
 
@@ -341,21 +351,56 @@ export async function run(args) {
     const opts = { project, global: isGlobal };
     const results = [];
 
-    for (const ag of agents) {
-      if (isAll) {
-        results.push(...exportAll(ag, opts));
-      } else {
-        results.push(exportSkill(skillName, ag, opts));
+    // Export hermit catalog skills
+    if (isAll || (skillName && !includeProjectSkills)) {
+      for (const ag of agents) {
+        if (isAll) {
+          results.push(...exportAll(ag, opts));
+        } else {
+          results.push(exportSkill(skillName, ag, opts));
+        }
+      }
+    }
+
+    // Export project skills from .claude/skills/
+    if (includeProjectSkills) {
+      const projOpts = { ...opts, sourceProject: sourceProject || process.cwd() };
+      for (const ag of agents) {
+        if (skillName) {
+          try { results.push(exportProjectSkill(skillName, ag, projOpts)); }
+          catch (err) { results.push({ path: '', action: 'error', agent: ag, name: skillName, source: 'project', reason: err.message }); }
+        } else {
+          results.push(...exportAllProjectSkills(ag, projOpts));
+        }
+      }
+    }
+
+    // Export commands
+    if (includeCommands) {
+      for (const ag of agents) {
+        results.push(...exportAllCommands(ag, opts));
+      }
+    }
+
+    // Export hooks
+    if (includeHooks) {
+      for (const ag of agents) {
+        results.push(...exportAllHooks(ag, opts));
       }
     }
 
     for (const r of results) {
-      const icon = r.action === 'created' ? '+' : r.action === 'updated' ? '~' : '-';
-      const skipLabel = r.name ? `${r.name} skipped (${r.reason})` : `skipped (${r.reason})`;
-      const detail = r.action === 'skipped' ? skipLabel : `${r.path} (${r.action})`;
+      const icon = r.action === 'created' ? '+' : r.action === 'updated' ? '~' : r.action === 'error' ? '!' : '-';
+      const src = r.source === 'project' ? ' (project)' : '';
+      const skipLabel = r.name ? `${r.name}${src} skipped (${r.reason})` : `skipped (${r.reason})`;
+      const errLabel = r.name ? `${r.name}${src} error (${r.reason})` : `error (${r.reason})`;
+      const detail = r.action === 'skipped' ? skipLabel : r.action === 'error' ? errLabel : `${r.path} (${r.action})`;
       console.log(`  ${icon} [${r.agent}] ${detail}`);
     }
-    console.log(`\n  Done! ${results.filter(r => r.action !== 'skipped').length} exported.`);
+    const exported = results.filter(r => r.action !== 'skipped' && r.action !== 'error').length;
+    const projCount = results.filter(r => r.source === 'project' && r.action !== 'skipped' && r.action !== 'error').length;
+    const summary = projCount ? `${exported} exported (${projCount} project skills).` : `${exported} exported.`;
+    console.log(`\n  Done! ${summary}`);
   } else {
     const available = getAvailableSkills();
     if (available.includes(subcommand)) {
@@ -370,6 +415,8 @@ export async function run(args) {
       console.log('  hermit skills info <name>  Show skill details');
       console.log('  hermit skills installed    Show installed skills');
       console.log('  hermit skills export       Export skill(s) to other AI agents');
+      console.log('    --project-skills        Include .claude/skills/ (project skills)');
+      console.log('    --source /path          Source project for project skills (default: cwd)');
     }
     process.exit(1);
   }

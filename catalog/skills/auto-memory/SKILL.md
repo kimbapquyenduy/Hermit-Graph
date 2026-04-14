@@ -1,3 +1,9 @@
+---
+description: "Knowledge graph memory management with v2 4-tier schema"
+tags: "memory, knowledge-graph, recall, save, brain"
+complexity: "moderate"
+requires-tools: "mcp"
+---
 # Auto Memory — Knowledge Graph Management
 
 ## Purpose

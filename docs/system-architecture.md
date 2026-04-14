@@ -2,7 +2,7 @@
 
 ## Overview
 
-hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v4.2:** Unified MCP server with 23 tools + 1 resource across 6 modules.
+hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v5.0:** Unified MCP server with 28 tools + 1 resource across 7 modules. Multi-agent hooks (auto-recall + auto-update) across 5 agents (Claude, Cursor, Gemini, Cline, Codex).
 
 **Core technology:** JSONL-based knowledge graph + MCP server v1.29.0 + semantic embeddings + GitNexus integration
 
@@ -88,15 +88,17 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
   - `brain view` — Open dashboard viewer
   - `brain help` — Show CLI help
 
-#### Skill Distribution (`scripts/lib/skill-adapters.mjs`, `skill-export.mjs`, `skills-module.mjs`)
-- **Purpose:** Export hermit skills from `catalog/skills/` to 4 AI agents in native formats
-- **Agents:** Claude Code (per-file `.claude/skills/`), Cursor (MDC `.cursor/rules/`), Gemini (merge-single `GEMINI.md`), Codex (merge-single `AGENTS.md`)
+#### Skill Distribution (`scripts/lib/skill-adapters.mjs`, `skill-export.mjs`, `hook-export.mjs`, `skills-module.mjs`)
+- **Purpose:** Export hermit skills, commands, and hooks from `catalog/` to 6 AI agents
+- **Agents:** Claude Code, Cursor, Cline, Gemini CLI, Codex, OpenCode — unified AGENTS config with nested skills/commands/hooks keys
 - **Write strategies:**
-  - `per-file` — One file per skill (mkdir + overwrite)
-  - `merge-single` — Section markers (`<!-- hermit:skill:name start/end -->`) for idempotent merge into shared file
-- **Backup:** `.hermit/backups/{filename}.bak` — one backup per export batch (not per skill)
-- **CLI:** `hermit skills export <name|--all> --agent <agent> [--project /path] [--global]`
-- **MCP:** `hermit_skill_list` (browse catalog), `hermit_skill_export` (write to agent)
+  - `per-file` — One file per item (mkdir + overwrite) — Claude, Cursor, Cline, OpenCode
+  - `merge-single` — Section markers for idempotent merge into shared file — Gemini, Codex
+  - Skill markers: `<!-- hermit:skill:name -->`, command markers: `<!-- hermit:cmd:name -->`
+- **Hook export:** File copying + lib/ co-location (hooks need `./lib/*.cjs` dependencies)
+- **Backup:** `.hermit/backups/{filename}.bak` — one backup per export batch
+- **CLI:** `hermit skills export <name|--all> --agent <agent> [--commands] [--hooks] [--project /path] [--global]`
+- **MCP:** 6 tools — skill/command/hook list + export
 
 ---
 
@@ -117,7 +119,7 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 ### 5. MCP Integration Layer (v4)
 
 #### Hermit Graph MCP Server (`scripts/hermit-mcp-server.mjs`)
-**Single unified server with 23 tools + 1 resource across 6 modules (stdio JSON-RPC transport)**
+**Single unified server with 28 tools + 1 resource across 7 modules (stdio JSON-RPC transport)**
 
 **Module Architecture:**
 ```
@@ -127,7 +129,8 @@ hermit-mcp-server.mjs (entry point)
   ├── Intelligence Module (3 tools) — Audit trail, consolidation, branch context
   ├── Unified Search (2 tools) — Cross-KG + code search, health checks
   ├── Session Module (1 tool + 1 resource) — Cross-agent session context
-  └── Skills Module (2 tools) — Multi-agent skill distribution
+  ├── Skills Module (6 tools) — Multi-agent skill, command & hook distribution
+  └── Skill Search Module (1 tool) — Keyword search across skill metadata
 ```
 
 **Module Registration Pattern:**
@@ -165,9 +168,13 @@ Each module exports `register(server, context)` function, called sequentially by
 1. `hermit_session_start` — Auto-detect project scope, return relevant entities + branch + graph stats
 2. `hermit://context/auto` — MCP resource returning markdown-formatted session context
 
-**Skills Module Tools (2):**
+**Skills Module Tools (6):**
 1. `hermit_skill_list` — List available skills with per-agent compatibility matrix
 2. `hermit_skill_export` — Export skill(s) to target agent (claude/cursor/gemini/codex/all)
+3. `hermit_command_list` — List available commands (slash commands) from catalog
+4. `hermit_command_export` — Export command(s) to target agent
+5. `hermit_hook_list` — List available hooks with agent compatibility
+6. `hermit_hook_export` — Export hook(s) + lib/ dependencies to target agent
 
 **Transport:** stdio (JSON-RPC over stdin/stdout) — direct integration with Claude Code
 
@@ -257,6 +264,14 @@ Commit merged brain.jsonl
 | Skill Distribution (v4.1) | skill-adapters, skill-export, skills-module | Done |
 | Cross-Agent Session Context (v4.2) | session-module, session-recall | Done |
 | Rules File Setup (v4.2) | setup-project (Cursor/Windsurf/Cline/Codex) | Done |
+| Command + Hook Distribution (v4.3) | skill-export, hook-export, skills-module | Done |
+| Hook Adapters (v4.3) | recall-core.cjs, session-core.cjs + agent adapters | Done |
+| Skill Search + Index (v5.0 P0+P1) | skill-index.mjs, skill-search-module.mjs | Done |
+| Token-Aware KG Injection (v5.0 P2) | recall-core.cjs (estimateChars, selectDetailLevel) | Done |
+| Smart Skill Activation (v5.0 P3) | skill-adapters.mjs, skill-export.mjs (paths: frontmatter) | Done |
+| Post-Response KG Update (v5.0 P4) | entity-extractor.cjs, kg-auto-update.cjs + adapters | Done |
+| KG Context Forwarding (v5.0 P5) | recall-core.cjs (detectPromptType, expandRelations, recall) | Done |
+| OpenCode Export (v5.0 P6) | skill-adapters.mjs (6th agent: opencode) | Done |
 
 ---
 
