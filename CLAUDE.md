@@ -96,9 +96,9 @@ We keep all important docs in `./docs` folder and keep updating them, structure 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **claude-code-brain** (700 symbols, 1361 relationships, 52 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **claude-code-brain** (1228 symbols, 2276 relationships, 100 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+> If any GitNexus tool warns the index is stale, use `hermit_index({cwd: "project_path"})` to re-index. Do NOT use raw `npx gitnexus analyze`.
 
 ## Always Do
 
@@ -166,21 +166,18 @@ Before completing any code modification task, verify:
 
 ## Keeping the Index Fresh
 
-After committing code changes, the GitNexus index becomes stale. Re-run analyze to update it:
+After committing code changes, the GitNexus index becomes stale. **Always use the hermit MCP tool:**
 
-```bash
-npx gitnexus analyze
+```
+hermit_index({cwd: "project_path"})
+hermit_index({cwd: "project_path", embeddings: true})  // preserve embeddings
 ```
 
-If the index previously included embeddings, preserve them by adding `--embeddings`:
+**Do NOT use raw `npx gitnexus analyze`.** The `hermit_index` tool handles caching, error recovery, and is available to all agents (Claude, Cursor, Gemini, etc.).
 
-```bash
-npx gitnexus analyze --embeddings
-```
+To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings).
 
-To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
-
-> Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
+> Note: CodeGraph tools (query, context, impact) auto-reindex on stale/missing index errors. Manual reindex is rarely needed.
 
 ## CLI
 
@@ -194,3 +191,10 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+
+## Business Logic Guard
+- Read `BUSINESS.md` before modifying any business logic
+- Run `/impact` before changes affecting multiple modules
+- Run `/biz-review` after changes to verify business rules
+- Run `/biz-init` if project has no `BUSINESS.md` yet

@@ -18,7 +18,7 @@ import { existsSync, readdirSync } from 'fs';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const ALLOWED_CMDS = new Set(['query', 'context', 'impact', 'status', 'analyze']);
-const SHELL_META = /[;&|`$(){}!<>]/;
+const SHELL_META = /[;&|`${}!<>]/;
 
 // ── Resolve gitnexus binary path once at module load ──
 
@@ -89,14 +89,14 @@ async function ensureBackend() {
   return _backendInitPromise;
 }
 
-async function callInProcess(cmd, args) {
+async function callInProcess(cmd, args, cwd) {
   const mapping = cliArgsToMcpArgs(cmd, args);
   if (!mapping) return null;
 
   const backend = await ensureBackend();
   if (!backend) return null;
 
-  const result = await backend.callTool(mapping.toolName, mapping.args);
+  const result = await backend.callTool(mapping.toolName, { ...mapping.args, ...(cwd && { cwd }) });
   if (result == null) return null;
   // callTool returns raw JS objects — stringify to match bridge/CLI output format
   return typeof result === 'string' ? result : JSON.stringify(result);
@@ -112,6 +112,7 @@ function sanitizeArg(arg) {
 /** @type {{ proc: import('child_process').ChildProcess, buffer: string, responses: Map<number, Function>, nextId: number } | null} */
 let _bridge = null;
 let _bridgeFailed = false; // skip bridge after repeated failures
+let _bridgeInitPromise = null;
 
 /**
  * Parse the CLI args array back into MCP tool arguments.
@@ -175,8 +176,16 @@ function startBridge() {
     });
 
     proc.stderr.on('data', () => {});
-    proc.on('close', () => { if (_bridge === bridge) _bridge = null; });
-    proc.on('error', () => { if (_bridge === bridge) _bridge = null; });
+    proc.on('close', () => {
+      if (_bridge === bridge) _bridge = null;
+      for (const resolve of bridge.responses.values()) resolve(null);
+      bridge.responses.clear();
+    });
+    proc.on('error', () => {
+      if (_bridge === bridge) _bridge = null;
+      for (const resolve of bridge.responses.values()) resolve(null);
+      bridge.responses.clear();
+    });
 
     return bridge;
   } catch {
@@ -187,35 +196,42 @@ function startBridge() {
 async function ensureBridge() {
   if (_bridge?.proc?.exitCode == null && _bridge?.ready) return _bridge;
   if (_bridgeFailed) return null;
+  if (_bridgeInitPromise) return _bridgeInitPromise;
 
-  _bridge = startBridge();
-  if (!_bridge) return null;
+  _bridgeInitPromise = (async () => {
+    _bridge = startBridge();
+    if (!_bridge) { _bridgeInitPromise = null; return null; }
 
-  // Send initialize + notifications/initialized
-  try {
-    const initId = ++_bridge.nextId;
-    const initResult = await bridgeRequest(_bridge, initId, 'initialize', {
-      protocolVersion: '2025-03-26',
-      capabilities: {},
-      clientInfo: { name: 'hermit-bridge', version: '1.0' },
-    }, 8000);
+    try {
+      const initId = ++_bridge.nextId;
+      const initResult = await bridgeRequest(_bridge, initId, 'initialize', {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'hermit-bridge', version: '1.0' },
+      }, 8000);
 
-    if (!initResult) {
-      _bridge.proc.kill();
+      if (!initResult) {
+        _bridge.proc.kill();
+        _bridge = null;
+        _bridgeFailed = true;
+        _bridgeInitPromise = null;
+        return null;
+      }
+
+      _bridge.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+      _bridge.ready = true;
+      return _bridge;
+    } catch {
+      try { _bridge?.proc?.kill(); } catch {}
       _bridge = null;
       _bridgeFailed = true;
       return null;
+    } finally {
+      _bridgeInitPromise = null;
     }
+  })();
 
-    _bridge.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
-    _bridge.ready = true;
-    return _bridge;
-  } catch {
-    try { _bridge?.proc?.kill(); } catch {}
-    _bridge = null;
-    _bridgeFailed = true;
-    return null;
-  }
+  return _bridgeInitPromise;
 }
 
 function bridgeRequest(bridge, id, method, params, timeoutMs = 15000) {
@@ -273,7 +289,7 @@ export async function runGitNexus(cmd, args = [], cwd = process.cwd(), timeoutMs
 
   // Tier 0: In-process LocalBackend (fastest)
   try {
-    const result = await callInProcess(cmd, safeArgs);
+    const result = await callInProcess(cmd, safeArgs, safeCwd);
     if (result != null) return result;
   } catch { /* fall through to bridge */ }
 
@@ -312,7 +328,9 @@ function runCLI(cmd, safeArgs, safeCwd, timeoutMs) {
       else {
         const msg = stderr.trim() || `GitNexus exited with code ${code}`;
         if (msg.includes('not indexed') || msg.includes('Repository not indexed')) {
-          reject(new Error('Repository not indexed. Run: npx gitnexus analyze'));
+          reject(new Error('NOT_INDEXED: Repository not indexed. Use hermit_index tool to index this project.'));
+        } else if (msg.includes('stale') || msg.includes('re-run')) {
+          reject(new Error('STALE_INDEX: Index is stale. Use hermit_index tool to re-index this project.'));
         } else {
           reject(new Error(msg));
         }
