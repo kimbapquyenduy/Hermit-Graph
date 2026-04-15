@@ -488,20 +488,41 @@ async function mcpIntegrationTests() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// 7. GITNEXUS RUNNER TESTS
+// 7. CODE INTELLIGENCE TESTS
 // ══════════════════════════════════════════════════════════════════════════
 
-async function gitnexusRunnerTests() {
-  console.log('\n🔧 GitNexus Runner Tests');
-  const { runGitNexus } = await import('./lib/gitnexus-runner.mjs');
+async function codeIntelTests() {
+  console.log('\n🔧 Code Intelligence Tests');
+  const { CodeGraph } = await import('./lib/code-intel/graph.mjs');
+  const { isSupported } = await import('./lib/code-intel/parser.mjs');
 
-  await test('runGitNexus: rejects on nonexistent command', async () => {
-    try {
-      await runGitNexus('nonexistent-cmd', [], ROOT);
-      assert(false, 'Should have thrown');
-    } catch (e) {
-      assert(e.message.length > 0, 'Should have error message');
-    }
+  await test('CodeGraph: add and search symbols', () => {
+    const graph = new CodeGraph();
+    graph.addSymbols([
+      { id: 'test.js::myFunc', kind: 'function', name: 'myFunc', file: 'test.js', line: [1, 10], exported: true, params: 2, lang: 'javascript' },
+      { id: 'test.js::helper', kind: 'function', name: 'helper', file: 'test.js', line: [12, 20], exported: false, params: 0, lang: 'javascript' },
+    ]);
+    const results = graph.searchSymbols('myFunc');
+    assert(results.length >= 1, 'Should find myFunc');
+    assert(results[0].name === 'myFunc', 'First result should be myFunc');
+  });
+
+  await test('CodeGraph: callers and callees', () => {
+    const graph = new CodeGraph();
+    graph.addSymbols([
+      { id: 'a.js::caller', kind: 'function', name: 'caller', file: 'a.js', line: [1, 5], exported: true, params: 0, lang: 'javascript' },
+      { id: 'b.js::callee', kind: 'function', name: 'callee', file: 'b.js', line: [1, 5], exported: true, params: 0, lang: 'javascript' },
+    ]);
+    graph.addRelations([{ from: 'a.js::caller', to: 'b.js::callee', kind: 'CALLS' }]);
+    assert(graph.getCallers('b.js::callee').length === 1, 'Should have 1 caller');
+    assert(graph.getCallees('a.js::caller').length === 1, 'Should have 1 callee');
+  });
+
+  await test('isSupported: recognizes JS/TS files', () => {
+    assert(isSupported('test.js'), '.js should be supported');
+    assert(isSupported('test.ts'), '.ts should be supported');
+    assert(isSupported('test.mjs'), '.mjs should be supported');
+    assert(!isSupported('test.rs'), '.rs should not be supported');
   });
 }
 
@@ -1099,7 +1120,7 @@ try {
   await branchContextTests();
   await migrationTests();
   await healthCheckTests();
-  await gitnexusRunnerTests();
+  await codeIntelTests();
   await commandExportTests();
   await hookExportTests();
   await mcpIntegrationTests();
