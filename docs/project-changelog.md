@@ -4,6 +4,27 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [5.1.0] — 2026-04-15
+
+### Added
+- **Zero-config multi-agent setup** — `hermit setup` now configures ALL agents (Claude, Cursor, Gemini, Windsurf, Cline, Codex, OpenCode) in one command. No `--agent` flag needed.
+- **Windsurf agent support** — MCP config, rules file with idempotent `<!-- hermit:rules -->` markers
+- **OpenCode agent support** — MCP config, rules file (AGENTS.md merge-single), hooks
+- **Rules file row** in agent support table — tracks per-agent rules/instructions file
+
+### Fixed
+- **gitnexus-runner.mjs** — Bridge init race condition (concurrent `ensureBridge()` calls now share a single promise); `callInProcess` passes `cwd` to backend; `sanitizeArg` regex no longer blocks parentheses; bridge close/error handlers drain pending responses
+- **codegraph-module.mjs** — `isIndexError` narrowed (removed broad `exited with code 1` match); `hermit_detect_changes` returns informational message on stale index instead of silently auto-reindexing
+- **setup-project.mjs** — `copyBusinessTemplate` accepts agent param (was null in `--all` mode); Windsurf rules use idempotent markers (prevents duplication on re-run); `resolveSkillSelection` called once (was called twice); JSONC-safe JSON.parse for IDE config files; removed dead `configureClineInstructions`/`configureCodexInstructions`; removed duplicate Cursor MCP config in `--all` mode
+- **hook-export.mjs** — `HOOK_AGENT_SUFFIXES` derived from AGENTS map (auto-includes new agents); `writeCursorMcpConfig` captures `existed` before file write (was always reporting 'created')
+
+### Changed
+- **Agents** — 7 supported (was 5): added Windsurf + OpenCode
+- **README** — Updated agent count, support table, setup commands, config paths
+- **package.json description** — Includes all 7 agents
+
+---
+
 ## [5.0.0] — 2026-04-14 (v5 Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4)
 
 ### Added

@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/hermit-graph?style=flat-square&color=blue" alt="npm version" />
   <img src="https://img.shields.io/github/stars/kimbapquyenduy/hermit-graph?style=flat-square&logo=github" alt="GitHub stars" />
-  <img src="https://img.shields.io/badge/agents-Claude%20%7C%20Cursor%20%7C%20Gemini%20%7C%20Cline%20%7C%20Codex-blueviolet?style=flat-square" alt="Supported agents" />
+  <img src="https://img.shields.io/badge/agents-Claude%20%7C%20Cursor%20%7C%20Gemini%20%7C%20Windsurf%20%7C%20Cline%20%7C%20Codex%20%7C%20OpenCode-blueviolet?style=flat-square" alt="Supported agents" />
   <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square" alt="Node 20+" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" />
   <img src="https://img.shields.io/badge/MCP-v1.29-orange?style=flat-square" alt="MCP Protocol" />
@@ -11,7 +11,7 @@
 
 **Your AI coding agents remember what they learned — across projects, across time.**
 
-One persistent memory for Claude Code, Cursor, Gemini CLI, Cline, and Codex. Install once, every agent stays in context.
+One persistent memory for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode. Install once, every agent stays in context.
 
 ```bash
 npm install -g hermit-graph && cd your-project && hermit setup
@@ -51,7 +51,7 @@ npm install -g hermit-graph
 **2. Setup in your project**
 ```bash
 cd /path/to/your-project
-hermit setup                    # Auto-detects your AI agent
+hermit setup                    # Configures ALL agents automatically (zero-config)
 ```
 
 **3. Verify** — ask your agent:
@@ -80,11 +80,12 @@ That's it. Memory is live.
 - **Entity extraction** — 6 regex extractors catch tech decisions, error patterns, explicit refs, and more
 - **14 slash commands** — `/remember`, `/recall`, `/brain-dump`, `/diagnose`, `/ingest`, etc.
 
-### Work Across 5 Agents
-- **One memory, five agents, zero conflicts** — File-lock safe concurrent access
+### Work Across 7 Agents
+- **One memory, seven agents, zero conflicts** — File-lock safe concurrent access
 - **MCP protocol** — Standard integration via 28 tools + 1 resource
-- **Native hooks for all agents** — Auto-recall and auto-update hooks for Claude, Cursor, Gemini, Cline, Codex
+- **Native hooks for all agents** — Auto-recall and auto-update hooks for Claude, Cursor, Gemini, Windsurf, Cline, Codex, OpenCode
 - **Skill distribution** — Export skills, commands, and hooks to any agent in their native format
+- **Zero-config setup** — `hermit setup` configures all detected agents in one command
 
 ### Visualize & Audit
 - **HTML dashboard** — vis.js graph viewer with search, filter, dark theme
@@ -98,7 +99,7 @@ That's it. Memory is live.
 | | Hermit Graph | CLAUDE.md (manual) | Git Notes | Linear / Notion |
 |---|:---:|:---:|:---:|:---:|
 | **Searchable** | Semantic + keyword | Manual search | Limited | External |
-| **Multi-agent** | 5 agents, file-lock safe | Per-project | Per-branch | Per-workspace |
+| **Multi-agent** | 7 agents, file-lock safe | Per-project | Per-branch | Per-workspace |
 | **Structured** | 4-tier taxonomy, 13 types | Unstructured | Unstructured | Manual structure |
 | **Auto-capture** | Hooks extract entities | Manual save | Manual | Manual |
 | **Works offline** | Local JSONL | Local | Local | Needs internet |
@@ -108,26 +109,29 @@ That's it. Memory is live.
 
 ## Agent Support
 
-| Feature | Claude Code | Cursor | Gemini CLI | Cline | Codex |
-|---------|:-----------:|:------:|:----------:|:-----:|:-----:|
-| MCP memory server | auto | auto | auto | manual | manual |
-| brain.jsonl | auto | auto | auto | auto | auto |
-| Skills (6) | auto | export | export | export | export |
-| Slash commands (14) | auto | export | export | — | export |
-| Auto-recall hook | auto | export | export | export | export |
-| Auto-update hook | auto | export | export | export | export |
-| BUSINESS.md template | auto | auto | auto | auto | auto |
+| Feature | Claude Code | Cursor | Gemini CLI | Windsurf | Cline | Codex | OpenCode |
+|---------|:-----------:|:------:|:----------:|:--------:|:-----:|:-----:|:--------:|
+| MCP memory server | auto | auto | auto | auto | auto | auto | auto |
+| brain.jsonl | auto | auto | auto | auto | auto | auto | auto |
+| Skills (6) | auto | export | export | — | export | export | export |
+| Slash commands (14) | auto | export | export | — | — | export | export |
+| Auto-recall hook | auto | export | export | — | export | export | export |
+| Auto-update hook | auto | export | export | — | export | export | export |
+| Rules file | auto | auto | auto | auto | — | — | auto |
+| BUSINESS.md template | auto | auto | auto | auto | auto | auto | auto |
 
 ```bash
-hermit setup                    # Auto-detect (defaults to Claude Code)
-hermit setup --agent cursor     # Cursor
-hermit setup --agent gemini     # Gemini CLI
-hermit setup --agent cline      # Cline (VS Code extension)
-hermit setup --agent codex      # OpenAI Codex CLI
+hermit setup                    # Configures ALL agents automatically (zero-config)
+hermit setup --agent cursor     # Cursor only
+hermit setup --agent gemini     # Gemini CLI only
+hermit setup --agent windsurf   # Windsurf only
+hermit setup --agent cline      # Cline (VS Code extension) only
+hermit setup --agent codex      # OpenAI Codex CLI only
+hermit setup --agent opencode   # OpenCode only
 hermit setup --mcp-only         # Any agent — just prints MCP config
 ```
 
-> Claude Code gets native `.claude/` integration. Other agents get the same features via `hermit hooks export` and `hermit skills export` in their native formats.
+> By default, `hermit setup` configures all agents at once — Claude Code gets native `.claude/` integration, other agents get MCP config + hooks + rules in their native formats.
 
 <details>
 <summary><strong>Manual MCP setup (any agent)</strong></summary>
@@ -154,7 +158,8 @@ Replace `<ABSOLUTE_PATH>` with your clone path. Use forward slashes on all platf
 | Cursor | `~/.cursor/mcp.json` or `.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Cline | VS Code `settings.json` → `cline.mcpServers` |
-| Codex | `~/.codex/config.json` |
+| Codex | `~/.codex/config.toml` |
+| OpenCode | `.opencode/config.json` |
 
 </details>
 
@@ -305,7 +310,7 @@ hermit-graph/
 ├── catalog/
 │   ├── skills/                  # 6 hermit-graph skills
 │   ├── commands/                # 14 slash commands
-│   └── hooks/                   # Auto-recall + auto-update hooks (5 agents)
+│   └── hooks/                   # Auto-recall + auto-update hooks (7 agents)
 │       ├── kg-auto-recall*.cjs  # Pre-response context recall
 │       ├── kg-auto-update*.cjs  # Post-response entity extraction
 │       ├── session-hook-*.cjs   # Session start hooks
@@ -322,7 +327,7 @@ hermit-graph/
 ├── viewer/index.html            # Graph dashboard (vis.js)
 ├── docker/docker-compose.yml    # Neo4j (optional)
 ├── templates/                   # CLAUDE.md, BUSINESS.md templates
-└── package.json                 # v5.0.0
+└── package.json                 # v5.1.0
 ```
 
 </details>

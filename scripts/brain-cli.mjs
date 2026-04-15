@@ -20,9 +20,11 @@
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, fork } from 'child_process';
+import { readFileSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
+const PKG_VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 
 const [,, command, ...args] = process.argv;
 
@@ -38,8 +40,8 @@ const COMMANDS = {
     run: runSkills,
   },
   setup: {
-    desc: 'Project setup (auto-detects agent: claude, cursor, windsurf, cline, codex)',
-    usage: 'hermit setup [--agent <name>] [--mcp-only] [--only x,y] [--skip x,y]',
+    desc: 'Project setup — configures ALL agents by default (zero-config)',
+    usage: 'hermit setup [--agent <name|all>] [--mcp-only] [--only x,y] [--skip x,y]',
     run: () => runScript('setup-project.mjs', args),
   },
   health: {
@@ -128,7 +130,7 @@ function runScript(name, extraArgs = []) {
 
 function showHelp() {
   console.log('');
-  console.log('  hermit — Hermit Graph CLI v4.0');
+  console.log(`  hermit — Hermit Graph CLI v${PKG_VERSION}`);
   console.log('');
   console.log('  Usage: hermit <command> [args]');
   console.log('');

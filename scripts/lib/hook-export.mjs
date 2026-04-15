@@ -17,7 +17,7 @@ import { getPackageRoot, resolveBrainPath } from './resolve-brain-path.mjs';
 // ── Hook name parsing ──────────────────────────────────────────────────
 
 /** Known agent suffixes for hook filename parsing */
-const HOOK_AGENT_SUFFIXES = ['cursor', 'gemini', 'cline', 'codex'];
+const HOOK_AGENT_SUFFIXES = Object.keys(AGENTS).filter(k => k !== 'claude');
 
 /**
  * Parse hook filename to extract purpose and target agent.
@@ -150,6 +150,43 @@ function mergeGeminiSettingsMcp(agentConfig) {
 }
 
 /**
+ * Write MCP config for Cursor agent (~/.cursor/mcp.json).
+ * Called automatically during global hook export for cursor.
+ * @returns {Array<{ path, action, agent, name }>}
+ */
+export function writeCursorMcpConfig() {
+  const agentConfig = AGENTS.cursor;
+  if (!agentConfig?.mcp) return [];
+
+  const results = [];
+  try {
+    const configPath = agentConfig.mcp.globalPath();
+    let config = {};
+    if (existsSync(configPath)) {
+      try { config = JSON.parse(readFileSync(configPath, 'utf-8')); } catch { /* start fresh */ }
+    }
+
+    if (!config.mcpServers) config.mcpServers = {};
+    // Remove legacy 'memory' key
+    delete config.mcpServers.memory;
+    config.mcpServers['hermit-graph'] = buildMcpServerConfig({ useAbsoluteNodePath: false });
+
+    const existed = existsSync(configPath);
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+    results.push({
+      path: configPath.replace(/\\/g, '/'),
+      action: existed ? 'updated' : 'created',
+      agent: 'cursor',
+      name: 'mcp.json',
+    });
+  } catch (err) {
+    results.push({ path: '', action: 'error', agent: 'cursor', name: 'mcp.json', reason: err.message });
+  }
+  return results;
+}
+
+/**
  * Write MCP configs for Gemini agent (Antigravity IDE + Gemini CLI).
  * Called automatically during global hook export for gemini.
  * @returns {Array<{ path, action, agent, name }>}
@@ -257,10 +294,11 @@ export function exportAllHooks(agentName, opts = {}, catalogRoot) {
     }
   });
 
-  // Auto-write MCP configs for Gemini (Antigravity IDE + CLI) on global export
+  // Auto-write MCP configs on global export (agent-specific)
   const useGlobal = opts.global || !opts.project;
-  if (agentName === 'gemini' && useGlobal) {
-    results.push(...writeGeminiMcpConfigs());
+  if (useGlobal) {
+    if (agentName === 'gemini') results.push(...writeGeminiMcpConfigs());
+    if (agentName === 'cursor') results.push(...writeCursorMcpConfig());
   }
 
   return results;

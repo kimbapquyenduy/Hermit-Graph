@@ -86,6 +86,34 @@ function repoFlag(cwd) {
 
 const ANALYZE_TIMEOUT_MS = 120000;
 
+/** Check if error is due to stale or missing index. */
+function isIndexError(err) {
+  const msg = err?.message || '';
+  return msg.includes('NOT_INDEXED') || msg.includes('STALE_INDEX') || msg.includes('not indexed');
+}
+
+/**
+ * Run a codegraph command with auto-reindex on stale/missing index.
+ * Tries once, if index error → reindex → retry once.
+ */
+async function withAutoReindex(fn, cwd, log) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isIndexError(err) || !cwd) throw err;
+
+    log(`codegraph: index error detected, auto-reindexing ${cwd}...`);
+    try {
+      await runGitNexus('analyze', [], cwd, ANALYZE_TIMEOUT_MS);
+      cacheInvalidate(cwd);
+      log(`codegraph: reindex complete, retrying...`);
+      return await fn();
+    } catch (reindexErr) {
+      throw new Error(`Auto-reindex failed: ${reindexErr.message}. Use hermit_index tool manually.`);
+    }
+  }
+}
+
 /**
  * Register 5 codegraph tools.
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
@@ -100,7 +128,10 @@ export function register(server, ctx) {
     cwd: z.string().optional().describe('Working directory (git repo root). Defaults to process.cwd()'),
   }, async ({ query, cwd }) => {
     try {
-      const out = await cachedRunGitNexus('query', [query, ...repoFlag(cwd)], cwd);
+      const out = await withAutoReindex(
+        () => cachedRunGitNexus('query', [query, ...repoFlag(cwd)], cwd),
+        cwd, log
+      );
       return ok(formatQueryResult(out, query));
     } catch (e) { return fail(e.message); }
   });
@@ -111,7 +142,10 @@ export function register(server, ctx) {
     cwd: z.string().optional(),
   }, async ({ name, cwd }) => {
     try {
-      const out = await cachedRunGitNexus('context', [name, ...repoFlag(cwd)], cwd);
+      const out = await withAutoReindex(
+        () => cachedRunGitNexus('context', [name, ...repoFlag(cwd)], cwd),
+        cwd, log
+      );
       return ok(formatContextResult(out, name));
     } catch (e) { return fail(e.message); }
   });
@@ -123,7 +157,10 @@ export function register(server, ctx) {
     cwd: z.string().optional(),
   }, async ({ target, direction, cwd }) => {
     try {
-      const out = await cachedRunGitNexus('impact', [target, '-d', direction, ...repoFlag(cwd)], cwd);
+      const out = await withAutoReindex(
+        () => cachedRunGitNexus('impact', [target, '-d', direction, ...repoFlag(cwd)], cwd),
+        cwd, log
+      );
       return ok(formatImpactResult(out, target));
     } catch (e) { return fail(e.message); }
   });
@@ -135,7 +172,12 @@ export function register(server, ctx) {
     try {
       const out = await cachedRunGitNexus('status', [], cwd);
       return ok(formatChangesResult(out));
-    } catch (e) { return fail(e.message); }
+    } catch (e) {
+      if (isIndexError(e)) {
+        return ok('Index not found or stale. Run hermit_index to index this project.');
+      }
+      return fail(e.message);
+    }
   });
 
   // ── T5: Index (analyze project) — `gitnexus analyze` ──

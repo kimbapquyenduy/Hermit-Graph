@@ -148,6 +148,10 @@ export const AGENTS = {
       libPath: (root) => join(root, '.cursor', 'hooks', 'lib'),
       globalLibPath: () => join(HOME, '.cursor', 'hooks', 'lib'),
     },
+    mcp: {
+      globalPath: () => join(HOME, '.cursor', 'mcp.json'),
+      projectPath: (root) => join(root, '.cursor', 'mcp.json'),
+    },
   },
 
   gemini: {

@@ -22,6 +22,8 @@ import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readd
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBrainPath, getPackageRoot, getInstallMode } from './lib/resolve-brain-path.mjs';
+import { exportAllHooks } from './lib/hook-export.mjs';
+import { exportAllCommands } from './lib/skill-export.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const brainRoot = getPackageRoot();
@@ -42,6 +44,15 @@ const MCP_SERVER_CONFIG = {
     HF_HUB_DISABLE_SYMLINKS_WARNING: '1'
   }
 };
+
+// Cline settings path (needed by AGENTS definition)
+function getClineMcpSettingsPath() {
+  const appData = process.env.APPDATA
+    || (process.platform === 'darwin'
+      ? join(userHome, 'Library', 'Application Support')
+      : join(userHome, '.config'));
+  return join(appData, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json');
+}
 
 // ══════════════════════════════════════════════════════════════════════════
 // AGENT DEFINITIONS
@@ -117,19 +128,18 @@ const AGENTS = {
   cline: {
     name: 'Cline (VS Code)',
     configDir: null,
-    globalConfigPath: () => null,
+    globalConfigPath: () => getClineMcpSettingsPath(),
     projectConfigPath: () => null,
     supportsSkills: false,
     supportsCommands: false,
     supportsHooks: false,
     rulesFile: () => join(projectRoot, '.clinerules'),
     rulesFormat: 'file',
-    configureGlobalMcp: configureClineInstructions,
+    configureGlobalMcp: configureClineGlobalMcp,
     configureProjectMcp: () => {},
     nextSteps: [
-      '1. Add MCP config to Cline settings (see instructions above)',
-      '2. Edit BUSINESS.md with your project business rules',
-      '3. Restart VS Code — Cline now has memory via MCP!',
+      '1. Edit BUSINESS.md with your project business rules',
+      '2. Restart VS Code — Cline now has memory via MCP!',
     ],
     commandsHelp: [
       'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
@@ -139,19 +149,18 @@ const AGENTS = {
   codex: {
     name: 'OpenAI Codex CLI',
     configDir: null,
-    globalConfigPath: () => null,
+    globalConfigPath: () => join(userHome, '.codex', 'config.toml'),
     projectConfigPath: () => null,
     supportsSkills: false,
     supportsCommands: false,
     supportsHooks: false,
     rulesFile: () => join(projectRoot, 'AGENTS.md'),
     rulesFormat: 'file',
-    configureGlobalMcp: configureCodexInstructions,
+    configureGlobalMcp: configureCodexGlobalMcp,
     configureProjectMcp: () => {},
     nextSteps: [
-      '1. Add MCP config to codex settings (see instructions above)',
-      '2. Edit BUSINESS.md with your project business rules',
-      '3. Restart codex — it now has memory via MCP!',
+      '1. Edit BUSINESS.md with your project business rules',
+      '2. Restart Codex CLI — it now has memory via MCP!',
     ],
     commandsHelp: [
       'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
@@ -169,21 +178,18 @@ function detectAgent() {
   const agentIdx = args.indexOf('--agent');
   if (agentIdx !== -1 && args[agentIdx + 1]) {
     const name = args[agentIdx + 1].toLowerCase();
+    if (name === 'all') return 'all';
     if (AGENTS[name]) return name;
-    console.log(`Warning: unknown agent "${name}". Supported: ${Object.keys(AGENTS).join(', ')}`);
-    console.log('Falling back to Claude Code.\n');
-    return 'claude';
+    console.log(`Warning: unknown agent "${name}". Supported: ${Object.keys(AGENTS).join(', ')}, all`);
+    console.log('Falling back to all agents.\n');
+    return 'all';
   }
 
   // --mcp-only flag = generic MCP setup
   if (args.includes('--mcp-only')) return 'mcp-only';
 
-  // Auto-detect from project files
-  if (existsSync(join(projectRoot, '.cursor'))) return 'cursor';
-  if (existsSync(join(projectRoot, '.claude'))) return 'claude';
-
-  // Default to Claude
-  return 'claude';
+  // Default: setup ALL agents (zero-config experience)
+  return 'all';
 }
 
 const isMcpOnly = args.includes('--mcp-only');
@@ -210,7 +216,7 @@ if (args.includes('--list')) {
   }
   console.log(`\nTotal: ${allSkills.length} skills`);
   console.log('\nOptions:');
-  console.log('  --agent <name>         Target agent (claude, cursor, windsurf, cline, codex)');
+  console.log('  --agent <name>         Target agent (claude, cursor, windsurf, cline, codex, all)');
   console.log('  --mcp-only             MCP config only (any agent)');
   console.log('  --only skill1,skill2   Install only selected skills (Claude only)');
   console.log('  --skip skill1,skill2   Install all except skipped skills (Claude only)');
@@ -245,88 +251,128 @@ if (isMcpOnly) {
   process.exit(0);
 }
 
-// ── Agent-specific setup ──
+if (agentKey === 'all') {
+  // ── Setup ALL agents automatically ──
+  setupAllAgents();
+  process.exit(0);
+}
 
-console.log(`Hermit Graph — ${agent.name} Setup`);
-console.log(`Project: ${projectRoot}`);
-console.log(`Brain:   ${brainJsonlPath}`);
-if (agent.supportsSkills) {
-  // Determine skill selection (Claude only)
-  var selectedSkills = [...allSkills];
+// ── Single agent setup ──
+setupSingleAgent(agentKey);
 
+// ══════════════════════════════════════════════════════════════════════════
+// SETUP ALL AGENTS
+// ══════════════════════════════════════════════════════════════════════════
+
+function setupAllAgents() {
+  console.log('Hermit Graph — Full Setup (all agents)');
+  console.log(`Project: ${projectRoot}`);
+  console.log(`Brain:   ${brainJsonlPath}`);
+  console.log('');
+
+  // 1. Shared: brain.jsonl + templates
+  ensureBrainJsonl();
+  copyBusinessTemplate(AGENTS.claude);
+
+  // 2. Claude Code (full: MCP + skills + commands + hooks + CLAUDE.md)
+  console.log('\n── Claude Code ──');
+  const claude = AGENTS.claude;
+  claude.configureGlobalMcp();
+  claude.configureProjectMcp();
+  installClaudeSkills(resolveSkillSelection());
+  installClaudeCommands();
+  installClaudeHooks();
+  setupClaudeMd();
+  setupGlobalClaudeMd();
+
+  // 3. Cursor (MCP + rules + hooks + commands via export)
+  console.log('\n── Cursor ──');
+  configureCursorProjectMcp();
+  installRulesFileFor('cursor');
+  exportHooksAndCommandsFor('cursor');  // handles global MCP + hooks + commands
+
+  // 4. Windsurf (MCP + rules)
+  console.log('\n── Windsurf ──');
+  configureWindsurfGlobalMcp();
+  installRulesFileFor('windsurf');
+
+  // 5. Cline (auto-write MCP config)
+  console.log('\n── Cline ──');
+  configureClineGlobalMcp();
+  installRulesFileFor('cline');
+  exportHooksAndCommandsFor('cline');
+
+  // 6. Codex (auto-write config.toml)
+  console.log('\n── Codex ──');
+  configureCodexGlobalMcp();
+  installRulesFileFor('codex');
+
+  // Summary
+  console.log('');
+  console.log(`Done! ${installed} items configured, ${skipped} already existed.`);
+  console.log('');
+  console.log('All agents configured. Restart each IDE/agent to activate.');
+  console.log('Edit BUSINESS.md with your project business rules.');
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SETUP SINGLE AGENT
+// ══════════════════════════════════════════════════════════════════════════
+
+function setupSingleAgent(key) {
+  const ag = AGENTS[key];
+  console.log(`Hermit Graph — ${ag.name} Setup`);
+  console.log(`Project: ${projectRoot}`);
+  console.log(`Brain:   ${brainJsonlPath}`);
+  const selectedSkills = ag.supportsSkills ? resolveSkillSelection() : [];
+  if (ag.supportsSkills) {
+    console.log(`Skills:  ${selectedSkills.length}/${allSkills.length} selected`);
+  }
+  console.log('');
+
+  ensureBrainJsonl();
+  ag.configureGlobalMcp();
+  ag.configureProjectMcp();
+
+  if (ag.supportsSkills) installClaudeSkills(selectedSkills);
+  if (ag.supportsCommands) installClaudeCommands();
+  if (ag.supportsHooks) installClaudeHooks();
+
+  copyBusinessTemplate(ag);
+
+  if (!ag.supportsHooks && ag.rulesFile) installRulesFileFor(key);
+  if (key === 'claude') { setupClaudeMd(); setupGlobalClaudeMd(); }
+  if (key === 'cursor') exportHooksAndCommandsFor('cursor');
+  if (key === 'cline') exportHooksAndCommandsFor('cline');
+
+  console.log('');
+  console.log(`Done! Installed ${installed} items, ${skipped} already existed.`);
+  console.log('');
+  console.log('Next steps:');
+  for (const step of ag.nextSteps) console.log(`  ${step}`);
+  console.log('');
+  if (ag.commandsHelp.length) {
+    console.log(ag.supportsCommands ? 'Key commands:' : 'Key MCP tools:');
+    for (const cmd of ag.commandsHelp) console.log(`  ${cmd}`);
+    console.log('');
+  }
+}
+
+function resolveSkillSelection() {
+  let selected = [...allSkills];
   const onlyIdx = args.indexOf('--only');
   if (onlyIdx !== -1 && args[onlyIdx + 1]) {
     const only = args[onlyIdx + 1].split(',');
-    selectedSkills = only.filter(s => allSkills.includes(s));
+    selected = only.filter(s => allSkills.includes(s));
     const invalid = only.filter(s => !allSkills.includes(s));
     if (invalid.length) console.log(`Warning: skills not found: ${invalid.join(', ')}`);
   }
-
   const skipIdx = args.indexOf('--skip');
   if (skipIdx !== -1 && args[skipIdx + 1]) {
     const skip = args[skipIdx + 1].split(',');
-    selectedSkills = selectedSkills.filter(s => !skip.includes(s));
+    selected = selected.filter(s => !skip.includes(s));
   }
-
-  console.log(`Skills:  ${selectedSkills.length}/${allSkills.length} selected`);
-}
-console.log('');
-
-// ── 1. Ensure brain.jsonl ──
-ensureBrainJsonl();
-
-// ── 2. Configure MCP (global + project) ──
-agent.configureGlobalMcp();
-agent.configureProjectMcp();
-
-// ── 3. Copy skills/commands/hooks (Claude only) ──
-if (agent.supportsSkills) {
-  installClaudeSkills(selectedSkills);
-}
-if (agent.supportsCommands) {
-  installClaudeCommands();
-}
-if (agent.supportsHooks) {
-  installClaudeHooks();
-}
-
-// ── 4. Copy templates ──
-copyBusinessTemplate();
-
-// ── 4b. Rules file (non-Claude agents) ──
-if (!agent.supportsHooks && agent.rulesFile) {
-  installRulesFile();
-}
-
-// ── 5. CLAUDE.md (Claude only) ──
-if (agentKey === 'claude') {
-  setupClaudeMd();
-  setupGlobalClaudeMd();
-}
-
-// ── Summary ──
-console.log('');
-console.log(`Done! Installed ${installed} items, ${skipped} already existed.`);
-console.log('');
-console.log('Next steps:');
-for (const step of agent.nextSteps) {
-  console.log(`  ${step}`);
-}
-console.log('');
-if (agent.commandsHelp.length) {
-  console.log(agent.supportsCommands ? 'Key commands:' : 'Key MCP tools:');
-  for (const cmd of agent.commandsHelp) {
-    console.log(`  ${cmd}`);
-  }
-  console.log('');
-}
-if (agent.supportsSkills) {
-  console.log(`Skills: ${selectedSkills.length}/${allSkills.length}`);
-  console.log('');
-  console.log('Manage skills individually:');
-  console.log('  hermit skills              — List all available skills');
-  console.log('  hermit skills add <name>   — Install a specific skill');
-  console.log('  hermit skills remove <name> — Remove a skill');
+  return selected;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -342,12 +388,12 @@ function ensureBrainJsonl() {
   }
 }
 
-function copyBusinessTemplate() {
+function copyBusinessTemplate(targetAgent = null) {
   const templates = [
     { from: 'templates/BUSINESS.md', to: 'BUSINESS.md', note: 'Edit with your project business rules' },
   ];
   // Only copy test template for Claude (other agents don't have slash commands)
-  if (agent?.supportsCommands) {
+  if (targetAgent?.supportsCommands) {
     templates.push({
       from: 'templates/tests/business-rules.test.template.ts',
       to: 'tests/business-rules/rules.test.ts',
@@ -370,8 +416,10 @@ function copyBusinessTemplate() {
   }
 }
 
-function installRulesFile() {
-  const dst = agent.rulesFile();
+function installRulesFileFor(agentKey) {
+  const ag = AGENTS[agentKey];
+  if (!ag?.rulesFile) return;
+  const dst = ag.rulesFile();
   if (!dst) return;
 
   const src = join(brainRoot, 'templates', 'hermit-rules.md');
@@ -379,46 +427,51 @@ function installRulesFile() {
 
   const content = readFileSync(src, 'utf-8');
 
-  if (agent.rulesFormat === 'mdc') {
-    // Cursor MDC format: YAML frontmatter + content
-    if (!existsSync(dst)) {
-      const mdcContent = `---\ndescription: Hermit Graph persistent memory instructions\nglobs: \nalwaysApply: true\n---\n\n${content}`;
-      const dstDir = dirname(dst);
-      if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
-      writeFileSync(dst, mdcContent);
-      console.log(`  + Rules: ${dst.replace(projectRoot, '.')}`);
+  if (ag.rulesFormat === 'mdc') {
+    // Cursor MDC format: YAML frontmatter + content (always overwrite to stay current)
+    const mdcContent = `---\ndescription: Hermit Graph persistent memory instructions\nglobs:\nalwaysApply: true\n---\n\n${content}`;
+    const dstDir = dirname(dst);
+    if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
+    const existed = existsSync(dst);
+    writeFileSync(dst, mdcContent);
+    console.log(`  ${existed ? '~' : '+'} Rules: ${dst.replace(projectRoot, '.')}`);
+    installed++;
+  } else if (ag.rulesFormat === 'append') {
+    let existing = existsSync(dst) ? readFileSync(dst, 'utf-8') : '';
+    const startMarker = '<!-- hermit:rules start -->';
+    const endMarker = '<!-- hermit:rules end -->';
+    const markedContent = `${startMarker}\n${content}\n${endMarker}`;
+
+    if (existing.includes(startMarker)) {
+      existing = existing.replace(
+        new RegExp(`${startMarker}[\\s\\S]*?${endMarker}`),
+        markedContent
+      );
+      writeFileSync(dst, existing);
+      console.log(`  ~ Rules: updated in ${dst.replace(projectRoot, '.')}`);
       installed++;
-    } else {
-      skipped++;
-    }
-  } else if (agent.rulesFormat === 'append') {
-    // Append to existing rules file (Windsurf)
-    const existing = existsSync(dst) ? readFileSync(dst, 'utf-8') : '';
-    if (!existing.includes('Hermit Graph')) {
+    } else if (!existing.includes('Hermit Graph')) {
       const separator = existing ? '\n\n---\n\n' : '';
-      writeFileSync(dst, existing + separator + content);
+      writeFileSync(dst, existing + separator + markedContent);
       console.log(`  + Rules: appended to ${dst.replace(projectRoot, '.')}`);
       installed++;
     } else {
       skipped++;
     }
   } else {
-    // Standalone file (Cline, Codex)
-    if (!existsSync(dst)) {
-      const dstDir = dirname(dst);
-      if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
-      writeFileSync(dst, content);
-      console.log(`  + Rules: ${dst.replace(projectRoot, '.')}`);
-      installed++;
-    } else {
-      skipped++;
-    }
+    // Standalone file (Cline, Codex) — always overwrite to stay current
+    const dstDir = dirname(dst);
+    if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
+    const existed = existsSync(dst);
+    writeFileSync(dst, content);
+    console.log(`  ${existed ? '~' : '+'} Rules: ${dst.replace(projectRoot, '.')}`);
+    installed++;
   }
 }
 
 function printMcpConfig() {
   console.log('Add this to your AI agent MCP settings:\n');
-  console.log(JSON.stringify({ mcpServers: { memory: MCP_SERVER_CONFIG } }, null, 2));
+  console.log(JSON.stringify({ mcpServers: { 'hermit-graph': MCP_SERVER_CONFIG } }, null, 2));
   console.log('');
 }
 
@@ -433,22 +486,24 @@ function configureGlobalMcp() {
   try {
     let globalSettings = {};
     if (existsSync(globalSettingsPath)) {
-      globalSettings = JSON.parse(readFileSync(globalSettingsPath, 'utf-8'));
+      try { globalSettings = JSON.parse(readFileSync(globalSettingsPath, 'utf-8')); } catch { /* JSONC or corrupt — start fresh */ }
     }
 
     // Add MCP memory server if not configured
     if (!globalSettings.mcpServers) globalSettings.mcpServers = {};
-    const memoryServer = globalSettings.mcpServers.memory;
-    const needsMemoryConfig = !memoryServer
-      || !memoryServer.env?.MEMORY_FILE_PATH
-      || memoryServer.env.MEMORY_FILE_PATH.includes('__BRAIN_JSONL_PATH__');
+    const hermitServer = globalSettings.mcpServers['hermit-graph'];
+    const needsConfig = !hermitServer
+      || !hermitServer.env?.MEMORY_FILE_PATH
+      || hermitServer.env.MEMORY_FILE_PATH.includes('__BRAIN_JSONL_PATH__');
 
-    if (needsMemoryConfig) {
-      globalSettings.mcpServers.memory = MCP_SERVER_CONFIG;
+    if (needsConfig) {
+      // Remove legacy 'memory' key if present
+      delete globalSettings.mcpServers.memory;
+      globalSettings.mcpServers['hermit-graph'] = MCP_SERVER_CONFIG;
       const globalDir = dirname(globalSettingsPath);
       if (!existsSync(globalDir)) mkdirSync(globalDir, { recursive: true });
       writeFileSync(globalSettingsPath, JSON.stringify(globalSettings, null, 2));
-      console.log('  + Configured: ~/.claude/settings.json (MCP memory → brain.jsonl)');
+      console.log('  + Configured: ~/.claude/settings.json (hermit-graph → brain.jsonl)');
       installed++;
     }
 
@@ -608,16 +663,18 @@ function configureCursorGlobalMcp() {
   try {
     let config = {};
     if (existsSync(globalMcpPath)) {
-      config = JSON.parse(readFileSync(globalMcpPath, 'utf-8'));
+      try { config = JSON.parse(readFileSync(globalMcpPath, 'utf-8')); } catch { /* JSONC or corrupt — start fresh */ }
     }
 
     if (!config.mcpServers) config.mcpServers = {};
-    if (!config.mcpServers.memory) {
-      config.mcpServers.memory = MCP_SERVER_CONFIG;
+    if (!config.mcpServers['hermit-graph']) {
+      // Remove legacy 'memory' key if present
+      delete config.mcpServers.memory;
+      config.mcpServers['hermit-graph'] = MCP_SERVER_CONFIG;
       const dir = dirname(globalMcpPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(globalMcpPath, JSON.stringify(config, null, 2));
-      console.log('  + Configured: ~/.cursor/mcp.json (MCP memory → brain.jsonl)');
+      console.log('  + Configured: ~/.cursor/mcp.json (hermit-graph → brain.jsonl)');
       installed++;
     }
   } catch {
@@ -633,9 +690,9 @@ function configureCursorProjectMcp() {
   // Create project-level MCP config for Cursor
   if (!existsSync(projectMcpPath)) {
     if (!existsSync(cursorDir)) mkdirSync(cursorDir, { recursive: true });
-    const config = { mcpServers: { memory: MCP_SERVER_CONFIG } };
+    const config = { mcpServers: { 'hermit-graph': MCP_SERVER_CONFIG } };
     writeFileSync(projectMcpPath, JSON.stringify(config, null, 2));
-    console.log('  + Created: .cursor/mcp.json (project MCP config)');
+    console.log('  + Created: .cursor/mcp.json (hermit-graph MCP config)');
     installed++;
   }
 }
@@ -651,16 +708,17 @@ function configureWindsurfGlobalMcp() {
   try {
     let config = {};
     if (existsSync(windsurfConfigPath)) {
-      config = JSON.parse(readFileSync(windsurfConfigPath, 'utf-8'));
+      try { config = JSON.parse(readFileSync(windsurfConfigPath, 'utf-8')); } catch { /* JSONC or corrupt — start fresh */ }
     }
 
     if (!config.mcpServers) config.mcpServers = {};
-    if (!config.mcpServers.memory) {
-      config.mcpServers.memory = MCP_SERVER_CONFIG;
+    if (!config.mcpServers['hermit-graph']) {
+      delete config.mcpServers.memory;
+      config.mcpServers['hermit-graph'] = MCP_SERVER_CONFIG;
       const dir = dirname(windsurfConfigPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(windsurfConfigPath, JSON.stringify(config, null, 2));
-      console.log('  + Configured: ~/.codeium/windsurf/mcp_config.json (MCP memory → brain.jsonl)');
+      console.log('  + Configured: ~/.codeium/windsurf/mcp_config.json (hermit-graph → brain.jsonl)');
       installed++;
     }
   } catch {
@@ -671,40 +729,114 @@ function configureWindsurfGlobalMcp() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// CLINE — prints instructions (config is in VS Code settings)
+// CLINE — auto-write cline_mcp_settings.json
 // ══════════════════════════════════════════════════════════════════════════
 
-function configureClineInstructions() {
-  console.log('  Cline MCP configuration:');
-  console.log('');
-  console.log('  Option A: Add to VS Code settings.json:');
-  console.log('    "cline.mcpServers": {');
-  console.log('      "memory": {');
-  console.log(`        "command": "node",`);
-  console.log(`        "args": ["${hermitServerPath}"],`);
-  console.log(`        "env": { "MEMORY_FILE_PATH": "${brainJsonlPath}" }`);
-  console.log('      }');
-  console.log('    }');
-  console.log('');
-  console.log('  Option B: Use Cline MCP settings UI:');
-  console.log('    1. Open Cline sidebar → Settings → MCP Servers');
-  console.log(`    2. Add server: name=memory, command=node, args=${hermitServerPath}`);
-  console.log(`    3. Set env: MEMORY_FILE_PATH=${brainJsonlPath}`);
-  console.log('');
+function configureClineGlobalMcp() {
+  if (!userHome) return;
+
+  const settingsPath = getClineMcpSettingsPath();
+  try {
+    let config = {};
+    if (existsSync(settingsPath)) {
+      try { config = JSON.parse(readFileSync(settingsPath, 'utf-8')); } catch { /* start fresh */ }
+    }
+
+    if (!config.mcpServers) config.mcpServers = {};
+    if (!config.mcpServers['hermit-graph']) {
+      delete config.mcpServers.memory;
+      config.mcpServers['hermit-graph'] = MCP_SERVER_CONFIG;
+      const dir = dirname(settingsPath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(settingsPath, JSON.stringify(config, null, 2));
+      console.log(`  + Configured: ${settingsPath.replace(userHome, '~').replace(/\\/g, '/')}`);
+      installed++;
+    } else {
+      skipped++;
+    }
+  } catch {
+    console.log('  ! Warning: Could not auto-configure Cline MCP settings');
+    console.log(`    Manually add hermit-graph to: ${settingsPath}`);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// CODEX — prints instructions (MCP support varies)
+// CODEX — auto-write ~/.codex/config.toml
 // ══════════════════════════════════════════════════════════════════════════
 
-function configureCodexInstructions() {
-  console.log('  OpenAI Codex CLI MCP configuration:');
-  console.log('');
-  console.log('  Add to ~/.codex/config.json:');
-  console.log(JSON.stringify({ mcpServers: { memory: MCP_SERVER_CONFIG } }, null, 2)
-    .split('\n').map(l => '    ' + l).join('\n'));
-  console.log('');
-  console.log('  Or set environment variable:');
-  console.log(`    export MEMORY_FILE_PATH="${brainJsonlPath}"`);
-  console.log('');
+function configureCodexGlobalMcp() {
+  if (!userHome) return;
+
+  const configPath = join(userHome, '.codex', 'config.toml');
+  try {
+    let content = '';
+    if (existsSync(configPath)) {
+      content = readFileSync(configPath, 'utf-8');
+    }
+
+    if (!content.includes('[mcp_servers.hermit-graph]')) {
+      // Remove legacy [mcp_servers.memory] if present
+      content = content.replace(/\[mcp_servers\.memory\][\s\S]*?(?=\[|$)/, '');
+
+      const tomlBlock = [
+        '',
+        '[mcp_servers.hermit-graph]',
+        `command = "node"`,
+        `args = ["${hermitServerPath}"]`,
+        '',
+        '[mcp_servers.hermit-graph.env]',
+        `MEMORY_FILE_PATH = "${brainJsonlPath}"`,
+        `HF_HUB_DISABLE_SYMLINKS_WARNING = "1"`,
+        '',
+      ].join('\n');
+
+      content = content.trimEnd() + '\n' + tomlBlock;
+      const dir = dirname(configPath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(configPath, content);
+      console.log(`  + Configured: ~/.codex/config.toml (hermit-graph MCP)`);
+      installed++;
+    } else {
+      skipped++;
+    }
+  } catch {
+    console.log('  ! Warning: Could not auto-configure Codex config.toml');
+    console.log(`    Manually add [mcp_servers.hermit-graph] to: ${configPath}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORT HOOKS & COMMANDS FOR NON-CLAUDE AGENTS
+// ══════════════════════════════════════════════════════════════════════════
+
+function exportHooksAndCommandsFor(agentName) {
+  // Export hooks (kg-auto-recall, kg-auto-update, session-hook, etc.)
+  try {
+    const results = exportAllHooks(agentName, { global: true });
+    for (const r of results) {
+      if (r.action === 'error') {
+        console.log(`  ! Hook error: ${r.name} — ${r.reason}`);
+      } else {
+        console.log(`  ${r.action === 'created' ? '+' : '~'} Hook: ${r.name}`);
+        installed++;
+      }
+    }
+  } catch (e) {
+    console.log(`  ! Could not export hooks for ${agentName}: ${e.message}`);
+  }
+
+  // Export commands (/remember, /recall, /impact, etc.)
+  try {
+    const results = exportAllCommands(agentName, { global: true });
+    for (const r of results) {
+      if (r.action === 'error') {
+        console.log(`  ! Command error: ${r.name} — ${r.reason}`);
+      } else {
+        console.log(`  ${r.action === 'created' ? '+' : '~'} Command: ${r.name}`);
+        installed++;
+      }
+    }
+  } catch (e) {
+    console.log(`  ! Could not export commands for ${agentName}: ${e.message}`);
+  }
 }
