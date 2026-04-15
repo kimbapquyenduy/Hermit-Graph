@@ -5,11 +5,11 @@
 
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative, extname } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { parseFile, isSupported, ensurePythonLoaded } from './parser.mjs';
 import { extractAll } from './extractor.mjs';
 import { CodeGraph } from './graph.mjs';
-import { readCodeGraph, writeCodeGraph } from './code-io.mjs';
+import { readCodeGraph, writeCodeGraph, invalidateCache } from './code-io.mjs';
 
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', '.hermit', 'dist', 'build', 'coverage',
@@ -69,6 +69,7 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
  */
 export async function incrementalIndex(projectRoot, dataDir) {
   await ensurePythonLoaded();
+  invalidateCache(); // Force fresh read, prevent stale cache on write failure
   const graph = readCodeGraph(dataDir);
   const lastCommit = graph.meta.commit;
 
@@ -78,6 +79,10 @@ export async function incrementalIndex(projectRoot, dataDir) {
   }
 
   const changed = getChangedFiles(projectRoot, lastCommit);
+  if (changed === null) {
+    // Commit no longer in history (force-push) — fall back to full index
+    return { ...(await fullIndex(projectRoot, dataDir)), changed: [] };
+  }
   if (changed.length === 0) {
     return { graph, changed: [], stats: { files: 0, symbols: 0, relations: 0 } };
   }
@@ -120,11 +125,12 @@ export function detectChanges(projectRoot, dataDir) {
   const graph = readCodeGraph(dataDir);
   const lastCommit = graph.meta.commit;
   const currentCommit = getHeadCommit(projectRoot);
-  const changed = lastCommit ? getChangedFiles(projectRoot, lastCommit) : [];
+  const changed = lastCommit ? getChangedFiles(projectRoot, lastCommit) : null;
 
   return {
-    stale: !lastCommit || changed.length > 0,
-    changed,
+    // stale when: no prior commit, commit vanished (null), or files changed
+    stale: !lastCommit || changed === null || changed.length > 0,
+    changed: changed ?? [],
     lastCommit,
     currentCommit,
     indexed: { files: graph.meta.files, symbols: graph.meta.symbols, relations: graph.meta.relations },
@@ -157,16 +163,22 @@ function safeRead(absPath) {
 
 function getHeadCommit(projectRoot) {
   try {
-    return execSync('git rev-parse HEAD', { cwd: projectRoot, timeout: 5000 }).toString().trim();
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectRoot, timeout: 5000 }).toString().trim();
   } catch { return null; }
 }
 
+/**
+ * Returns changed files since sinceCommit, or null if commit no longer exists
+ * (e.g. after a force-push). Callers must treat null as "trigger full reindex".
+ */
 function getChangedFiles(projectRoot, sinceCommit) {
   try {
-    const output = execSync(`git diff --name-only ${sinceCommit}..HEAD`, {
+    // Validate commit still exists in history before diffing
+    execFileSync('git', ['cat-file', '-t', sinceCommit], { cwd: projectRoot, timeout: 5000 });
+    const output = execFileSync('git', ['diff', '--name-only', `${sinceCommit}..HEAD`], {
       cwd: projectRoot, timeout: 10000,
     }).toString().trim();
     if (!output) return [];
     return output.split('\n').filter(f => isSupported(f));
-  } catch { return []; }
+  } catch { return null; } // null = commit not found or git error → trigger full reindex
 }

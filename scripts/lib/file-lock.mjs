@@ -45,6 +45,10 @@ function lockContent(agentId = 'unknown') {
 function isLockStale(lockFile) {
   try {
     const content = JSON.parse(readFileSync(lockFile, 'utf-8'));
+    // Guard: lock must be an object with timestamp (not plain PID number)
+    if (typeof content !== 'object' || content === null || !content.timestamp) {
+      return true; // Non-standard lock format = treat as stale
+    }
     return (Date.now() - content.timestamp) > LOCK_TIMEOUT_MS;
   } catch {
     return true; // Malformed lock = stale

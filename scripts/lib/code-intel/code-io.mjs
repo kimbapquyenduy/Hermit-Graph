@@ -87,6 +87,15 @@ export async function writeCodeGraph(dataDir, codeGraph) {
 }
 
 /**
+ * Invalidate read cache (call before mutation operations).
+ * Prevents stale cache if a subsequent writeCodeGraph fails.
+ */
+export function invalidateCache() {
+  _cached = null;
+  _cachedMtime = null;
+}
+
+/**
  * Delete code-symbols.jsonl (for full reindex).
  * @param {string} dataDir
  */

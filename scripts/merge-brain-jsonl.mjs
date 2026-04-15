@@ -51,7 +51,9 @@ function parseBrainJSONL(content) {
 function entityFingerprint(entity) {
   return JSON.stringify({
     entityType: entity.entityType,
-    observations: (entity.observations || []).sort(),
+    observations: (entity.observations || [])
+      .map(o => typeof o === 'string' ? o : JSON.stringify(o))
+      .sort(),
   });
 }
 
