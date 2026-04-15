@@ -99,10 +99,14 @@ export function register(server, ctx) {
 
     const result = await withBrainLock(brainPath, () => {
       const { entities, relations } = readBrain(brainPath);
-      let created = 0, merged = 0;
+      let created = 0, merged = 0, typeConflicts = 0;
       for (const item of input) {
         const existing = findEntity(entities, item.name);
         if (existing) {
+          if (item.entityType && existing.entityType !== item.entityType) {
+            log(`hermit_create_entities: type conflict for "${item.name}" — existing "${existing.entityType}", incoming "${item.entityType}" (existing preserved)`);
+            typeConflicts++;
+          }
           existing.observations = [...(existing.observations || []), ...item.observations];
           merged++;
         } else {
@@ -111,9 +115,10 @@ export function register(server, ctx) {
         }
       }
       writeBrain(brainPath, entities, relations);
-      return { created, merged };
+      return { created, merged, typeConflicts };
     });
-    return ok(`Created ${result.created}, merged ${result.merged} entities.`);
+    const conflictNote = result.typeConflicts > 0 ? ` (${result.typeConflicts} type conflicts — existing types preserved)` : '';
+    return ok(`Created ${result.created}, merged ${result.merged} entities.${conflictNote}`);
   });
 
   // ── T2: Create Relations ──
@@ -126,17 +131,23 @@ export function register(server, ctx) {
   }, async ({ relations: input }) => {
     const result = await withBrainLock(brainPath, () => {
       const { entities, relations } = readBrain(brainPath);
-      let created = 0, skipped = 0;
+      let created = 0, skipped = 0, missing = 0;
       for (const rel of input) {
+        if (!findEntity(entities, rel.from) || !findEntity(entities, rel.to)) {
+          log(`hermit_create_relations: skipping relation "${rel.from}" → "${rel.to}" — one or both entities not found`);
+          missing++;
+          continue;
+        }
         const exists = relations.some(r => r.from === rel.from && r.to === rel.to && r.relationType === rel.relationType);
         if (exists) { skipped++; continue; }
         relations.push({ type: 'relation', ...rel });
         created++;
       }
       writeBrain(brainPath, entities, relations);
-      return { created, skipped };
+      return { created, skipped, missing };
     });
-    return ok(`Created ${result.created} relations (${result.skipped} duplicates skipped).`);
+    const missingNote = result.missing > 0 ? ` (${result.missing} skipped — entity not found)` : '';
+    return ok(`Created ${result.created} relations (${result.skipped} duplicates skipped).${missingNote}`);
   });
 
   // ── T3: Search Nodes (keyword) ──

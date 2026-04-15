@@ -116,7 +116,12 @@ export function buildSkillIndex(catalogRoot, projectRoot) {
         filePath: `.claude/skills/${skill.name}/SKILL.md`,
       });
     }
-  } catch { /* project skills optional — may not have .claude/skills/ */ }
+  } catch (err) {
+    // Only silence "directory not found" — log real errors
+    if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+      process.stderr.write(`[hermit] skill-index: project skills error: ${err.message}\n`);
+    }
+  }
 
   return index;
 }
