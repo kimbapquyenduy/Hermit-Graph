@@ -366,11 +366,7 @@ Run `npm run setup:semantic` then `npm run build:index`. Requires Node.js 18+.
 
 ## License
 
-**MIT License** — Hermit Graph is free and open source.
-
-### Third-Party Notice
-
-Code intelligence features (`hermit_query`, `hermit_context`, `hermit_impact`, `hermit_index`) use [GitNexus](https://www.npmjs.com/package/gitnexus) as an **optional external tool** (called via subprocess, not bundled). GitNexus is licensed under [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) — commercial users should review its license terms separately. These features are optional; Hermit Graph's core memory system works independently.
+**MIT License** — Hermit Graph is free and open source. All dependencies are MIT or permissive licensed.
 
 ---
 
