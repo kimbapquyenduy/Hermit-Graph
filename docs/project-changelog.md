@@ -4,6 +4,23 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.0.1] — 2026-04-15
+
+### Fixed
+- **indexer.mjs** — Command injection fix: `execSync` → `execFileSync` for git commands (CRITICAL)
+- **merge-brain-jsonl.mjs** — Serialize object observations before sorting in merge fingerprint (CRITICAL)
+- **brain-io.mjs** — Invalidate read cache before write operations (prevents stale reads)
+- **code-io.mjs** — Added `invalidateCache()` export for external reindex coordination
+- **indexer.mjs** — Null sentinel for force-push fallback (prevents silent failures)
+- **file-lock.mjs** — Guard against non-object lock format (prevents parse errors)
+
+### Changed
+- **Documentation** — All docs updated from v5 to v6.0.0; deleted 6 stale GitNexus docs + root viz HTML (-2473 LOC)
+- **Rules files** — Updated AGENTS.md, .clinerules, .windsurfrules, templates/hermit-rules.md: GitNexus→ast-grep references
+- **README** — Fixed hook count (7→5 actual agents), fixed `hermit hooks export` CLI syntax
+
+---
+
 ## [6.0.0] — 2026-04-15
 
 ### Breaking Changes
@@ -539,4 +556,4 @@ None. All v2.3 USPs (4-tier taxonomy, confidence scoring, brain health, biz-guar
 
 ---
 
-*Last updated: 2026-04-15 | Current version: 6.0.0*
+*Last updated: 2026-04-15 | Current version: 6.0.1*
