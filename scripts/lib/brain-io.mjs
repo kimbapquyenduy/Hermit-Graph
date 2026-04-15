@@ -75,5 +75,11 @@ export function writeBrain(brainPath, entities, relations) {
  * @returns {Promise<*>}
  */
 export async function withBrainLock(brainPath, fn) {
-  return withLock(brainPath, fn, 'hermit-mcp');
+  return withLock(brainPath, () => {
+    // Invalidate cache before write operations — forces fresh read from disk
+    // and prevents concurrent lock-free readers from seeing in-flight mutations
+    _cachedBrain = null;
+    _cachedMtimeMs = null;
+    return fn();
+  }, 'hermit-mcp');
 }
