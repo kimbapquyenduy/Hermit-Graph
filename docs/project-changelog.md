@@ -4,6 +4,41 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.0.0] — 2026-04-15
+
+### Breaking Changes
+- **Removed GitNexus dependency** — All code intelligence is now built-in via ast-grep. Deleted `gitnexus-runner.mjs` (296 LOC subprocess manager replaced by in-process analysis)
+- **`@ast-grep/napi`** added as bundled dependency (napi-rs prebuilt binaries, no node-gyp)
+- **Deleted 6 stale GitNexus docs** from `docs/` directory
+
+### Added
+- **10 code-intel modules** in `scripts/lib/code-intel/`:
+  - `parser.mjs` — ast-grep wrapper (JS/TS/TSX built-in, Python via optional `@ast-grep/lang-python`)
+  - `extractor.mjs` — Symbol & relation extraction orchestrator
+  - `extractor-js.mjs` — JS/TS-specific extractor
+  - `extractor-py.mjs` — Python-specific extractor
+  - `graph.mjs` — In-memory CodeGraph data structure
+  - `code-io.mjs` — JSONL persistence with mtime caching
+  - `impact.mjs` — 3-hop BFS blast radius analysis (d=1 WILL_BREAK, d=2 LIKELY_AFFECTED, d=3 MAY_NEED_TESTING)
+  - `indexer.mjs` — Full + incremental indexing via git diff
+  - `process-detector.mjs` — DFS-based execution flow detection
+  - `index.mjs` — Public API facade
+- **Auto-indexing** — CodeGraph tools auto-index on first query if no index exists
+- **Incremental indexing** — Only re-parses files changed since last git commit
+- **Process detection** — Discovers execution flows via DFS call chain tracing
+- **Unified search** — `hermit_unified_search` merges KG entities + code symbols in one query
+- **`data/code-symbols.jsonl`** — Auto-generated code intelligence index
+
+### Improved
+- **100 tests passing** in test-v4.mjs (up from 98) + 9 e2e code-intel tests
+- **MCP server** boots with all 28 tools, zero external dependencies
+- **Performance** — Full index ~2s (85 files), queries <10ms, impact <20ms, process detection ~50ms
+
+### Changed
+- **Dependencies** — Added `@ast-grep/napi ^0.42.1`, optional `@ast-grep/lang-python ^0.0.6`; updated `zod` to `^4.3.6`
+
+---
+
 ## [5.1.1] — 2026-04-15
 
 ### Fixed
@@ -504,4 +539,4 @@ None. All v2.3 USPs (4-tier taxonomy, confidence scoring, brain health, biz-guar
 
 ---
 
-*Last updated: 2026-04-14 | Current version: 5.0.0*
+*Last updated: 2026-04-15 | Current version: 6.0.0*

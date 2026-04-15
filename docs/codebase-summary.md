@@ -2,13 +2,13 @@
 
 ## Quick Overview
 
-**hermit-graph v5.0** is a unified knowledge graph system with MCP server integration. Single server provides 28 tools + 1 resource across 7 modules: Memory (KG CRUD), CodeGraph (GitNexus), Intelligence (audit/consolidation), Unified Search, Session Context, Skills Distribution, and Skill Search. Multi-agent hooks (auto-recall + auto-update) across 5 agents. Built on JSONL + semantic embeddings + MCP v1.29.0.
+**hermit-graph v6.0.0** is a unified knowledge graph system with MCP server integration. Single server provides 28 tools + 1 resource across 7 modules: Memory (KG CRUD), CodeGraph (ast-grep built-in), Intelligence (audit/consolidation), Unified Search, Session Context, Skills Distribution, and Skill Search. Multi-agent hooks (auto-recall + auto-update) across 7 agents. Built on JSONL + semantic embeddings + MCP v1.29.0.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
 **Package manager:** npm
 **MCP Server:** stdio JSON-RPC transport, v4-native entry point at `scripts/hermit-mcp-server.mjs`
-**Skill Distribution:** Export skills to 4 AI agents (Claude, Cursor, Gemini, Codex) via adapter transforms
+**Skill Distribution:** Export skills to 7 AI agents (Claude, Cursor, Gemini, Windsurf, Cline, Codex, OpenCode) via adapter transforms
 
 ---
 
@@ -19,19 +19,19 @@ D:/Project/Personal Project/hermit-graph/
 ├── data/
 │   ├── brain.jsonl                # Knowledge graph (single source of truth)
 │   ├── brain-embeddings.json      # Pre-computed semantic embeddings (v3)
+│   ├── code-symbols.jsonl         # Auto-generated code intelligence index (v6)
 │   ├── conventions/               # Project conventions database
 │   └── .model-cache/              # Hugging Face model cache (gitignored)
 │
 ├── scripts/
 │   ├── lib/
 │   │   ├── memory-module.mjs                # 10 KG CRUD tools (create/search/get/update/delete/etc)
-│   │   ├── codegraph-module.mjs             # 4 GitNexus tools (query/context/impact/detect-changes)
+│   │   ├── codegraph-module.mjs             # 5 code intelligence tools (ast-grep powered)
 │   │   ├── intelligence-module.mjs          # 3 intelligence tools (audit-trail/consolidate/branch-context)
 │   │   ├── unified-search.mjs               # 2 cross-module tools (unified-search/health)
 │   │   ├── brain-io.mjs                     # Read/write JSONL with lock wrapper
 │   │   ├── audit-trail.mjs                  # Append-only observation history
 │   │   ├── branch-context.mjs               # Git branch detection + filter
-│   │   ├── gitnexus-runner.mjs              # Subprocess runner for GitNexus CLI
 │   │   ├── brain-health-checks.mjs          # 5 health check implementations
 │   │   ├── embedding-service.mjs            # Embedding generation (Hugging Face ONNX)
 │   │   ├── semantic-search.mjs              # Hybrid search (semantic + keyword)
@@ -47,11 +47,22 @@ D:/Project/Personal Project/hermit-graph/
 │   │   ├── project-skill-export.mjs         # Project skill export engine
 │   │   ├── md-strip.mjs                     # Claude-ref stripping for cross-agent export
 │   │   ├── parse-observation.mjs            # Observation parsing utility
-│   │   └── resolve-brain-path.mjs           # Brain path resolver
+│   │   ├── resolve-brain-path.mjs           # Brain path resolver
+│   │   └── code-intel/                      # Built-in code intelligence (v6)
+│   │       ├── parser.mjs                   # ast-grep wrapper (JS/TS/Python)
+│   │       ├── extractor.mjs                # Symbol & relation extraction orchestrator
+│   │       ├── extractor-js.mjs             # JS/TS extractor
+│   │       ├── extractor-py.mjs             # Python extractor
+│   │       ├── graph.mjs                    # In-memory CodeGraph data structure
+│   │       ├── code-io.mjs                  # JSONL persistence (mtime-cached)
+│   │       ├── impact.mjs                   # Blast radius analysis (3-hop BFS)
+│   │       ├── indexer.mjs                  # Full + incremental indexing
+│   │       ├── process-detector.mjs         # Execution flow detection
+│   │       └── index.mjs                    # Public API facade
 │   │
 │   ├── hermit-mcp-server.mjs           # MCP server entry point (v4) — loads 6 modules
 │   ├── migrate-v3-to-v4.mjs            # Migration script (v3 → v4 data format)
-│   ├── test-v4.mjs                     # 98 v4+v5 test cases
+│   ├── test-v4.mjs                     # 100 unit tests + 9 e2e
 │   ├── brain-cli.mjs                   # Unified CLI (backward compat)
 │   ├── build-embedding-index.mjs       # Index builder
 │   ├── merge-brain-jsonl.mjs           # Git merge driver
@@ -75,16 +86,15 @@ D:/Project/Personal Project/hermit-graph/
 │   └── session-hook-{cursor,gemini,cline,codex}.cjs    # Session lifecycle adapters
 │
 ├── viewer/
-│   ├── index.html                      # Dashboard UI (enhanced in v3)
+│   ├── index.html                      # Dashboard UI
 │   ├── data.json                       # Static data source (for development)
 │   └── [CSS/JS assets]
 │
 ├── docs/
-│   ├── system-architecture.md          # Architecture (v3 updated)
+│   ├── system-architecture.md          # Architecture
 │   ├── codebase-summary.md             # This file
-│   ├── project-changelog.md            # Changelog (v3 entry added)
-│   ├── development-roadmap.md          # Roadmap (v3 marked complete)
-│   ├── gitnexus-*.md                   # GitNexus integration docs
+│   ├── project-changelog.md            # Changelog
+│   ├── development-roadmap.md          # Roadmap
 │   └── [other docs]
 │
 ├── .gitattributes                      # Git merge driver config
@@ -96,18 +106,32 @@ D:/Project/Personal Project/hermit-graph/
 
 ---
 
-## Core Modules (v4)
+## Core Modules (v6)
 
 ### MCP Server Entry & Modules
 | Module | Purpose | Tools |
 |--------|---------|-------|
 | `hermit-mcp-server.mjs` | Unified server entry point | Loads 6 modules via `register()` pattern |
 | `scripts/lib/memory-module.mjs` | KG CRUD operations | 10 tools (create/search/get/update/delete/export/etc) |
-| `scripts/lib/codegraph-module.mjs` | GitNexus wrapper | 5 tools (query/context/impact/detect-changes/index) |
+| `scripts/lib/codegraph-module.mjs` | Built-in code intelligence (ast-grep) | 5 tools (query/context/impact/detect-changes/index) |
 | `scripts/lib/intelligence-module.mjs` | Audit + consolidation | 3 tools (audit-trail/consolidate/branch-context) |
 | `scripts/lib/unified-search.mjs` | Cross-module search | 2 tools (unified-search/health) |
 | `scripts/lib/session-module.mjs` | Cross-agent session context | 1 tool (session-start) + 1 resource (context/auto) |
 | `scripts/lib/skills-module.mjs` | Skill/command/hook distribution | 6 tools (skill/command/hook list+export) |
+
+### Code Intelligence (v6 — `scripts/lib/code-intel/`)
+| Module | Purpose |
+|--------|---------|
+| `index.mjs` | Public API facade — single import for all code intel operations |
+| `parser.mjs` | ast-grep wrapper; JS/TS and Python language support |
+| `extractor.mjs` | Symbol & relation extraction orchestrator |
+| `extractor-js.mjs` | JS/TS-specific symbol extraction (functions, classes, imports) |
+| `extractor-py.mjs` | Python-specific symbol extraction |
+| `graph.mjs` | In-memory CodeGraph data structure (nodes + edges) |
+| `code-io.mjs` | JSONL persistence with mtime-based cache invalidation |
+| `impact.mjs` | Blast radius analysis via 3-hop BFS |
+| `indexer.mjs` | Full and incremental indexing |
+| `process-detector.mjs` | Execution flow detection |
 
 ### Supporting Libraries
 | Module | Purpose | Key Exports |
@@ -115,7 +139,6 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/brain-io.mjs` | Read/write JSONL with locking | `readBrain()`, `writeBrain()`, `withBrainLock()` |
 | `scripts/lib/audit-trail.mjs` | Append-only history | `getEntityHistory()`, `archiveObservation()` |
 | `scripts/lib/branch-context.mjs` | Git branch detection | `detectBranch()`, `getBranchFilter()`, `setBranchFilter()` |
-| `scripts/lib/gitnexus-runner.mjs` | CLI subprocess wrapper | `runGitNexus()` (30s timeout, JSON parsing) |
 | `scripts/lib/brain-health-checks.mjs` | Health check logic | `checkStale()`, `checkDuplicates()`, `checkOrphans()`, etc. |
 | `scripts/lib/embedding-service.mjs` | ONNX embeddings | `embed()`, `embedBatch()`, `isAvailable()` |
 | `scripts/lib/semantic-search.mjs` | Hybrid search | `search()` (0.7 semantic + 0.3 keyword) |
@@ -132,7 +155,7 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/brain-cli.mjs` | Unified CLI (backward compat) | `hermit search`, `hermit health`, `hermit index`, etc. |
 | `scripts/skills-manager.mjs` | Skill install/remove/export | `hermit skills [list\|add\|remove\|export]` |
 | `scripts/migrate-v3-to-v4.mjs` | Data migration | `node scripts/migrate-v3-to-v4.mjs` |
-| `scripts/setup-project.mjs` | Project init (updated for v4) | `npm run setup:all` |
+| `scripts/setup-project.mjs` | Project init | `npm run setup:all` |
 | `scripts/brain-health.mjs` | Health check (uses health-checks.mjs) | `brain health` |
 | `scripts/merge-brain-jsonl.mjs` | Git merge driver | Auto-invoked by git merge |
 
@@ -156,6 +179,21 @@ Query → Embed query text (384-dim vector)
                + 0.3 * keyword_relevance(query, entity)
       → Sort by score descending
       → Return top-N results
+```
+
+### Code Intelligence — Indexing & Impact
+**Files:** `scripts/lib/code-intel/`
+
+```
+hermit_index(cwd)
+  → Walk source files (JS/TS/Python)
+  → ast-grep parse → extract symbols + relations
+  → Persist to data/code-symbols.jsonl (mtime-cached)
+
+hermit_impact(target, direction)
+  → Load graph from code-symbols.jsonl
+  → BFS up to 3 hops (upstream or downstream)
+  → Return nodes by depth with risk level (d=1 WILL BREAK, d=2 LIKELY, d=3 MAY)
 ```
 
 ### File Locking (Multi-Process Safety)
@@ -252,21 +290,27 @@ npm run build:index:force  # Rebuild even if index is fresh
 
 ### Testing
 ```bash
-npm test                 # Run unit tests
-node scripts/test-v3-comprehensive.mjs  # Test v3 features
+npm test  # 100 unit tests + 9 e2e (test-v4.mjs)
 ```
 
 ---
 
-## Dependencies (v4)
+## Dependencies (v6)
 
 ```json
 {
+  "@ast-grep/napi": "^0.42.1",           // Built-in code intelligence (ast-grep)
   "@modelcontextprotocol/sdk": "^1.29.0", // MCP server framework
   "@huggingface/transformers": "^4.0.1",  // ONNX embeddings (Xenova/all-MiniLM-L6-v2)
-  "zod": "^3.x",                          // Tool parameter validation
-  "neo4j-driver": "^5.27.0",              // Graph database (optional)
+  "zod": "^4.3.6",                        // Tool parameter validation
   "dotenv": "^16.4.0"                     // Environment config
+}
+```
+
+**Optional:**
+```json
+{
+  "@ast-grep/lang-python": "^0.0.6"      // Python language support for ast-grep
 }
 ```
 
@@ -289,35 +333,24 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 
 ---
 
-## v4 Changes (Latest)
+## v6 Changes (Latest)
 
 | Component | Change | Status |
 |-----------|--------|--------|
+| CodeGraph Module | Replaced GitNexus subprocess with built-in ast-grep code intelligence | Complete |
+| code-intel/ | 10 new modules: parser, extractor, extractor-js, extractor-py, graph, code-io, impact, indexer, process-detector, index | Complete |
+| codegraph-module.mjs | 5 tools (query/context/impact/detect-changes/index) — zero external CLI dependency | Complete |
+| data/code-symbols.jsonl | Auto-generated code index (mtime-cached, gitignored) | Complete |
+| gitnexus-runner.mjs | Removed — no longer needed | Complete |
+| Agents | Expanded to 7 (Claude, Cursor, Gemini, Windsurf, Cline, Codex, OpenCode) | Complete |
+| Tests | 100 unit tests + 9 e2e (test-v4.mjs) | Complete |
+| Dependencies | Removed neo4j-driver; added @ast-grep/napi ^0.42.1; zod upgraded to ^4.3.6 | Complete |
 | MCP Server | Unified hermit-mcp-server.mjs (28 tools + 1 resource, 7 modules) | Complete |
-| Memory Module | 10 KG CRUD tools (replaces launch-memory-mcp.mjs) | Complete |
-| CodeGraph Module | 4 GitNexus tools (query/context/impact/detect-changes) | Complete |
+| Memory Module | 10 KG CRUD tools | Complete |
 | Intelligence Module | 3 tools (audit-trail/consolidate/branch-context) | Complete |
-| Brain I/O | Refactored read/write with explicit locking interface | Complete |
-| Audit Trail | Append-only observation history tracking | Complete |
-| Health Checks | 5 automated checks, refactored to reusable module | Complete |
-| Migration Script | migrate-v3-to-v4.mjs for data format upgrade | Complete |
-| Skill Search | hermit_skill_search MCP tool (keyword scoring) | Complete |
-| Token-Aware KG Injection | Progressive detail levels (compact/standard/full) with token budget | Complete |
-| Smart Skill Activation | `paths:` frontmatter for conditional Claude skill activation | Complete |
-| Post-Response KG Update | Stop hook entity extraction (tech decisions, errors, explicit refs) | Complete |
-| KG Context Forwarding | Task detection, smart keywords, depth-1 relation expansion, `recall()` | Complete |
-| OpenCode Export | 6th agent target (per-file skills, merge-single commands) | Complete |
-| Tests | 98 comprehensive v4+v5 test cases (test-v4.mjs) | Complete |
-| Setup | Updated for v4 MCP config in .claude-settings.json | Complete |
 | Session Module | 1 MCP tool (hermit_session_start) + 1 resource (context/auto) | Complete |
-| Session Recall | Scope detection, keyword matching, entity scoring | Complete |
 | Skills Module | 6 MCP tools (skill/command/hook list+export) | Complete |
-| Skill Adapters | Unified AGENTS config with nested skills/commands/hooks keys | Complete |
-| Skill Export Engine | Discover, compat check, per-file + merge-single write | Complete |
-| Command Export | 14 commands exported to all 5 agents via command-specific transforms | Complete |
-| Hook Export | Hook discovery + file copying + lib/ co-location | Complete |
 | Hook Adapters | Auto-recall + session + auto-update hooks for Cursor, Gemini CLI, Cline, Codex | Complete |
-| CLI Export | `hermit skills export` with --agent/--project/--global/--commands/--hooks | Complete |
 
 ---
 
@@ -339,6 +372,7 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 
 ### Ignore List
 - `data/.model-cache/` — Hugging Face model downloads (too large to commit)
+- `data/code-symbols.jsonl` — auto-generated code index (regenerated on demand)
 - `node_modules/` — npm dependencies
 
 ---
@@ -349,6 +383,9 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 - **Search latency:** <100ms for 1K entities (hybrid scoring)
 - **JSONL append:** <10ms per entity (lock-free reads)
 - **Embedding rebuild:** ~5-10s for 5K entities (one-time or periodic)
+- **Code index (full):** ~2s for typical project
+- **Code query latency:** <10ms (in-memory graph lookup)
+- **Impact analysis:** <20ms (3-hop BFS)
 
 ---
 
@@ -364,7 +401,6 @@ Reports:
 - Stale observations (>180 days old)
 - Embedding index freshness
 - File lock availability
-- Neo4j sync status
 
 ### Stale Report
 ```bash
@@ -377,8 +413,7 @@ Shows observations not updated in >180 days.
 
 ## Future Enhancements
 
-- [ ] Real-time Neo4j event streaming
-- [ ] Full-text search indices
 - [ ] Multi-model embedding support (domain-specific)
 - [ ] Advanced graph analytics
 - [ ] Web UI for entity editing
+- [ ] Incremental embedding updates (skip unchanged entities)

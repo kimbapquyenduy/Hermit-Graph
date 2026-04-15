@@ -11,7 +11,7 @@ This returns project-scoped context from previous sessions.
 - Use `hermit_query({query: "concept"})` to find code by concept
 - Use `hermit_context({name: "symbolName"})` for 360-degree symbol view
 - Use `hermit_index({cwd: "project_path"})` to re-index when stale
-- **Do NOT use raw `npx gitnexus analyze`** — always use `hermit_index`
+- **Always use `hermit_index`** for code indexing — never run ast-grep directly
 - CodeGraph tools auto-reindex on stale errors, so manual reindex is rarely needed
 
 ## Before Each Task — Recall

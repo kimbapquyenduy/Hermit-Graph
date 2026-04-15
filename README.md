@@ -105,7 +105,7 @@ That's it. Memory is live.
 ### Work Across 7 Agents
 - **One memory, seven agents, zero conflicts** — File-lock safe concurrent access
 - **MCP protocol** — Standard integration via 28 tools + 1 resource
-- **Native hooks for all agents** — Auto-recall and auto-update hooks for Claude, Cursor, Gemini, Windsurf, Cline, Codex, OpenCode
+- **Native hooks for 5 agents** — Auto-recall and auto-update hooks for Claude, Cursor, Gemini, Cline, Codex
 - **Skill distribution** — Export skills, commands, and hooks to any agent in their native format
 - **Zero-config setup** — `hermit setup` configures all detected agents in one command
 
@@ -260,7 +260,7 @@ hermit skills installed                # Show what's installed
 # Multi-agent distribution
 hermit skills export --all --agent cursor --project /path   # Skills to Cursor
 hermit skills export --all --agent gemini --global          # Skills to Gemini
-hermit hooks export --all --agent all --project /path       # Hooks to all agents
+hermit skills export --all --hooks --agent all --project /path  # Hooks to all agents
 ```
 
 <details>

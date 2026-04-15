@@ -2,9 +2,9 @@
 
 ## Overview
 
-hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v5.0:** Unified MCP server with 28 tools + 1 resource across 7 modules. Multi-agent hooks (auto-recall + auto-update) across 5 agents (Claude, Cursor, Gemini, Cline, Codex).
+hermit-graph is a distributed knowledge graph system for AI-assisted development. It captures, organizes, and retrieves project intelligence (architecture decisions, code patterns, business rules, incidents) across development sessions. **v6.0.0:** Unified MCP server with 28 tools + 1 resource across 7 modules. Multi-agent hooks (auto-recall + auto-update) across 7 agents (Claude, Cursor, Gemini, Windsurf, Cline, Codex, OpenCode).
 
-**Core technology:** JSONL-based knowledge graph + MCP server v1.29.0 + semantic embeddings + GitNexus integration
+**Core technology:** JSONL-based knowledge graph + MCP server v1.29.0 + semantic embeddings + built-in code intelligence (ast-grep)
 
 ---
 
@@ -28,10 +28,11 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 - **Rebuild:** `npm run build:index` or `brain index`
 - **Purpose:** Hybrid search acceleration (semantic + keyword)
 
-#### Neo4j Sync (Optional)
-- **Purpose:** Real-time multi-user sync and analytics
-- **Sync script:** `scripts/sync-to-neo4j.mjs`
-- **Status:** Optional (fallback to local JSONL if unavailable)
+#### Code Intelligence Data
+- **File:** `data/code-symbols.jsonl` (auto-generated, gitignored)
+- **Contains:** Function/class/method symbols with relations (calls, imports, exports)
+- **Auto-indexes:** On first query via `hermit_query` or `hermit_index`; incremental updates via git diff
+- **Format:** JSONL with mtime caching for fast incremental rebuilds
 
 ---
 
@@ -74,7 +75,42 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 
 ---
 
-### 3. CLI Layer
+### 3. Code Intelligence Layer (`scripts/lib/code-intel/`)
+
+Built-in code intelligence powered by ast-grep. Zero external dependencies beyond `@ast-grep/napi`. Supports JS/TS/TSX natively; Python via optional `@ast-grep/lang-python`.
+
+#### Modules (10)
+
+| Module | Purpose |
+|--------|---------|
+| `parser.mjs` | ast-grep wrapper for JS/TS/TSX (built-in) + Python (optional) |
+| `extractor.mjs` | Entry point — dispatches to language-specific extractors |
+| `extractor-js.mjs` | Symbol & relation extraction for JS/TS/TSX |
+| `extractor-py.mjs` | Symbol & relation extraction for Python |
+| `graph.mjs` | In-memory CodeGraph data structure (Map-based, O(1) symbol lookup) |
+| `code-io.mjs` | JSONL persistence with mtime caching for fast incremental rebuilds |
+| `impact.mjs` | 3-hop BFS blast radius analysis |
+| `indexer.mjs` | Full + incremental indexing via git diff |
+| `process-detector.mjs` | DFS-based execution flow detection |
+| `index.mjs` | Public API facade (single import point) |
+
+#### Impact Risk Levels
+
+| Depth | Risk | Meaning |
+|-------|------|---------|
+| d=1 | WILL_BREAK | Direct callers/importers — must update |
+| d=2 | LIKELY_AFFECTED | Indirect dependencies — should test |
+| d=3 | MAY_NEED_TESTING | Transitive — test if on critical path |
+
+#### Performance
+- Full index (85 files): ~2s
+- Symbol queries: <10ms
+- Impact analysis: <20ms
+- Execution flow detection: ~50ms
+
+---
+
+### 4. CLI Layer
 
 #### Brain CLI (`scripts/brain-cli.mjs`)
 - **Entry point:** `brain` (installed via `package.json` bin field)
@@ -82,15 +118,15 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
   - `brain search <query>` — Hybrid semantic + keyword search
   - `brain health` — Run health checks (entity counts, stale nodes, index freshness)
   - `brain index [--force]` — Build/rebuild embedding index
-  - `brain export` — Export Neo4j to brain.jsonl
+  - `brain export` — Export to brain.jsonl
   - `brain stale` — Report stale observations (>180 days)
   - `brain serve` — Launch MCP memory server
   - `brain view` — Open dashboard viewer
   - `brain help` — Show CLI help
 
 #### Skill Distribution (`scripts/lib/skill-adapters.mjs`, `skill-export.mjs`, `hook-export.mjs`, `skills-module.mjs`)
-- **Purpose:** Export hermit skills, commands, and hooks from `catalog/` to 6 AI agents
-- **Agents:** Claude Code, Cursor, Cline, Gemini CLI, Codex, OpenCode — unified AGENTS config with nested skills/commands/hooks keys
+- **Purpose:** Export hermit skills, commands, and hooks from `catalog/` to 7 AI agents
+- **Agents:** Claude Code, Cursor, Cline, Gemini CLI, Windsurf, Codex, OpenCode — unified AGENTS config with nested skills/commands/hooks keys
 - **Write strategies:**
   - `per-file` — One file per item (mkdir + overwrite) — Claude, Cursor, Cline, OpenCode
   - `merge-single` — Section markers for idempotent merge into shared file — Gemini, Codex
@@ -102,7 +138,7 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 
 ---
 
-### 4. Dashboard / UI Layer
+### 5. Dashboard / UI Layer
 
 #### Viewer (`viewer/index.html`)
 - **Purpose:** Web-based knowledge graph browser
@@ -111,12 +147,12 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
   - Entity cards (name, type, observations, relationships)
   - Stale node indicators (red border, 0.6 opacity for observations >180 days)
   - Export/import controls
-- **Data source:** Reads `data/brain-embeddings.json` and Neo4j (if available)
+- **Data source:** Reads `data/brain-embeddings.json`
 - **Launch:** `npm run view:live`
 
 ---
 
-### 5. MCP Integration Layer (v4)
+### 6. MCP Integration Layer
 
 #### Hermit Graph MCP Server (`scripts/hermit-mcp-server.mjs`)
 **Single unified server with 28 tools + 1 resource across 7 modules (stdio JSON-RPC transport)**
@@ -125,7 +161,7 @@ hermit-graph is a distributed knowledge graph system for AI-assisted development
 ```
 hermit-mcp-server.mjs (entry point)
   ├── Memory Module (10 tools) — KG CRUD
-  ├── CodeGraph Module (5 tools) — GitNexus wrapper
+  ├── CodeGraph Module (5 tools) — Built-in code intelligence (ast-grep)
   ├── Intelligence Module (3 tools) — Audit trail, consolidation, branch context
   ├── Unified Search (2 tools) — Cross-KG + code search, health checks
   ├── Session Module (1 tool + 1 resource) — Cross-agent session context
@@ -139,21 +175,21 @@ Each module exports `register(server, context)` function, called sequentially by
 **Memory Module Tools (10):**
 1. `hermit_create_entities` — Create/merge entities in KG (dedup by name, case-insensitive)
 2. `hermit_create_relations` — Add relation edges (from/to/relationType)
-3. `hermit_search_entities` — Keyword + semantic search in KG (hybrid scoring)
-4. `hermit_get_entity` — Fetch single entity with all observations
-5. `hermit_update_entity` — Append observations to existing entity
-6. `hermit_delete_entity` — Archive/remove entity
-7. `hermit_list_entities` — List entities (by type, limit)
-8. `hermit_bulk_import` — Batch create from external source
-9. `hermit_export_subgraph` — Export filtered entity set to JSON
-10. `hermit_get_relations` — List relations (optionally filtered)
+3. `hermit_search_nodes` — Keyword search across entity names, types, and observations
+4. `hermit_semantic_search` — Hybrid vector + keyword search (falls back to keyword-only)
+5. `hermit_open_nodes` — Read full entity details by name(s)
+6. `hermit_add_observations` — Append observations to existing entity
+7. `hermit_archive_entities` — Soft-delete entities (set _archived=true)
+8. `hermit_archive_observations` — Soft-archive specific observations by content match
+9. `hermit_get_related` — Traverse relations from an entity (BFS, 1-5 hops)
+10. `hermit_read_graph` — Read knowledge graph with filters (minimal/summary/full detail levels)
 
 **CodeGraph Module Tools (5):**
-1. `hermit_query` — Concept-based code search via GitNexus
-2. `hermit_context` — 360-degree symbol view (callers, callees, flows)
-3. `hermit_impact` — Blast radius analysis (upstream/downstream/both)
-4. `hermit_detect_changes` — Pre-commit scope check (staged/all/compare)
-5. `hermit_index` — Index/re-index a project for code intelligence (runs GitNexus analyze)
+1. `hermit_query` — Concept-based code search via ast-grep
+2. `hermit_context` — 360-degree symbol view (callers, callees, flows) via ast-grep
+3. `hermit_impact` — Blast radius analysis (upstream/downstream/both) via ast-grep
+4. `hermit_detect_changes` — Pre-commit scope check (staged/all/compare) via ast-grep
+5. `hermit_index` — Index/re-index a project for code intelligence (runs ast-grep analyze)
 
 **Intelligence Module Tools (3):**
 1. `hermit_audit_trail` — Observation change history (append-only log)
@@ -196,8 +232,6 @@ Append entity to brain.jsonl (JSONL append-only)
 Release file lock
   ↓
 [Async] Rebuild embedding index (if index is stale)
-  ↓
-[Optional] Sync to Neo4j
 ```
 
 ### Read Flow (Search)
@@ -216,6 +250,26 @@ Compute hybrid scores (0.7 semantic + 0.3 keyword)
 Load brain.jsonl entries for top-N results
   ↓
 Return hydrated results (name, type, observations, confidence)
+```
+
+### Code Intelligence Flow
+
+```
+hermit_query / hermit_impact / hermit_context called
+  ↓
+Check if data/code-symbols.jsonl exists + is fresh (mtime cache)
+  ↓
+[First use / stale] Run ast-grep analyze → extract symbols + relations
+  ↓
+[Incremental] git diff → extract only changed files
+  ↓
+Write updated data/code-symbols.jsonl
+  ↓
+Load graph into memory (Map-based, O(1) lookup)
+  ↓
+Execute query / BFS impact / DFS process detection
+  ↓
+Return results with depth/risk annotations
 ```
 
 ### Merge Flow (Git)
@@ -242,36 +296,41 @@ Commit merged brain.jsonl
 
 - **Brain JSONL:** File-locked writes, lock-free reads (JSONL append-only)
 - **Embedding Index:** Rebuilt atomically (single rebuild task)
-- **Neo4j:** Lock-free reads, transactional writes
+- **Code Symbols:** Written atomically; incremental rebuilds via git diff
 
 ### File Lock Service
 - Blocks concurrent brain.jsonl writers
 - Readers proceed without waiting
 - Timeout: 5s (configurable)
-- Graceful fallback: If lock unavailable, write fails with error
+- Graceful fallback: If lock unavailable, write fails with clear error
 
 ---
 
-## v3 Enhancements (Completed)
+## Feature History
 
-| Feature | Module | Status |
-|---------|--------|--------|
-| Semantic search (hybrid) | embedding-service, semantic-search | Done |
-| Enhanced dashboard | viewer/index.html | Done |
-| Multi-agent protocol (file locking) | file-lock.mjs | Done |
-| Branch-aware merge | merge-brain-jsonl.mjs | Done |
-| Unified CLI | brain-cli.mjs | Done |
-| Skill Distribution (v4.1) | skill-adapters, skill-export, skills-module | Done |
-| Cross-Agent Session Context (v4.2) | session-module, session-recall | Done |
-| Rules File Setup (v4.2) | setup-project (Cursor/Windsurf/Cline/Codex) | Done |
-| Command + Hook Distribution (v4.3) | skill-export, hook-export, skills-module | Done |
-| Hook Adapters (v4.3) | recall-core.cjs, session-core.cjs + agent adapters | Done |
-| Skill Search + Index (v5.0 P0+P1) | skill-index.mjs, skill-search-module.mjs | Done |
-| Token-Aware KG Injection (v5.0 P2) | recall-core.cjs (estimateChars, selectDetailLevel) | Done |
-| Smart Skill Activation (v5.0 P3) | skill-adapters.mjs, skill-export.mjs (paths: frontmatter) | Done |
-| Post-Response KG Update (v5.0 P4) | entity-extractor.cjs, kg-auto-update.cjs + adapters | Done |
-| KG Context Forwarding (v5.0 P5) | recall-core.cjs (detectPromptType, expandRelations, recall) | Done |
-| OpenCode Export (v5.0 P6) | skill-adapters.mjs (6th agent: opencode) | Done |
+| Feature | Module | Version |
+|---------|--------|---------|
+| Semantic search (hybrid) | embedding-service, semantic-search | v3 |
+| Enhanced dashboard | viewer/index.html | v3 |
+| Multi-agent protocol (file locking) | file-lock.mjs | v3 |
+| Branch-aware merge | merge-brain-jsonl.mjs | v3 |
+| Unified CLI | brain-cli.mjs | v3 |
+| Skill Distribution | skill-adapters, skill-export, skills-module | v4.1 |
+| Cross-Agent Session Context | session-module, session-recall | v4.2 |
+| Rules File Setup (Cursor/Windsurf/Cline/Codex) | setup-project | v4.2 |
+| Command + Hook Distribution | skill-export, hook-export, skills-module | v4.3 |
+| Hook Adapters | recall-core.cjs, session-core.cjs + agent adapters | v4.3 |
+| Skill Search + Index | skill-index.mjs, skill-search-module.mjs | v5.0 |
+| Token-Aware KG Injection | recall-core.cjs (estimateChars, selectDetailLevel) | v5.0 |
+| Smart Skill Activation | skill-adapters.mjs (paths: frontmatter) | v5.0 |
+| Post-Response KG Update | entity-extractor.cjs, kg-auto-update.cjs + adapters | v5.0 |
+| KG Context Forwarding | recall-core.cjs (detectPromptType, expandRelations) | v5.0 |
+| OpenCode Export (6th agent) | skill-adapters.mjs | v5.0 |
+| Built-in code intelligence (ast-grep) | scripts/lib/code-intel/ (10 modules) | v6.0.0 |
+| Windsurf agent support (7th agent) | skill-adapters.mjs | v6.0.0 |
+| Incremental indexing via git diff | indexer.mjs | v6.0.0 |
+| 3-hop BFS blast radius analysis | impact.mjs | v6.0.0 |
+| DFS execution flow detection | process-detector.mjs | v6.0.0 |
 
 ---
 
@@ -285,8 +344,7 @@ npm run view:live
 ```
 
 ### Production
-- Deployment handled by Neo4j sync
-- JSONL acts as local cache/fallback
+- JSONL acts as local store (no external DB required)
 - CI/CD: Auto-rebuild embeddings on push
 
 ---
@@ -308,11 +366,6 @@ npm run view:live
 - Store branch-specific filters in `~/.hermit-branch-context.json`
 - Allow filtering search/export by branch
 
-### GitNexus Runner (`scripts/lib/gitnexus-runner.mjs`)
-- Subprocess wrapper around `npx gitnexus` CLI
-- 30s timeout per invocation
-- Handles JSON output parsing and error propagation
-
 ### Brain Health Checks (`scripts/lib/brain-health-checks.mjs`)
 Five automated checks:
 1. **Stale Entries** — observations >180 days without update
@@ -325,15 +378,16 @@ Returns score 0-100 with recommendations.
 
 ---
 
-## Dependencies (v4)
+## Dependencies (v6.0.0)
 
 | Package | Version | Purpose |
 |---------|---------|---------|
 | @modelcontextprotocol/sdk | ^1.29.0 | MCP server framework |
 | @huggingface/transformers | ^4.0.1 | Semantic embeddings (ONNX) |
-| zod | ^3.x | Tool parameter validation |
-| neo4j-driver | ^5.27.0 | Graph sync (optional) |
+| @ast-grep/napi | ^0.42.1 | Built-in code intelligence |
+| zod | ^4.3.6 | Tool parameter validation |
 | dotenv | ^16.4.0 | Environment config |
+| @ast-grep/lang-python | ^0.0.6 | Python support (optional) |
 
 ---
 
@@ -341,9 +395,10 @@ Returns score 0-100 with recommendations.
 
 ### Graceful Degradation
 - Embedding model unavailable → semantic search disabled, keyword-only
-- Neo4j unavailable → fallback to local JSONL
 - File lock timeout → write operation fails with clear error
 - Stale embeddings → search works but may return less relevant results
+- ast-grep unavailable → CodeGraph tools return error with reindex instructions
+- Python lang pack missing → Python files skipped, JS/TS still indexed
 
 ---
 
@@ -354,13 +409,4 @@ Returns score 0-100 with recommendations.
 2. Stale observations (>180 days)
 3. Embedding index freshness
 4. File lock health
-5. Neo4j sync status (if configured)
-
----
-
-## Future Roadmap
-
-- [ ] Real-time Neo4j streaming
-- [ ] Full-text search optimization
-- [ ] Multi-model embedding support
-- [ ] Graph analytics dashboards
+5. Code symbol index freshness
