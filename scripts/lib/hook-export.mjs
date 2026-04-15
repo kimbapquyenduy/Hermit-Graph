@@ -239,9 +239,15 @@ export function exportHook(hookFilename, agentName, opts = {}, catalogRoot) {
     ? hookCfg.globalPath(hookFilename)
     : hookCfg.path(hookFilename, opts.project);
 
-  // Copy hook file
+  // Copy hook file — back up the existing file before overwriting
   const existed = existsSync(targetPath);
   mkdirSync(dirname(targetPath), { recursive: true });
+  if (existed) {
+    const backupDir = join(dirname(targetPath), '.hermit-backups');
+    mkdirSync(backupDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    copyFileSync(targetPath, join(backupDir, `${hookFilename}.${ts}.bak`));
+  }
   copyFileSync(srcPath, targetPath);
 
   // Copy lib/ if it exists

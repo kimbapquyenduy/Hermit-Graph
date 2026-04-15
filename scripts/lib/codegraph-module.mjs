@@ -170,6 +170,7 @@ export function register(server, ctx) {
     cwd: z.string().optional(),
   }, async ({ cwd }) => {
     try {
+      cacheInvalidate(cwd); // Clear stale cache when checking status (handles external reindex)
       const out = await cachedRunGitNexus('status', [], cwd);
       return ok(formatChangesResult(out));
     } catch (e) {

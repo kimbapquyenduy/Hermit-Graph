@@ -3,8 +3,8 @@
  * Source of truth: data/brain.jsonl (one JSON object per line).
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
-import { dirname } from 'path';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, statSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { withLock } from './file-lock.mjs';
 
 // ── Mtime-based read cache (Phase 3a) ──
@@ -19,14 +19,15 @@ let _cachedPath = null;
  * @returns {{ entities: Map<string, object>, relations: object[] }}
  */
 export function readBrain(brainPath) {
-  if (!existsSync(brainPath)) return { entities: new Map(), relations: [] };
+  const normalizedPath = resolve(brainPath);
+  if (!existsSync(normalizedPath)) return { entities: new Map(), relations: [] };
 
-  const mtime = statSync(brainPath).mtimeMs;
-  if (_cachedBrain && _cachedPath === brainPath && _cachedMtimeMs === mtime) {
+  const mtime = statSync(normalizedPath).mtimeMs;
+  if (_cachedBrain && _cachedPath === normalizedPath && _cachedMtimeMs === mtime) {
     return _cachedBrain;
   }
 
-  const lines = readFileSync(brainPath, 'utf-8').split('\n').filter(Boolean);
+  const lines = readFileSync(normalizedPath, 'utf-8').split('\n').filter(Boolean);
   const entities = new Map();
   const relations = [];
   for (const line of lines) {
@@ -40,7 +41,7 @@ export function readBrain(brainPath) {
   const result = { entities, relations };
   _cachedBrain = result;
   _cachedMtimeMs = mtime;
-  _cachedPath = brainPath;
+  _cachedPath = normalizedPath;
   return result;
 }
 
@@ -58,7 +59,10 @@ export function writeBrain(brainPath, entities, relations) {
   const lines = [];
   for (const entity of values) lines.push(JSON.stringify(entity));
   for (const rel of relations) lines.push(JSON.stringify(rel));
-  writeFileSync(brainPath, lines.join('\n') + (lines.length ? '\n' : ''));
+  // Atomic write: write to temp file then rename to avoid partial writes on crash
+  const tmpPath = brainPath + '.tmp';
+  writeFileSync(tmpPath, lines.join('\n') + (lines.length ? '\n' : ''));
+  renameSync(tmpPath, brainPath);
   // Invalidate read cache after write
   _cachedBrain = null;
   _cachedMtimeMs = null;

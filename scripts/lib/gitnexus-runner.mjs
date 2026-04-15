@@ -111,8 +111,19 @@ function sanitizeArg(arg) {
 
 /** @type {{ proc: import('child_process').ChildProcess, buffer: string, responses: Map<number, Function>, nextId: number } | null} */
 let _bridge = null;
-let _bridgeFailed = false; // skip bridge after repeated failures
+let _bridgeFailedAt = 0; // timestamp of last bridge failure (0 = never failed)
+const BRIDGE_COOLDOWN_MS = 60000; // 60s cooldown after failure before retry
 let _bridgeInitPromise = null;
+
+// Cleanup bridge on process exit
+let _exitHandlerRegistered = false;
+function registerExitHandler() {
+  if (_exitHandlerRegistered) return;
+  _exitHandlerRegistered = true;
+  process.on('exit', () => {
+    try { _bridge?.proc?.kill(); } catch { /* ignore */ }
+  });
+}
 
 /**
  * Parse the CLI args array back into MCP tool arguments.
@@ -142,7 +153,7 @@ function cliArgsToMcpArgs(cmd, args) {
 }
 
 function startBridge() {
-  if (_bridgeFailed) return null;
+  if (_bridgeFailedAt && (Date.now() - _bridgeFailedAt) < BRIDGE_COOLDOWN_MS) return null;
   const binPath = findBinPath();
   if (!binPath) return null;
 
@@ -150,6 +161,8 @@ function startBridge() {
     const proc = spawn('node', [binPath, 'mcp'], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    registerExitHandler();
 
     const bridge = {
       proc,
@@ -195,7 +208,7 @@ function startBridge() {
 
 async function ensureBridge() {
   if (_bridge?.proc?.exitCode == null && _bridge?.ready) return _bridge;
-  if (_bridgeFailed) return null;
+  if (_bridgeFailedAt && (Date.now() - _bridgeFailedAt) < BRIDGE_COOLDOWN_MS) return null;
   if (_bridgeInitPromise) return _bridgeInitPromise;
 
   _bridgeInitPromise = (async () => {
@@ -213,7 +226,7 @@ async function ensureBridge() {
       if (!initResult) {
         _bridge.proc.kill();
         _bridge = null;
-        _bridgeFailed = true;
+        _bridgeFailedAt = Date.now();
         _bridgeInitPromise = null;
         return null;
       }
@@ -224,7 +237,7 @@ async function ensureBridge() {
     } catch {
       try { _bridge?.proc?.kill(); } catch {}
       _bridge = null;
-      _bridgeFailed = true;
+      _bridgeFailedAt = Date.now();
       return null;
     } finally {
       _bridgeInitPromise = null;

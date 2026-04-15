@@ -233,17 +233,18 @@ function detectProjectScope() {
  *
  * @param {string} entityName
  * @param {string[]} currentScope
+ * @param {Object} [projectScopesCache] - Optional pre-built scopes map from buildProjectScopes().
+ *   Pass this when calling inside a loop to avoid O(N) file reads per entity.
  * @returns {'match'|'other'|'neutral'}
  */
-function checkEntityScope(entityName, currentScope) {
+function checkEntityScope(entityName, currentScope, projectScopesCache) {
   if (currentScope.length === 0) return 'neutral';
   const nameLower = entityName.toLowerCase().replace(/[\s-_]/g, '');
 
   if (currentScope.some(s => nameLower.includes(s))) return 'match';
 
-  // Check against all known project scopes (resolved fresh each call)
-  const brainPath = resolveBrainPath();
-  const projectScopes = buildProjectScopes(brainPath);
+  // Use cached scopes if provided, otherwise build fresh
+  const projectScopes = projectScopesCache || buildProjectScopes(resolveBrainPath());
 
   for (const [, aliases] of Object.entries(projectScopes)) {
     if (aliases.some(a => currentScope.includes(a))) continue; // same project
@@ -309,6 +310,9 @@ function searchBrain(keywords, projectScope) {
     return [];
   }
 
+  // Pre-build project scopes once — avoids O(N * M) file reads inside the loop
+  const projectScopesCache = buildProjectScopes(brainPath);
+
   const results = [];
 
   for (const line of lines) {
@@ -338,7 +342,7 @@ function searchBrain(keywords, projectScope) {
     }
 
     if (score >= MIN_SCORE) {
-      const scope = checkEntityScope(obj.name, projectScope);
+      const scope = checkEntityScope(obj.name, projectScope, projectScopesCache);
       if (scope === 'match') score += SCOPE_BOOST;
       else if (scope === 'other') score += SCOPE_PENALTY;
 
