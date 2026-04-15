@@ -30,14 +30,29 @@ AI coding agents forget everything between sessions. You re-explain the same arc
 ## How It Works
 
 ```
-You → AI Agent → Hermit Brain (brain.jsonl)
-                     ↕
-              Search · Recall · Learn
-                     ↕
-         All your other projects & agents
+You -> AI Agent -> Hermit Brain (brain.jsonl)
+                      |
+               Search . Recall . Learn
+                      |
+          All your other projects & agents
 ```
 
 Your agents save decisions, patterns, rules, and bugs into a structured knowledge graph. Next time — in any project, with any agent — they find it instantly.
+
+---
+
+## What's New in v6.0.0
+
+**Built-in Code Intelligence** — ast-grep powered code analysis replaces the external GitNexus dependency. Zero subprocesses, <100ms queries, fully MIT licensed.
+
+- **`hermit_query`** — Find code by concept (symbols + execution flows)
+- **`hermit_context`** — 360-degree view of any symbol (callers, callees)
+- **`hermit_impact`** — Blast radius analysis before editing (3-hop BFS, risk levels)
+- **`hermit_detect_changes`** — Check if code index is stale
+- **`hermit_index`** — Full or incremental project indexing
+- **JS/TS + Python** support via @ast-grep/napi
+- **Auto-indexes** on first query — no manual setup needed
+- **Incremental indexing** — only re-parses changed files via git diff
 
 ---
 
@@ -68,6 +83,13 @@ That's it. Memory is live.
 - **Semantic + keyword search** — Find knowledge by concept or exact phrase
 - **Automatic staleness detection** — Flags old knowledge (180+ days) for review
 - **Confidence scoring** — Distinguish verified facts `[0.95]` from experiments `[0.5]`
+
+### Code Intelligence (v6)
+- **Symbol search** — Find functions, classes, methods by concept
+- **Impact analysis** — Know what breaks before you change it (d=1 WILL_BREAK, d=2 LIKELY_AFFECTED, d=3 MAY_NEED_TESTING)
+- **Context view** — See all callers and callees of any symbol
+- **Process detection** — Discover execution flows automatically
+- **Unified search** — Search knowledge graph AND code symbols together in one query
 
 ### Enforce Business Rules
 - **Business rule guard** — `/biz-review` validates code against documented rules before merge
@@ -102,6 +124,7 @@ That's it. Memory is live.
 | **Multi-agent** | 7 agents, file-lock safe | Per-project | Per-branch | Per-workspace |
 | **Structured** | 4-tier taxonomy, 13 types | Unstructured | Unstructured | Manual structure |
 | **Auto-capture** | Hooks extract entities | Manual save | Manual | Manual |
+| **Code intelligence** | Built-in ast-grep | None | None | None |
 | **Works offline** | Local JSONL | Local | Local | Needs internet |
 | **Cost** | Free (MIT) | Free | Free | $10-20/mo |
 
@@ -113,11 +136,12 @@ That's it. Memory is live.
 |---------|:-----------:|:------:|:----------:|:--------:|:-----:|:-----:|:--------:|
 | MCP memory server | auto | auto | auto | auto | auto | auto | auto |
 | brain.jsonl | auto | auto | auto | auto | auto | auto | auto |
-| Skills (6) | auto | export | export | — | export | export | export |
-| Slash commands (14) | auto | export | export | — | — | export | export |
-| Auto-recall hook | auto | export | export | — | export | export | export |
-| Auto-update hook | auto | export | export | — | export | export | export |
-| Rules file | auto | auto | auto | auto | — | — | auto |
+| Code intelligence | auto | auto | auto | auto | auto | auto | auto |
+| Skills (6) | auto | export | export | -- | export | export | export |
+| Slash commands (14) | auto | export | export | -- | -- | export | export |
+| Auto-recall hook | auto | export | export | -- | export | export | export |
+| Auto-update hook | auto | export | export | -- | export | export | export |
+| Rules file | auto | auto | auto | auto | -- | -- | auto |
 | BUSINESS.md template | auto | auto | auto | auto | auto | auto | auto |
 
 ```bash
@@ -157,11 +181,61 @@ Replace `<ABSOLUTE_PATH>` with your clone path. Use forward slashes on all platf
 | Claude Code | `~/.claude/settings.json` |
 | Cursor | `~/.cursor/mcp.json` or `.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| Cline | VS Code `settings.json` → `cline.mcpServers` |
+| Cline | VS Code `settings.json` -> `cline.mcpServers` |
 | Codex | `~/.codex/config.toml` |
 | OpenCode | `.opencode/config.json` |
 
 </details>
+
+---
+
+## Code Intelligence
+
+Hermit v6 includes built-in code analysis powered by [ast-grep](https://ast-grep.github.io/). No external tools, no subprocesses — just fast, in-process AST parsing.
+
+### How It Works
+
+```
+Your Project  -->  ast-grep parser  -->  CodeGraph (symbols + relations)
+                                              |
+                                    data/code-symbols.jsonl
+                                              |
+                         query / context / impact / detect_changes
+```
+
+### MCP Tools
+
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `hermit_query` | Find code by concept | `hermit_query({query: "auth validation"})` |
+| `hermit_context` | 360-degree view of a symbol | `hermit_context({name: "validateUser"})` |
+| `hermit_impact` | Blast radius before editing | `hermit_impact({target: "connectDB", direction: "upstream"})` |
+| `hermit_detect_changes` | Check if index is stale | `hermit_detect_changes()` |
+| `hermit_index` | Full project reindex | `hermit_index({cwd: "/path/to/project"})` |
+| `hermit_unified_search` | Search KG + code together | `hermit_unified_search({query: "payment", cwd: "/project"})` |
+
+### Impact Risk Levels
+
+| Depth | Meaning | Action |
+|-------|---------|--------|
+| d=1 | **WILL BREAK** — direct callers/importers | MUST update these |
+| d=2 | **LIKELY AFFECTED** — indirect deps | Should test |
+| d=3 | **MAY NEED TESTING** — transitive | Test if critical path |
+
+### Languages Supported
+
+- **JavaScript** (.js, .mjs, .cjs)
+- **TypeScript** (.ts, .tsx)
+- **Python** (.py) — via optional `@ast-grep/lang-python`
+
+### Performance
+
+| Operation | Time |
+|-----------|------|
+| Full index (85 files) | ~2s |
+| Query | <10ms |
+| Impact analysis | <20ms |
+| Process detection | ~50ms |
 
 ---
 
@@ -193,7 +267,7 @@ hermit hooks export --all --agent all --project /path       # Hooks to all agent
 <summary><strong>NPM Scripts</strong></summary>
 
 ```bash
-npm test                  # Run test suite (98 tests)
+npm test                  # Run test suite (100 tests)
 npm run health            # Brain health check
 npm run sync              # Sync graph to Neo4j
 npm run view              # Serve HTML dashboard
@@ -262,7 +336,7 @@ Uses transformers.js + all-MiniLM-L6-v2 ONNX. Fully offline, JS-native.
 </details>
 
 <details>
-<summary><strong>Auto-Update Hook (v5)</strong></summary>
+<summary><strong>Auto-Update Hook (v5+)</strong></summary>
 
 Scans assistant messages after each response and extracts entities via regex — no LLM re-parse needed. Entities written with `[0.5|date]` confidence (auto-extracted, unverified).
 
@@ -317,17 +391,30 @@ hermit-graph/
 │       └── lib/                 # Shared hook logic
 ├── data/
 │   ├── brain.jsonl              # Knowledge graph data
+│   ├── code-symbols.jsonl       # Code intelligence index (auto-generated)
 │   ├── brain-embeddings.json    # Semantic search index
 │   └── conventions/             # Auto-learned conventions
 ├── scripts/
 │   ├── brain-cli.mjs            # CLI entry point
 │   ├── skills-manager.mjs       # Skill install/remove/list/export
 │   ├── hermit-mcp-server.mjs    # MCP server (28 tools + 1 resource)
-│   └── lib/                     # 12 modules
+│   └── lib/
+│       ├── code-intel/          # Built-in code intelligence (v6)
+│       │   ├── parser.mjs       # ast-grep wrapper (JS/TS/Python)
+│       │   ├── extractor.mjs    # Symbol & relation extraction
+│       │   ├── graph.mjs        # In-memory CodeGraph data structure
+│       │   ├── code-io.mjs      # JSONL persistence (mtime-cached)
+│       │   ├── impact.mjs       # Blast radius analysis (3-hop BFS)
+│       │   ├── indexer.mjs      # Full + incremental indexing
+│       │   ├── process-detector.mjs  # Execution flow detection
+│       │   └── index.mjs        # Public API facade
+│       ├── codegraph-module.mjs # 5 MCP code intelligence tools
+│       ├── unified-search.mjs   # KG + code unified search
+│       └── ...                  # 10+ other modules
 ├── viewer/index.html            # Graph dashboard (vis.js)
 ├── docker/docker-compose.yml    # Neo4j (optional)
 ├── templates/                   # CLAUDE.md, BUSINESS.md templates
-└── package.json                 # v5.1.0
+└── package.json                 # v6.0.0
 ```
 
 </details>
@@ -361,6 +448,34 @@ Works fine up to several MB. Over 10MB, run `hermit stale` and archive old entri
 Run `npm run setup:semantic` then `npm run build:index`. Requires Node.js 18+.
 
 </details>
+
+<details>
+<summary><strong>Code intelligence not finding symbols?</strong></summary>
+
+Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index auto-creates on first query but may need a refresh after large changes.
+
+</details>
+
+---
+
+## Changelog (v6.0.0)
+
+### Breaking Changes
+- **Removed GitNexus dependency** — All code intelligence is now built-in via ast-grep
+- **Deleted `gitnexus-runner.mjs`** — 296 LOC subprocess manager replaced by in-process analysis
+- **`@ast-grep/napi`** added as bundled dependency (napi-rs prebuilt binaries, no node-gyp)
+
+### New
+- **10 code-intel modules** in `scripts/lib/code-intel/` — parser, extractors (JS/TS + Python), graph, impact, indexer, process detector
+- **Auto-indexing** — CodeGraph tools auto-index on first query if no index exists
+- **Incremental indexing** — Only re-parses files changed since last git commit
+- **Process detection** — Discovers execution flows via DFS call chain tracing
+- **Unified search** — `hermit_unified_search` merges KG entities + code symbols in one query
+
+### Improved
+- **100 tests passing** (up from 98)
+- **MCP server** boots with all 28 tools, zero external dependencies
+- **Performance** — Full index ~2s, queries <10ms, impact <20ms
 
 ---
 

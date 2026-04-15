@@ -4,9 +4,10 @@
  */
 
 import { z } from 'zod';
-import { basename } from 'path';
+import { basename, join } from 'path';
+import { existsSync } from 'fs';
 import { search } from './semantic-search.mjs';
-import { runGitNexus } from './gitnexus-runner.mjs';
+import * as codeIntel from './code-intel/index.mjs';
 import {
   loadBrain, checkStale, checkDuplicates, checkOrphans,
   checkLowConfidence, checkMissingRelations, calculateHealth,
@@ -80,32 +81,25 @@ async function searchKG(query, limit) {
   }));
 }
 
+function resolveDataDir(cwd) {
+  if (cwd) {
+    const local = join(cwd, 'data');
+    if (existsSync(local) || existsSync(join(cwd, 'package.json'))) return local;
+  }
+  return join(process.cwd(), 'data');
+}
+
 async function searchCode(query, limit, cwd) {
   if (!cwd) return [];
-  const repoName = basename(cwd.replace(/[\\/]+$/, ''));
-  const repoArgs = repoName ? ['-r', repoName] : [];
-  const raw = await runGitNexus('query', [query, ...repoArgs], cwd);
-  const data = tryParse(raw);
-  if (!data) return [];
-  // GitNexus returns {processes, process_symbols, definitions} object
-  const definitions = Array.isArray(data) ? data : (data.definitions || []);
-  return definitions.slice(0, limit).map(r => ({
-    name: r.name || r.symbol || 'unknown',
+  const dataDir = resolveDataDir(cwd);
+  const result = codeIntel.query(query, dataDir);
+  return result.symbols.slice(0, limit).map((s, i, arr) => ({
+    name: s.name,
     type: 'code-symbol',
-    score: normalizeCodeScore(r.score || r.priority),
+    score: 1 - (i / Math.max(arr.length, 1)), // rank-based score: 1.0 → 0.0
     source: 'code',
-    detail: `${r.filePath || r.file || '?'}:${r.line || r.startLine || '?'}`,
+    detail: `${s.file}:${s.line[0]}`,
   }));
-}
-
-function tryParse(raw) {
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-function normalizeCodeScore(score) {
-  if (typeof score !== 'number' || score <= 0) return 0.5;
-  if (score <= 1) return score;
-  return Math.min(score / 100, 1);
 }
 
 // ── Merge + Format ──
