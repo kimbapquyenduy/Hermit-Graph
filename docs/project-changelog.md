@@ -4,6 +4,20 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [5.1.1] — 2026-04-15
+
+### Fixed
+- **brain-io.mjs** — Atomic writes via temp file + `renameSync` (prevents data loss on crash); path normalization with `resolve()` for cache consistency
+- **entity-extractor.cjs** — `appendToBrain` now acquires advisory `.lock` file (prevents corruption from concurrent MCP server + hook writes); `filterExisting` skips brain read when no entities extracted
+- **gitnexus-runner.mjs** — Bridge failure uses 60s cooldown instead of permanent disable (recovers from transient errors); `process.on('exit')` handler kills orphan bridge subprocess
+- **memory-module.mjs** — `hermit_create_entities` warns on entityType merge conflicts (existing type preserved); `hermit_create_relations` validates from/to entities exist before creating
+- **codegraph-module.mjs** — `hermit_detect_changes` invalidates TTL cache (handles external reindex)
+- **recall-core.cjs** — `checkEntityScope` accepts pre-built scopes cache; `searchBrain` builds scopes once (was O(N*M) file reads per search)
+- **skill-index.mjs** — `buildSkillIndex` logs non-ENOENT errors instead of silently swallowing all exceptions
+- **hook-export.mjs** — `exportHook` creates timestamped `.bak` backup before overwriting existing hooks
+
+---
+
 ## [5.1.0] — 2026-04-15
 
 ### Added
