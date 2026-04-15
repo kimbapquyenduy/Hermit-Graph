@@ -1,19 +1,19 @@
 /**
- * GitNexus runner — 4-tier execution strategy:
+ * GitNexus runner — 3-tier execution strategy:
  *
- * 0. In-Process (fastest, ~5-100ms): direct LocalBackend import,
- *    graph DB lives in same process. Zero IPC overhead.
  * 1. MCP Bridge (~50-300ms): persistent `gitnexus mcp` subprocess,
- *    queries over JSON-RPC stdio. Fallback when in-process fails.
+ *    queries over JSON-RPC stdio. Primary strategy.
  * 2. Direct CLI (~400-800ms): `node <binPath> <cmd>`, shell:false.
  *    Used for `analyze` and as fallback when bridge is down.
  * 3. npx fallback (~1600ms): `npx gitnexus <cmd>`, shell:true.
  *    Last resort when binary path not found.
+ *
+ * Note: GitNexus is called as an external tool (subprocess), not imported
+ * in-process. Users must install GitNexus separately.
  */
 
 import { spawn, execSync } from 'child_process';
 import { resolve as resolvePath, join } from 'path';
-import { pathToFileURL } from 'url';
 import { existsSync, readdirSync } from 'fs';
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -45,62 +45,6 @@ function findBinPath() {
 }
 
 findBinPath();
-
-// ── In-Process LocalBackend — zero IPC overhead (Phase 3c) ──
-
-let _backend = null;
-let _backendFailed = false;
-let _backendInitPromise = null;
-
-function findLocalBackendPath() {
-  const binPath = findBinPath();
-  if (!binPath) return null;
-  // binPath = .../gitnexus/dist/cli/index.js → derive local-backend.js
-  const backendPath = join(binPath, '..', '..', 'mcp', 'local', 'local-backend.js');
-  return existsSync(backendPath) ? backendPath : null;
-}
-
-async function ensureBackend() {
-  if (_backend) return _backend;
-  if (_backendFailed) return null;
-  if (_backendInitPromise) return _backendInitPromise;
-
-  _backendInitPromise = (async () => {
-    try {
-      const backendPath = findLocalBackendPath();
-      if (!backendPath) { _backendFailed = true; return null; }
-
-      const mod = await import(pathToFileURL(backendPath).href);
-      const LocalBackend = mod.LocalBackend || mod.default;
-      if (!LocalBackend) { _backendFailed = true; return null; }
-
-      const backend = new LocalBackend();
-      await backend.init();
-      _backend = backend;
-      return _backend;
-    } catch {
-      _backendFailed = true;
-      return null;
-    } finally {
-      _backendInitPromise = null;
-    }
-  })();
-
-  return _backendInitPromise;
-}
-
-async function callInProcess(cmd, args, cwd) {
-  const mapping = cliArgsToMcpArgs(cmd, args);
-  if (!mapping) return null;
-
-  const backend = await ensureBackend();
-  if (!backend) return null;
-
-  const result = await backend.callTool(mapping.toolName, { ...mapping.args, ...(cwd && { cwd }) });
-  if (result == null) return null;
-  // callTool returns raw JS objects — stringify to match bridge/CLI output format
-  return typeof result === 'string' ? result : JSON.stringify(result);
-}
 
 function sanitizeArg(arg) {
   if (SHELL_META.test(arg)) throw new Error(`Invalid characters in argument: ${arg.slice(0, 40)}`);
@@ -285,8 +229,7 @@ async function callBridge(cmd, args, timeoutMs) {
 
 /**
  * Run a GitNexus command. Strategy:
- * 0. In-process LocalBackend — fastest, zero IPC
- * 1. MCP bridge (persistent subprocess) — fallback when in-process fails
+ * 1. MCP bridge (persistent subprocess) — primary, fast
  * 2. Direct CLI — used for `analyze` and when bridge is down
  * 3. npx fallback — when binary path not found
  */
@@ -299,12 +242,6 @@ export async function runGitNexus(cmd, args = [], cwd = process.cwd(), timeoutMs
 
   // analyze always uses CLI (heavy, one-time operation)
   if (cmd === 'analyze') return runCLI(cmd, safeArgs, safeCwd, timeoutMs);
-
-  // Tier 0: In-process LocalBackend (fastest)
-  try {
-    const result = await callInProcess(cmd, safeArgs, safeCwd);
-    if (result != null) return result;
-  } catch { /* fall through to bridge */ }
 
   // Tier 1: MCP Bridge (persistent subprocess)
   try {
