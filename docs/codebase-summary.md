@@ -2,7 +2,7 @@
 
 ## Quick Overview
 
-**hermit-graph v6.0.0** is a unified knowledge graph system with MCP server integration. Single server provides 28 tools + 1 resource across 7 modules: Memory (KG CRUD), CodeGraph (ast-grep built-in), Intelligence (audit/consolidation), Unified Search, Session Context, Skills Distribution, and Skill Search. Multi-agent hooks (auto-recall + auto-update) across 7 agents. Built on JSONL + semantic embeddings + MCP v1.29.0.
+**hermit-graph v6.1.0** is a unified knowledge graph system with MCP server integration. Single server provides 28 tools + 1 resource across 7 modules: Memory (KG CRUD), CodeGraph (ast-grep built-in), Intelligence (audit/consolidation), Unified Search, Session Context, Skills Distribution, and Skill Search. Multi-agent hooks (auto-recall + auto-update) across 7 agents. Built on JSONL + semantic embeddings + MCP v1.29.0. v6.1 adds Unified Impact Bridge (code + business rule analysis), auto-learn on setup, and BUSINESS.md auto-generation.
 
 **Repository root:** `/`
 **Primary language:** JavaScript (Node.js)
@@ -46,6 +46,9 @@ D:/Project/Personal Project/hermit-graph/
 │   │   ├── skill-search-module.mjs          # hermit_skill_search MCP tool
 │   │   ├── project-skill-export.mjs         # Project skill export engine
 │   │   ├── md-strip.mjs                     # Claude-ref stripping for cross-agent export
+│   │   ├── biz-linker.mjs                   # Business rule linker (KG RULE + BUSINESS.md enrichment)
+│   │   ├── business-md-generator.mjs        # BUSINESS.md auto-generator from scanProject()
+│   │   ├── project-learner.mjs              # Deterministic project scanner (auto-learn on setup)
 │   │   ├── parse-observation.mjs            # Observation parsing utility
 │   │   ├── resolve-brain-path.mjs           # Brain path resolver
 │   │   └── code-intel/                      # Built-in code intelligence (v6)
@@ -67,7 +70,8 @@ D:/Project/Personal Project/hermit-graph/
 │   ├── build-embedding-index.mjs       # Index builder
 │   ├── merge-brain-jsonl.mjs           # Git merge driver
 │   ├── brain-health.mjs                # Health check script (uses brain-health-checks.mjs)
-│   ├── setup-project.mjs               # Project initialization (updated for v4)
+│   ├── setup-project.mjs               # Project initialization (v6.1: auto-learn + BUSINESS.md)
+│   ├── view-graph.mjs                  # Graph viewer (localhost HTTP server)
 │   ├── setup-semantic.mjs              # Semantic setup
 │   ├── sync-to-neo4j.mjs               # Neo4j synchronizer
 │   ├── stale-report.mjs               # Stale observation report
@@ -147,6 +151,9 @@ D:/Project/Personal Project/hermit-graph/
 | `scripts/lib/skill-export.mjs` | Skill + command export | `discoverSkills()`, `discoverCommands()`, `exportSkill()`, `exportCommand()` |
 | `scripts/lib/hook-export.mjs` | Hook export | `discoverHooks()`, `exportHook()`, `exportAllHooks()`, `parseHookName()` |
 | `scripts/lib/session-recall.mjs` | Session context scoring | `recallForScope()`, `detectScope()`, `scoreEntity()` |
+| `scripts/lib/biz-linker.mjs` | Business rule enrichment | `enrichImpactWithBizRules()` — links CodeGraph impact to KG RULE entities + BUSINESS.md chains |
+| `scripts/lib/business-md-generator.mjs` | BUSINESS.md auto-gen | `generateBusinessMd()`, `writeBusinessMdIfMissing()` — pre-fills from scanProject() |
+| `scripts/lib/project-learner.mjs` | Auto-learn on setup | `scanProject()`, `learnProject()` — deterministic project scanner → BIZ + TECH entities |
 | `scripts/lib/parse-observation.mjs` | Observation parsing | `parseObservation()`, `obsText()` |
 
 ### CLI & Utility Scripts
@@ -351,6 +358,23 @@ Maps old brain.jsonl entities to v4 format (preserves all observations).
 | Session Module | 1 MCP tool (hermit_session_start) + 1 resource (context/auto) | Complete |
 | Skills Module | 6 MCP tools (skill/command/hook list+export) | Complete |
 | Hook Adapters | Auto-recall + session + auto-update hooks for Cursor, Gemini CLI, Cline, Codex | Complete |
+
+---
+
+## v6.1 Changes (Unified Impact Bridge)
+
+| Component | Change | Status |
+|-----------|--------|--------|
+| `biz-linker.mjs` | New — enriches CodeGraph impact with KG RULE entities + BUSINESS.md chains | Complete |
+| `business-md-generator.mjs` | New — auto-generates BUSINESS.md from scanProject() output | Complete |
+| `project-learner.mjs` | New — deterministic project scanner, writes BIZ + TECH entities on setup | Complete |
+| `view-graph.mjs` | New — localhost HTTP server for graph viewer | Complete |
+| `codegraph-module.mjs` | Enhanced — `hermit_impact` now returns `bizRules[]` + `bizChains[]` layers | Complete |
+| `setup-project.mjs` | Enhanced — auto-learn + BUSINESS.md generation + recursive hook lib/ copy | Complete |
+| `kg-auto-update.cjs` | Fixed — added 5s timeout guard, PascalCase naming consistency | Complete |
+| `project-learner.mjs` | Fixed — Yarn Berry workspace object format, scoped npm name handling | Complete |
+| `codegraph-module.mjs` | Fixed — ensureIndex race condition (promise dedup), resolveDataDir absolute paths | Complete |
+| Package | Removed `.claude-settings.json` from npm files array | Complete |
 
 ---
 

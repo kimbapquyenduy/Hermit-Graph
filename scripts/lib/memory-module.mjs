@@ -6,8 +6,8 @@
 import { z } from 'zod';
 import { readBrain, writeBrain, withBrainLock } from './brain-io.mjs';
 import { search } from './semantic-search.mjs';
-import { obsText } from './parse-observation.mjs';
-import { archiveObservation } from './audit-trail.mjs';
+import { obsText, parseObservation } from './parse-observation.mjs';
+import { archiveObservation, appendHistory } from './audit-trail.mjs';
 
 const MAX_RESPONSE_CHARS = 25000;
 
@@ -50,6 +50,66 @@ function keywordMatch(query, entity) {
   let hits = 0;
   for (const t of terms) { if (text.includes(t)) hits++; }
   return hits / terms.length;
+}
+
+// ── Contradiction Detection ──
+
+/** Known observation category prefixes for conflict matching. */
+const OBS_CATEGORY_RE = /^(RULE|WHAT|WHEN|WHERE|WHY|HOW|STACK|FLOW|TRIGGER|SIDE_EFFECTS?|EDGE_CASE|FIELDS?|STATUS(?:ES)?|CONSTRAINTS?|FRONTEND|BACKEND|INFRA|CI_CD|SYMPTOM|ROOT_CAUSE|FIX|FILES?|TIME|PROJECT|DECISION|REASON|TRADEOFF|ALTERNATIVES?|MODEL|PRIMARY|ALTERNATIVE|FUTURE)[:\s]/i;
+
+/**
+ * Extract category prefix from observation text (after stripping [confidence|date]).
+ * Returns null if no known category found.
+ * @param {string} obsRaw - Raw observation (string or object)
+ * @returns {string|null} Uppercase category like "RULE", "WHAT", etc.
+ */
+function extractObsCategory(obsRaw) {
+  const { text } = parseObservation(obsRaw);
+  const match = text.match(OBS_CATEGORY_RE);
+  return match ? match[1].toUpperCase() : null;
+}
+
+/**
+ * Detect and resolve contradictions when merging observations into existing entity.
+ * Same entity + same category prefix = contradiction → archive old, keep new.
+ * @param {Array} existingObs - Current observations on entity
+ * @param {Array} newObs - Incoming observations to merge
+ * @param {Function} logFn - Logger function
+ * @param {string} entityName - For logging
+ * @returns {{ merged: Array, superseded: number }} Updated observations + count of superseded
+ */
+function resolveContradictions(existingObs, newObs, logFn, entityName) {
+  // Index new observations by category
+  const newCategories = new Map();
+  for (const obs of newObs) {
+    const cat = extractObsCategory(typeof obs === 'string' ? obs : (obs?.content || ''));
+    if (cat) newCategories.set(cat, obs);
+  }
+
+  if (newCategories.size === 0) {
+    // No categorized observations — just append, no contradiction possible
+    return { merged: [...existingObs, ...newObs], superseded: 0 };
+  }
+
+  // Check existing observations for same-category conflicts
+  let superseded = 0;
+  const updated = existingObs.map(obs => {
+    const text = obsText(obs);
+    // Skip already-archived observations
+    if (typeof obs === 'object' && obs._archived) return obs;
+
+    const cat = extractObsCategory(text);
+    if (cat && newCategories.has(cat)) {
+      // Contradiction found — archive old observation
+      logFn(`contradiction detected on "${entityName}" category=${cat}: superseding old observation`);
+      superseded++;
+      const archived = appendHistory(obs, 'superseded');
+      return { ...archived, _archived: true, _archivedAt: new Date().toISOString(), _superseded_by: 'newer_observation' };
+    }
+    return obs;
+  });
+
+  return { merged: [...updated, ...newObs], superseded };
 }
 
 /** Truncate text with pagination hint. */
@@ -99,7 +159,7 @@ export function register(server, ctx) {
 
     const result = await withBrainLock(brainPath, () => {
       const { entities, relations } = readBrain(brainPath);
-      let created = 0, merged = 0, typeConflicts = 0;
+      let created = 0, merged = 0, typeConflicts = 0, superseded = 0;
       for (const item of input) {
         const existing = findEntity(entities, item.name);
         if (existing) {
@@ -107,7 +167,10 @@ export function register(server, ctx) {
             log(`hermit_create_entities: type conflict for "${item.name}" — existing "${existing.entityType}", incoming "${item.entityType}" (existing preserved)`);
             typeConflicts++;
           }
-          existing.observations = [...(existing.observations || []), ...item.observations];
+          // Contradiction detection: same category observations get superseded
+          const resolution = resolveContradictions(existing.observations || [], item.observations, log, item.name);
+          existing.observations = resolution.merged;
+          superseded += resolution.superseded;
           merged++;
         } else {
           entities.set(item.name, { type: 'entity', name: item.name, entityType: item.entityType, observations: item.observations });
@@ -115,10 +178,11 @@ export function register(server, ctx) {
         }
       }
       writeBrain(brainPath, entities, relations);
-      return { created, merged, typeConflicts };
+      return { created, merged, typeConflicts, superseded };
     });
     const conflictNote = result.typeConflicts > 0 ? ` (${result.typeConflicts} type conflicts — existing types preserved)` : '';
-    return ok(`Created ${result.created}, merged ${result.merged} entities.${conflictNote}`);
+    const supersededNote = result.superseded > 0 ? ` (${result.superseded} contradicting observations superseded)` : '';
+    return ok(`Created ${result.created}, merged ${result.merged} entities.${conflictNote}${supersededNote}`);
   });
 
   // ── T2: Create Relations ──

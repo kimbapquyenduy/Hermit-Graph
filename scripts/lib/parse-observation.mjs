@@ -52,8 +52,28 @@ export function formatObservation(text, confidence = 0.8, date = null) {
 }
 
 /**
- * Calculate decayed confidence based on age
- * Half-life ~70 days (decay rate 0.01)
+ * Get decay rate based on initial confidence (source-weighted).
+ * Higher confidence = slower decay (knowledge from trusted sources lasts longer).
+ *
+ * Tiers:
+ *   - auto-extracted (≤0.5):  30-day half-life  (rate ≈ 0.0231)
+ *   - default/legacy (0.5-0.8): 70-day half-life  (rate ≈ 0.0099)
+ *   - explicit/user (>0.8):  180-day half-life (rate ≈ 0.00385)
+ *
+ * @param {number} confidence - Initial confidence score
+ * @returns {number} Decay rate constant (k in e^(-k*days))
+ */
+export function decayRate(confidence) {
+  if (confidence <= 0.5) return Math.LN2 / 30;   // ~0.0231
+  if (confidence <= 0.8) return Math.LN2 / 70;   // ~0.0099
+  return Math.LN2 / 180;                          // ~0.00385
+}
+
+/**
+ * Calculate decayed confidence based on age and source confidence tier.
+ * Uses confidence-weighted decay: auto-extracted decays faster (30d half-life),
+ * explicit/user observations decay slower (180d half-life).
+ *
  * @param {number} initial - Initial confidence
  * @param {string|null} dateStr - ISO date string
  * @returns {number}
@@ -62,7 +82,8 @@ export function decayedConfidence(initial, dateStr) {
   if (!dateStr) return initial;
   const days = (Date.now() - new Date(dateStr).getTime()) / 86400000;
   if (days < 0) return initial; // future date, no decay
-  return initial * Math.exp(-0.01 * days);
+  const k = decayRate(initial);
+  return initial * Math.exp(-k * days);
 }
 
 /**
