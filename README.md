@@ -66,13 +66,103 @@ npm install -g hermit-graph
 **2. Setup in your project**
 ```bash
 cd /path/to/your-project
-hermit setup                    # Configures ALL agents automatically (zero-config)
+hermit setup                    # Configures ALL agents + auto-learns project identity
 ```
 
-**3. Verify** — ask your agent:
+Setup auto-detects your tech stack from `package.json`, `tsconfig.json`, `README.md`, etc. and seeds the brain with `BIZ:` and `TECH:` entities — so agents have context from session #1.
+
+**3. Deep scan** (optional, first AI session) — for full project mastery:
+> *Run `/deep-scan` to teach your agent: business rules, API surface, data models, architecture.*
+
+**4. Verify** — ask your agent:
 > *"Do you have memory tools? Try `search_nodes` with keyword test."*
 
 That's it. Memory is live.
+
+---
+
+## Suggested Flow
+
+### Day 0 — Setup (once per project)
+
+```
+hermit setup
+  ├── Configures all detected agents (MCP, hooks, rules)
+  ├── Auto-learns project identity (TECH: + BIZ: entities)
+  ├── Generates BUSINESS.md (pre-filled Domain + Tech Stack)
+  └── Prints: "Run /deep-scan for full project mastery"
+```
+
+### Session 1 — Deep Scan (first AI session)
+
+```
+You:   /deep-scan
+Agent: Scans codebase → extracts business rules, API surface,
+       data models, architecture → writes RULE:, FLOW:, PATTERN: entities
+       → fills BUSINESS.md impact chains
+       (covers ~80% of Hermit's full power)
+```
+
+### Daily Sessions — Normal Development
+
+```
+┌─ Session Start (AUTO) ───────────────────────────────────┐
+│  Auto-recall hook fires → searches brain for context     │
+│  Agent knows: your stack, rules, past decisions, gotchas │
+└──────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─ Before Editing Code (AUTO + manual) ────────────────────┐
+│  /impact <symbol or file>                                │
+│  → Auto-triggers on business logic edits (biz-guard)     │
+│  → Or call manually: /impact <symbol>                    │
+│  → Layer 1: CodeGraph blast radius (d=1/2/3)             │
+│  → Layer 2: KG business rules at risk (RULE:/FLOW:)      │
+│  → Layer 3: BUSINESS.md impact chains                    │
+└──────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─ While Coding (manual, use as needed) ───────────────────┐
+│  /biz-review  — validate code vs documented rules        │
+│  /recall      — search what you learned before           │
+│  /diagnose    — debug with root cause + save incident    │
+└──────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─ After Each Response (AUTO) ─────────────────────────────┐
+│  Auto-update hook fires → extracts entities from convo   │
+│  Contradiction detection + confidence-weighted decay     │
+└──────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─ Session End (manual, recommended) ──────────────────────┐
+│  /brain-dump  — save everything not yet captured         │
+└──────────────────────────────────────────────────────────┘
+```
+
+> **What's automatic:** Session recall, entity extraction after each response, biz-guard on business logic edits. **What's manual:** `/biz-review`, `/recall`, `/diagnose`, `/brain-dump` — use as needed.
+
+### Periodic Maintenance
+
+| When | Command | What it does |
+|------|---------|-------------|
+| Weekly | `/brain-health` | Score 0-100, flags stale/orphan/low-confidence |
+| New project | `/suggest-reuse` | Find patterns from other projects |
+| Tech decision | `/tech-decision` | Record decision with context + trade-offs |
+| Business rule change | `/remember` or `/ingest` | Save rule to KG immediately |
+
+### What Builds Up Over Time
+
+```
+Session 1:   TECH: + BIZ: (auto-learn)
+Session 2:   + RULE: + FLOW: (deep-scan)
+Session 3+:  + PATTERN: + INCIDENT: + DECISION: (auto-capture)
+             + Cross-project recall
+             + Contradiction detection
+             + Confidence decay (stale knowledge auto-flagged)
+```
+
+> **Auto-learn = 20% seed. `/deep-scan` = 80%. Ongoing sessions = remaining 20%.**
 
 ---
 
@@ -97,9 +187,13 @@ That's it. Memory is live.
 - **Cross-project reuse** — `/suggest-reuse` finds reusable patterns from your other projects
 
 ### Automate Knowledge Capture
+- **Auto-learn on setup** — `hermit setup` scans project files and seeds the brain with tech stack + project identity
+- **Deep scan** — `/deep-scan` teaches your agent business rules, API surface, data models, architecture (80% of full power)
 - **Auto-recall hooks** — Before each response, agents search the brain for relevant context
 - **Auto-update hooks** — After each response, entities are extracted from conversation automatically
 - **Entity extraction** — 6 regex extractors catch tech decisions, error patterns, explicit refs, and more
+- **Contradiction detection** — Same-category observations are auto-superseded with audit trail
+- **Confidence-weighted decay** — Auto-extracted knowledge (0.5) decays in 30 days; explicit knowledge (0.9+) lasts 180 days
 - **14 slash commands** — `/remember`, `/recall`, `/brain-dump`, `/diagnose`, `/ingest`, etc.
 
 ### Work Across 7 Agents
@@ -136,6 +230,7 @@ That's it. Memory is live.
 |---------|:-----------:|:------:|:----------:|:--------:|:-----:|:-----:|:--------:|
 | MCP memory server | auto | auto | auto | auto | auto | auto | auto |
 | brain.jsonl | auto | auto | auto | auto | auto | auto | auto |
+| Auto-learn on setup | auto | auto | auto | auto | auto | auto | auto |
 | Code intelligence | auto | auto | auto | auto | auto | auto | auto |
 | Skills (6) | auto | export | export | -- | export | export | export |
 | Slash commands (14) | auto | export | export | -- | -- | export | export |
@@ -145,7 +240,7 @@ That's it. Memory is live.
 | BUSINESS.md template | auto | auto | auto | auto | auto | auto | auto |
 
 ```bash
-hermit setup                    # Configures ALL agents automatically (zero-config)
+hermit setup                    # Configures ALL agents + auto-learns project
 hermit setup --agent cursor     # Cursor only
 hermit setup --agent gemini     # Gemini CLI only
 hermit setup --agent windsurf   # Windsurf only
@@ -153,6 +248,7 @@ hermit setup --agent cline      # Cline (VS Code extension) only
 hermit setup --agent codex      # OpenAI Codex CLI only
 hermit setup --agent opencode   # OpenCode only
 hermit setup --mcp-only         # Any agent — just prints MCP config
+hermit setup --skip-learn       # Skip auto-learning project identity
 ```
 
 > By default, `hermit setup` configures all agents at once — Claude Code gets native `.claude/` integration, other agents get MCP config + hooks + rules in their native formats.
@@ -299,6 +395,8 @@ npm run setup:all         # Setup everything (project + semantic)
 | `/tech-decision` | Record technical decisions |
 | `/learn-project` | Auto-detect project conventions |
 | `/suggest-reuse` | Find reusable patterns from other projects |
+| `/deep-scan` | Full project mastery scan (business rules, API, models) |
+| `/ask` | Ask technical/architectural questions with expert consultation |
 
 </details>
 
@@ -336,9 +434,39 @@ Uses transformers.js + all-MiniLM-L6-v2 ONNX. Fully offline, JS-native.
 </details>
 
 <details>
+<summary><strong>Auto-Learn on Setup</strong></summary>
+
+`hermit setup` automatically scans your project and seeds the brain with basic context — no AI session needed.
+
+**What it detects:**
+- `package.json` — name, description, frameworks, build tools, test framework, module system
+- `tsconfig.json` — TypeScript usage
+- `README.md` — project description (first H1)
+- `pyproject.toml` / `go.mod` / `Cargo.toml` — Python, Go, Rust projects
+- `Dockerfile` / `docker-compose.*` — containerization
+- `.github/workflows/` — CI/CD
+
+**What it creates:**
+- `TECH:ProjectName` (tech-stack) — STACK, FRONTEND, BACKEND, BUILD, TEST, INFRA observations
+- `BIZ:ProjectName` (biz-domain) — WHAT, PROJECT observations
+- Relation: `BIZ:ProjectName` → `uses_tech` → `TECH:ProjectName`
+
+All auto-learned observations use `[0.6|date]` confidence (auto-detected, unverified). Skip with `--skip-learn`.
+
+**For full project mastery**, run `/deep-scan` in your first AI session — this teaches your agent business rules, API surface, data models, and architecture (covers ~80% of Hermit's full power).
+
+</details>
+
+<details>
 <summary><strong>Auto-Update Hook (v5+)</strong></summary>
 
 Scans assistant messages after each response and extracts entities via regex — no LLM re-parse needed. Entities written with `[0.5|date]` confidence (auto-extracted, unverified).
+
+**Features:**
+- 6 regex extractors (tech decisions, error patterns, explicit refs, and more)
+- Contradiction detection — same-category observations auto-superseded with audit trail
+- Confidence-weighted decay — auto-extracted (30d half-life), default (70d), explicit (180d)
+- 5-second timeout guard — never blocks session close
 
 **Claude Code** — auto-configured by `hermit setup`. Or add manually:
 
@@ -458,21 +586,47 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 
 ---
 
-## Changelog (v6.0.0)
+## Changelog
 
-### Breaking Changes
+### v6.1.0 — Unified Impact Bridge
+
+#### New
+- **Unified Impact Bridge** — `hermit_impact` now returns business rules at risk alongside code blast radius (3-layer: CodeGraph + KG rules + BUSINESS.md chains)
+- **`biz-linker.mjs`** — Deterministic file-path join between blast radius and KG RULE/FLOW entities. No LLM needed
+- **Auto-fill BUSINESS.md** — `hermit setup` generates BUSINESS.md pre-filled with auto-detected Domain + Tech Stack (not a blank template)
+- **`project-learner.mjs`** — Deterministic project scanner: reads package.json, tsconfig, README, etc. Writes BIZ + TECH entities to brain on setup
+- **Monorepo workspace scanning** — Auto-learn detects frameworks/tools in workspace packages (Yarn, npm, pnpm workspaces)
+- **5-second timeout guard** on auto-update hook — never blocks session close
+
+#### Fixed
+- Hook `lib/` subdirectory now copies recursively during setup (hooks no longer break with MODULE_NOT_FOUND)
+- Yarn Berry `workspaces` object format (`{packages: [...]}`) no longer crashes project scanner
+- `ensureIndex` race condition — concurrent MCP calls now deduplicated via promise map
+- Scoped npm package names (`@org/pkg`) no longer produce malformed entity names
+- `resolveDataDir` now resolves relative `cwd` to absolute before path operations
+- Dead `embeddings` param removed from `hermit_index` schema
+- Removed `.claude-settings.json` from npm `files` array (privacy)
+- Auto-update hook project name now uses PascalCase (consistent with KG naming)
+
+### v6.0.1 — Security Fixes
+- Purged stale GitNexus references
+- Hardened edge cases across 5 core modules (6 security & stability fixes)
+
+### v6.0.0 — Built-in Code Intelligence
+
+#### Breaking Changes
 - **Removed GitNexus dependency** — All code intelligence is now built-in via ast-grep
 - **Deleted `gitnexus-runner.mjs`** — 296 LOC subprocess manager replaced by in-process analysis
 - **`@ast-grep/napi`** added as bundled dependency (napi-rs prebuilt binaries, no node-gyp)
 
-### New
+#### New
 - **10 code-intel modules** in `scripts/lib/code-intel/` — parser, extractors (JS/TS + Python), graph, impact, indexer, process detector
 - **Auto-indexing** — CodeGraph tools auto-index on first query if no index exists
 - **Incremental indexing** — Only re-parses files changed since last git commit
 - **Process detection** — Discovers execution flows via DFS call chain tracing
 - **Unified search** — `hermit_unified_search` merges KG entities + code symbols in one query
 
-### Improved
+#### Improved
 - **100 tests passing** (up from 98)
 - **MCP server** boots with all 28 tools, zero external dependencies
 - **Performance** — Full index ~2s, queries <10ms, impact <20ms

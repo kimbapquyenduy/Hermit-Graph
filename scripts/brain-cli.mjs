@@ -118,8 +118,9 @@ async function runSearch() {
 }
 
 function runView() {
-  console.log('Starting viewer at http://localhost:3000 ...');
-  execSync('npx serve viewer', { cwd: ROOT, stdio: 'inherit' });
+  const script = join(__dirname, 'view-graph.mjs');
+  const child = fork(script, args, { cwd: ROOT, stdio: 'inherit' });
+  child.on('exit', (code) => process.exit(code || 0));
 }
 
 function runScript(name, extraArgs = []) {

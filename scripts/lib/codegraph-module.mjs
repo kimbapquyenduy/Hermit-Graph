@@ -5,28 +5,37 @@
  */
 
 import { z } from 'zod';
-import { basename, join } from 'path';
+import { basename, join, resolve } from 'path';
 import { existsSync } from 'fs';
 import * as codeIntel from './code-intel/index.mjs';
 
 // ── Data directory resolution ──
 
 function resolveDataDir(cwd) {
-  if (cwd) {
-    const local = join(cwd, 'data');
-    if (existsSync(local) || existsSync(join(cwd, 'package.json'))) return local;
-  }
+  const absCwd = cwd ? resolve(cwd) : process.cwd();
+  const local = join(absCwd, 'data');
+  if (existsSync(local) || existsSync(join(absCwd, 'package.json'))) return local;
   return join(process.cwd(), 'data');
 }
 
 // ── Auto-index: ensure graph is loaded, index if needed ──
+// Promise dedup prevents concurrent calls from double-indexing
+const _indexingPromises = new Map();
 
 async function ensureIndex(cwd, log) {
   const dataDir = resolveDataDir(cwd);
   const graph = codeIntel.readCodeGraph(dataDir);
   if (graph.meta.commit && graph.symbols.size > 0) return dataDir;
+  // Deduplicate concurrent index requests for same dataDir
+  if (_indexingPromises.has(dataDir)) {
+    await _indexingPromises.get(dataDir);
+    return dataDir;
+  }
   log(`codegraph: auto-indexing ${cwd || process.cwd()}...`);
-  await codeIntel.index(cwd || process.cwd(), dataDir);
+  const p = codeIntel.index(cwd || process.cwd(), dataDir)
+    .finally(() => _indexingPromises.delete(dataDir));
+  _indexingPromises.set(dataDir, p);
+  await p;
   log(`codegraph: auto-index complete`);
   return dataDir;
 }
@@ -66,7 +75,7 @@ export function register(server, ctx) {
     } catch (e) { return fail(e.message); }
   });
 
-  // ── T3: Impact (blast radius) ──
+  // ── T3: Impact (blast radius + business rules) ──
   server.tool('hermit_impact', 'Blast radius analysis — what breaks if you change a symbol', {
     target: z.string().min(1).describe('Symbol name to analyze impact for'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().default('upstream'),
@@ -75,7 +84,16 @@ export function register(server, ctx) {
     try {
       const dataDir = await ensureIndex(cwd, log);
       const result = codeIntel.impact(target, direction, dataDir);
-      return ok(result.summary || `Symbol not found: ${target}`);
+      let bizSection = '';
+      if (ctx.brainPath) {
+        try {
+          const biz = codeIntel.enrichImpact(result, ctx.brainPath);
+          bizSection = formatBusinessContext(biz);
+        } catch (e) {
+          log(`biz-linker: ${e.message}`);
+        }
+      }
+      return ok((result.summary || `Symbol not found: ${target}`) + bizSection);
     } catch (e) { return fail(e.message); }
   });
 
@@ -93,7 +111,6 @@ export function register(server, ctx) {
   // ── T5: Index (analyze project) ──
   server.tool('hermit_index', 'Index or re-index a project for code intelligence (runs ast-grep analyze)', {
     cwd: z.string().describe('Project root directory to index'),
-    embeddings: z.boolean().optional().default(false).describe('Generate embeddings for semantic search'),
   }, async ({ cwd }) => {
     try {
       const dataDir = resolveDataDir(cwd);
@@ -159,4 +176,25 @@ function formatChanges(result) {
 
 function formatIndex(stats, cwd) {
   return `## Index Complete: ${basename(cwd)}\n**Files:** ${stats.files} | **Symbols:** ${stats.symbols} | **Relations:** ${stats.relations}`;
+}
+
+const DEPTH_LABELS = ['TARGET', 'WILL_BREAK', 'LIKELY_AFFECTED', 'MAY_NEED_TESTING'];
+
+function formatBusinessContext({ rules, flows }) {
+  if (!rules.length && !flows.length) return '';
+  const lines = ['', ''];
+  if (rules.length) {
+    lines.push(`### Business Rules at Risk (${rules.length})`);
+    for (const r of rules) {
+      lines.push(`- **${r.name}** (conf:${r.confidence}) — d=${r.depth} ${DEPTH_LABELS[r.depth] || ''} — via \`${r.matchedFile}\``);
+    }
+  }
+  if (flows.length) {
+    lines.push('');
+    lines.push(`### Flows Affected (${flows.length})`);
+    for (const f of flows) {
+      lines.push(`- **${f.name}** (conf:${f.confidence}) — d=${f.depth} — via \`${f.matchedFile}\``);
+    }
+  }
+  return lines.join('\n');
 }

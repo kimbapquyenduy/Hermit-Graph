@@ -11,6 +11,7 @@ export { readCodeGraph, writeCodeGraph, clearCodeGraph, codeGraphPath } from './
 export { fullIndex, incrementalIndex, detectChanges } from './indexer.mjs';
 export { blastRadius, symbolContext } from './impact.mjs';
 export { detectProcesses } from './process-detector.mjs';
+export { enrichImpact, buildFileRuleIndex } from './biz-linker.mjs';
 
 import { readCodeGraph } from './code-io.mjs';
 import { fullIndex, incrementalIndex, detectChanges } from './indexer.mjs';

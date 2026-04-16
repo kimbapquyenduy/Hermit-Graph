@@ -24,6 +24,12 @@ const core = require('./lib/recall-core.cjs');
 const extractor = require('./lib/entity-extractor.cjs');
 
 function main() {
+  // 5-second timeout guard — never block session close
+  setTimeout(() => {
+    process.stderr.write('[hermit] kg-auto-update: timed out (5s)\n');
+    process.exit(0);
+  }, 5000).unref();
+
   try {
     // Check kill switch
     if (process.env.HERMIT_AUTO_UPDATE === 'false') process.exit(0);
@@ -42,9 +48,12 @@ function main() {
 
     if (assistantText.length < 50) process.exit(0);
 
-    // Detect project name from CWD
+    // Detect project name from CWD (PascalCase for consistent KG naming)
     const cwd = payload.cwd || process.env.CWD || process.cwd();
-    const projectName = path.basename(cwd).replace(/[\s-_]/g, '');
+    const projectName = path.basename(cwd)
+      .split(/[\s\-_]+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join('');
 
     // Extract entities
     const entities = extractor.extractEntities(assistantText, projectName);

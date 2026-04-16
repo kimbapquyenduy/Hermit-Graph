@@ -3,306 +3,409 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hermit Graph - Knowledge Graph Viewer</title>
-  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <title>Hermit Graph — Knowledge Graph Viewer</title>
+
+  <!-- Graphology: graph data structure -->
+  <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+  <!-- Sigma.js v2: WebGL graph rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+
   <style>
+    :root {
+      --bg-primary: #0F172A;
+      --bg-secondary: #1E293B;
+      --border: #334155;
+      --text-primary: #F1F5F9;
+      --text-secondary: #E2E8F0;
+      --text-muted: #94A3B8;
+      --text-dim: #64748B;
+      --accent: #6366F1;
+      --accent-hover: #818CF8;
+      --success: #10B981;
+      --warning: #F59E0B;
+      --danger: #EF4444;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0F172A;
-      color: #E2E8F0;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
       height: 100vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
     }
 
+    /* ── Header ── */
     .header {
-      background: #1E293B;
-      padding: 0.75rem 1.5rem;
+      background: var(--bg-secondary);
+      padding: 0.6rem 1.25rem;
       display: flex;
       align-items: center;
-      gap: 1rem;
-      border-bottom: 1px solid #334155;
-      flex-wrap: wrap;
+      gap: 0.75rem;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
-
-    .title { font-size: 1.25rem; font-weight: 700; color: #F1F5F9; }
-
-    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    .title { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+    .controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
     .btn {
-      padding: 0.5rem 1rem;
+      padding: 0.4rem 0.85rem;
       border: 1px solid #475569;
-      background: #1E293B;
-      color: #E2E8F0;
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
       border-radius: 0.375rem;
       cursor: pointer;
-      font-size: 0.875rem;
-      transition: all 0.2s;
+      font-size: 0.8rem;
+      transition: all 0.15s;
+      white-space: nowrap;
     }
-    .btn:hover { background: #334155; border-color: #64748B; }
-    .btn-primary { background: #6366F1; border-color: #6366F1; }
-    .btn-primary:hover { background: #818CF8; }
+    .btn:hover { background: var(--border); border-color: var(--text-dim); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
     .btn-reset { background: #475569; border-color: #475569; }
-    .btn-reset:hover { background: #64748B; }
+    .btn-layout { background: #0D9488; border-color: #0D9488; color: #fff; }
+    .btn-layout:hover { background: #14B8A6; }
+    .btn-layout.active { background: var(--danger); border-color: var(--danger); }
 
     input[type="file"] { display: none; }
 
     .search-box {
-      padding: 0.5rem 0.75rem;
+      padding: 0.4rem 0.65rem;
       border: 1px solid #475569;
-      background: #0F172A;
-      color: #E2E8F0;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
       border-radius: 0.375rem;
-      font-size: 0.875rem;
-      width: 200px;
+      font-size: 0.8rem;
+      width: 180px;
     }
-    .search-box:focus { outline: none; border-color: #6366F1; }
+    .search-box:focus { outline: none; border-color: var(--accent); }
+    .search-box::placeholder { color: var(--text-dim); }
 
     select {
-      padding: 0.5rem 0.75rem;
+      padding: 0.4rem 0.65rem;
       border: 1px solid #475569;
-      background: #0F172A;
-      color: #E2E8F0;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
       border-radius: 0.375rem;
-      font-size: 0.875rem;
+      font-size: 0.8rem;
       cursor: pointer;
     }
 
-    .stats { margin-left: auto; font-size: 0.875rem; color: #94A3B8; }
+    /* ── Filter chips ── */
+    .filter-chips { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+    .chip {
+      padding: 0.25rem 0.6rem;
+      border: 1px solid #475569;
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 1rem;
+      font-size: 0.7rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .chip:hover { border-color: var(--text-dim); color: var(--text-secondary); }
+    .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .chip-count { font-size: 0.6rem; opacity: 0.7; margin-left: 2px; }
 
-    .main {
-      flex: 1;
-      display: flex;
-      overflow: hidden;
+    .stats { margin-left: auto; font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+
+    /* ── Minimap ── */
+    #minimap {
+      position: absolute;
+      bottom: 0.75rem; left: 0.75rem;
+      width: 180px; height: 130px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      cursor: crosshair;
+      z-index: 11;
+      display: none;
     }
 
-    #graph-container {
+    /* ── Zoom controls ── */
+    .zoom-controls {
+      position: absolute;
+      bottom: 0.75rem; right: 0.75rem;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 10;
+    }
+    .zoom-btn {
+      width: 32px; height: 32px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .zoom-btn:first-child { border-radius: 0.375rem 0.375rem 0 0; }
+    .zoom-btn:last-child { border-radius: 0 0 0.375rem 0.375rem; }
+    .zoom-btn:hover { background: var(--border); }
+
+    /* ── Context menu ── */
+    .context-menu {
+      position: fixed;
+      z-index: 9999;
+      background: rgba(30, 41, 59, 0.97);
+      border: 1px solid #475569;
+      border-radius: 0.5rem;
+      padding: 0.3rem 0;
+      min-width: 180px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      display: none;
+      backdrop-filter: blur(8px);
+    }
+    .ctx-item {
+      padding: 0.45rem 0.85rem;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .ctx-item:hover { background: var(--border); color: var(--text-primary); }
+    .ctx-divider { height: 1px; background: var(--border); margin: 0.25rem 0; }
+
+    /* ── Main layout ── */
+    .main { flex: 1; display: flex; overflow: hidden; position: relative; }
+
+    #sigma-container {
       flex: 1;
       position: relative;
       min-width: 0;
+      background: var(--bg-primary);
     }
 
-    #network {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-    }
-
+    /* ── Empty state ── */
     .empty-state {
       position: absolute;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       text-align: center;
-      color: #64748B;
+      color: var(--text-dim);
+      z-index: 5;
+      pointer-events: none;
     }
-    .empty-state h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    .empty-state p { font-size: 1rem; }
+    .empty-state h2 { font-size: 1.4rem; margin-bottom: 0.4rem; color: var(--text-muted); }
+    .empty-state p { font-size: 0.9rem; }
 
+    /* ── Loading overlay ── */
+    .loading-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .loading-overlay.visible { display: flex; }
+    .loading-spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { color: var(--text-muted); font-size: 0.85rem; }
+
+    /* ── Legend ── */
     .legend {
       position: absolute;
-      bottom: 1rem; left: 1rem;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid #334155;
-      padding: 0.75rem;
+      bottom: 10.5rem; left: 0.75rem;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
       border-radius: 0.5rem;
-      font-size: 0.75rem;
+      font-size: 0.7rem;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+      display: none;
     }
-    .legend-title { font-weight: 700; margin-bottom: 0.5rem; color: #F1F5F9; }
-    .legend-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.125rem 0; }
-    .legend-color { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .legend-title { font-weight: 700; margin-bottom: 0.4rem; color: var(--text-primary); }
+    .legend-item { display: flex; align-items: center; gap: 0.4rem; padding: 0.1rem 0; }
+    .legend-color { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .legend-footer {
+      margin-top: 0.4rem; border-top: 1px solid var(--border);
+      padding-top: 0.35rem; color: var(--text-muted); font-size: 0.65rem;
+    }
 
-    /* Side detail panel */
+    /* ── Tooltip ── */
+    .node-tooltip {
+      position: fixed;
+      z-index: 9999;
+      background: rgba(30, 41, 59, 0.95);
+      border: 1px solid #475569;
+      border-radius: 0.4rem;
+      padding: 0.5rem 0.6rem;
+      max-width: 260px;
+      max-height: 180px;
+      overflow-y: auto;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      font-size: 0.72rem;
+      line-height: 1.4;
+      color: #CBD5E1;
+      display: none;
+      backdrop-filter: blur(8px);
+    }
+    .tt-name { font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-bottom: 0.2rem; }
+    .tt-type {
+      font-size: 0.6rem; padding: 0.12rem 0.45rem; border-radius: 1rem;
+      color: #fff; display: inline-block; margin-bottom: 0.4rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .tt-obs { border-top: 1px solid var(--border); padding-top: 0.35rem; margin-top: 0.15rem; }
+    .tt-obs-item { padding: 0.1rem 0 0.1rem 0.45rem; position: relative; word-break: break-word; font-size: 0.68rem; }
+    .tt-obs-item::before { content: "•"; position: absolute; left: 0; color: var(--accent); }
+    .tt-more { color: var(--text-dim); padding-top: 0.15rem; font-size: 0.65rem; }
+
+    /* ── Detail panel ── */
     .detail-panel {
-      width: 360px;
-      background: #1E293B;
-      border-left: 1px solid #334155;
+      width: 350px;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       flex-shrink: 0;
-      transition: margin-right 0.3s;
-    }
-    .detail-panel.hidden {
-      margin-right: -360px;
-      width: 0;
-      border: none;
+      transition: width 0.25s ease, opacity 0.25s ease;
       overflow: hidden;
     }
+    .detail-panel.hidden { width: 0; border: none; opacity: 0; }
 
     .detail-header {
-      padding: 1rem;
-      border-bottom: 1px solid #334155;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 0.5rem;
     }
     .detail-name {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #F1F5F9;
-      word-break: break-word;
+      font-size: 1rem; font-weight: 700;
+      color: var(--text-primary); word-break: break-word;
     }
     .detail-badge {
-      font-size: 0.7rem;
-      padding: 0.2rem 0.6rem;
-      border-radius: 1rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      white-space: nowrap;
-      color: #fff;
+      font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 1rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+      white-space: nowrap; color: #fff;
     }
     .detail-close {
-      background: none;
-      border: none;
-      color: #64748B;
-      font-size: 1.25rem;
-      cursor: pointer;
-      padding: 0;
-      line-height: 1;
+      background: none; border: none; color: var(--text-dim);
+      font-size: 1.2rem; cursor: pointer; padding: 0; line-height: 1;
     }
-    .detail-close:hover { color: #E2E8F0; }
+    .detail-close:hover { color: var(--text-secondary); }
 
-    .detail-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 1rem;
-    }
-
-    .detail-section {
-      margin-bottom: 1.25rem;
-    }
-    .detail-section-title {
-      font-size: 0.7rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #64748B;
-      margin-bottom: 0.5rem;
-    }
-
-    .observation-item {
-      padding: 0.4rem 0;
-      font-size: 0.85rem;
-      line-height: 1.5;
-      color: #CBD5E1;
-      border-bottom: 1px solid #1E293B;
-      padding-left: 0.75rem;
-      position: relative;
-    }
-    .observation-item:last-child { border-bottom: none; }
-    .observation-item::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0.65rem;
-      width: 4px;
-      height: 4px;
-      border-radius: 50%;
-      background: #6366F1;
-    }
-
-    .connection-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.35rem 0;
-      font-size: 0.8rem;
-      color: #94A3B8;
-      cursor: pointer;
-    }
-    .connection-item:hover { color: #E2E8F0; }
-    .connection-dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .connection-label {
-      font-size: 0.7rem;
-      color: #64748B;
-      margin-left: auto;
-      white-space: nowrap;
-    }
-
+    .detail-body { flex: 1; overflow-y: auto; padding: 0.85rem 1rem; }
     .detail-empty {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      color: #475569;
-      font-size: 0.875rem;
-      text-align: center;
-      padding: 2rem;
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #475569; font-size: 0.8rem; text-align: center; padding: 2rem;
     }
+
+    .detail-section { margin-bottom: 1.1rem; }
+    .detail-section-title {
+      font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--text-dim); margin-bottom: 0.4rem;
+    }
+
+    .obs-row {
+      display: flex; align-items: flex-start; gap: 0.4rem;
+      padding: 0.2rem 0; font-size: 0.8rem; line-height: 1.45;
+      color: #CBD5E1; border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+    }
+    .obs-row:last-child { border-bottom: none; }
+    .obs-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 0.35rem; }
+    .obs-date { color: var(--text-dim); font-size: 0.7rem; flex-shrink: 0; white-space: nowrap; }
+    .obs-text { word-break: break-word; }
+    .obs-stale { color: var(--danger); font-size: 0.55rem; text-transform: uppercase; margin-left: auto; flex-shrink: 0; }
+
+    .conn-item {
+      display: flex; align-items: center; gap: 0.4rem;
+      padding: 0.25rem 0; font-size: 0.75rem; color: var(--text-muted); cursor: pointer;
+    }
+    .conn-item:hover { color: var(--text-secondary); }
+    .conn-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .conn-label { font-size: 0.65rem; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
 
     .btn-expand {
-      width: 100%;
-      padding: 0.5rem;
-      margin-top: 0.75rem;
-      background: #6366F1;
-      border: none;
-      color: #fff;
-      border-radius: 0.375rem;
-      cursor: pointer;
-      font-size: 0.8rem;
-      font-weight: 600;
-      transition: background 0.2s;
+      width: 100%; padding: 0.4rem; margin-top: 0.6rem;
+      background: var(--accent); border: none; color: #fff;
+      border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; font-weight: 600;
     }
-    .btn-expand:hover { background: #818CF8; }
+    .btn-expand:hover { background: var(--accent-hover); }
 
-    /* Custom hover tooltip */
-    .node-tooltip {
-      position: fixed;
-      z-index: 9999;
-      background: #1E293B;
-      border: 1px solid #475569;
-      border-radius: 0.5rem;
-      padding: 0.75rem;
-      max-width: 350px;
-      max-height: 300px;
-      overflow-y: auto;
-      pointer-events: none;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-      font-size: 0.8rem;
-      line-height: 1.5;
-      color: #CBD5E1;
+    /* ── Keyboard hint ── */
+    .kbd-hint {
+      position: absolute; bottom: 0.75rem; right: 3.5rem;
+      background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border);
+      padding: 0.4rem 0.6rem; border-radius: 0.375rem;
+      font-size: 0.65rem; color: var(--text-dim); z-index: 10;
       display: none;
     }
-    .node-tooltip .tt-name {
-      font-weight: 700;
-      font-size: 0.9rem;
-      color: #F1F5F9;
-      margin-bottom: 0.25rem;
+    kbd {
+      background: var(--border); padding: 0.1rem 0.3rem;
+      border-radius: 0.2rem; font-family: inherit; font-size: 0.6rem;
     }
-    .node-tooltip .tt-type {
-      font-size: 0.65rem;
-      padding: 0.15rem 0.5rem;
-      border-radius: 1rem;
-      color: #fff;
-      display: inline-block;
-      margin-bottom: 0.5rem;
-      font-weight: 600;
-      text-transform: uppercase;
+
+    /* ── Responsive: Tablet ── */
+    @media (max-width: 1023px) {
+      .detail-panel { width: 280px; }
+      #minimap { display: none !important; }
+      .legend { font-size: 0.6rem; padding: 0.4rem 0.5rem; }
     }
-    .node-tooltip .tt-obs {
-      border-top: 1px solid #334155;
-      padding-top: 0.4rem;
-      margin-top: 0.25rem;
-    }
-    .node-tooltip .tt-obs-item {
-      padding: 0.2rem 0;
-      padding-left: 0.6rem;
-      position: relative;
-      word-break: break-word;
-    }
-    .node-tooltip .tt-obs-item::before {
-      content: "•";
-      position: absolute;
-      left: 0;
-      color: #6366F1;
+
+    /* ── Responsive: Mobile ── */
+    @media (max-width: 767px) {
+      .header { padding: 0.4rem 0.75rem; gap: 0.4rem; }
+      .title { font-size: 0.95rem; }
+      .controls { width: 100%; }
+      .search-box { width: 100%; }
+      .filter-chips { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+      .stats { width: 100%; text-align: right; font-size: 0.7rem; }
+
+      #minimap { display: none !important; }
+      .kbd-hint { display: none !important; }
+      .legend { display: none !important; }
+
+      .zoom-controls { bottom: auto; top: 0.75rem; right: 0.75rem; }
+      .zoom-btn { width: 40px; height: 40px; font-size: 1.3rem; }
+
+      /* Bottom sheet */
+      .detail-panel {
+        position: fixed !important;
+        bottom: 0; left: 0; right: 0;
+        width: 100% !important;
+        height: 40vh;
+        border-left: none !important;
+        border-top: 1px solid var(--border);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+        z-index: 50;
+        transition: height 0.3s ease;
+      }
+      .detail-panel.hidden { height: 0 !important; opacity: 0; pointer-events: none; }
+      .detail-panel.collapsed { height: 60px; overflow: hidden; }
+
+      .sheet-handle {
+        width: 40px; height: 4px;
+        background: #64748B; border-radius: 2px;
+        margin: 8px auto 4px; cursor: grab;
+      }
+
+      .node-tooltip { display: none !important; }
+      .ctx-item { padding: 0.65rem 1rem; font-size: 0.85rem; min-height: 44px; }
+      .chip { min-height: 32px; display: flex; align-items: center; }
+
+      #sigma-container { touch-action: manipulation; }
     }
   </style>
 </head>
@@ -310,478 +413,1317 @@
   <div class="header">
     <div class="title">Hermit Graph</div>
     <div class="controls">
-      <input type="file" id="fileInput" accept=".jsonl">
+      <input type="file" id="fileInput" accept=".jsonl,.json">
       <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load File</button>
-      <button class="btn btn-reset" id="resetBtn" onclick="resetView()" style="display:none">Reset View</button>
-      <input type="text" class="search-box" id="searchBox" placeholder="Search nodes..." oninput="filterNodes()">
-      <select id="filterType" onchange="filterNodes()">
-        <option value="all">All Types</option>
-      </select>
+      <button class="btn btn-layout" id="layoutBtn" onclick="toggleLayout()" style="display:none" title="Toggle force layout">Layout</button>
+      <button class="btn btn-layout" id="spreadBtn" onclick="spreadNodes()" style="display:none" title="Push nodes apart">Spread</button>
+      <button class="btn btn-layout" id="clusterBtn" onclick="toggleCluster()" style="display:none" title="Group by type">Cluster</button>
+      <button class="btn btn-reset" id="resetBtn" onclick="resetView()" style="display:none">Reset</button>
+      <input type="text" class="search-box" id="searchBox" placeholder="Search nodes..." oninput="onSearchInput()">
+      <div class="filter-chips" id="filterChips"></div>
     </div>
     <div class="stats" id="stats"></div>
   </div>
 
   <div class="main">
-    <div id="graph-container">
-      <div id="network"></div>
+    <div id="sigma-container">
       <div class="empty-state" id="emptyState">
         <h2>No Data Loaded</h2>
         <p>Click "Load File" and select a brain.jsonl file</p>
       </div>
-      <div class="legend" id="legend" style="display: none;"></div>
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Computing layout...</div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <canvas id="minimap" width="180" height="130"></canvas>
+      <div class="zoom-controls" id="zoomControls">
+        <button class="zoom-btn" onclick="zoomIn()" title="Zoom in (+)">+</button>
+        <button class="zoom-btn" onclick="zoomOut()" title="Zoom out (&minus;)">&minus;</button>
+        <button class="zoom-btn" onclick="zoomFit()" title="Fit all nodes">&#x2B1C;</button>
+      </div>
+      <div class="kbd-hint" id="kbdHint">
+        <kbd>Esc</kbd> deselect &nbsp; <kbd>Ctrl+F</kbd> search &nbsp; <kbd>L</kbd> layout &nbsp; <kbd>+</kbd><kbd>-</kbd> zoom
+      </div>
     </div>
 
     <div class="node-tooltip" id="nodeTooltip"></div>
 
+    <div class="context-menu" id="contextMenu">
+      <div class="ctx-item" data-action="pin">Pin node</div>
+      <div class="ctx-item" data-action="focus">Focus neighborhood</div>
+      <div class="ctx-item" data-action="sametype">Find same type</div>
+      <div class="ctx-item" data-action="center">Center on node</div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-item" data-action="copy">Copy full name</div>
+    </div>
+
     <div class="detail-panel hidden" id="detailPanel">
       <div class="detail-header">
         <div>
-          <div class="detail-name" id="detailName">-</div>
-          <span class="detail-badge" id="detailBadge">-</span>
+          <div class="detail-name" id="detailName">—</div>
+          <span class="detail-badge" id="detailBadge">—</span>
         </div>
         <button class="detail-close" onclick="closeDetail()">&times;</button>
       </div>
       <div class="detail-body" id="detailBody">
-        <div class="detail-empty">Click a node to see details</div>
+        <div class="detail-empty">Click a node to view details</div>
       </div>
     </div>
   </div>
 
   <script>
-    let network = null;
-    let nodes = new vis.DataSet([]);
-    let edges = new vis.DataSet([]);
-    let allData = { nodes: [], edges: [] };
-    let entities = {};
-    let observations = {};
-    let selectedNode = null;
-
+    /* ================================================================
+     *  CONFIG & CONSTANTS
+     * ================================================================ */
     const COLORS = {
-      // BIZ tier
       'biz-domain': '#6366F1', 'biz-rule': '#EF4444',
       'biz-flow': '#3B82F6', 'biz-entity': '#8B5CF6',
-      // PATTERN tier
       'pattern-code': '#10B981', 'pattern-arch': '#10B981',
       'pattern-integration': '#10B981',
-      // TECH tier
       'tech-stack': '#F59E0B', 'tech-config': '#F59E0B',
       'tech-person': '#EC4899', 'tech-decision': '#06B6D4',
-      // INCIDENT tier
       'incident-bug': '#F97316', 'incident-gotcha': '#F97316',
-      // Legacy (backward compat)
+      // Legacy
       project: '#6366F1', service: '#10B981', person: '#F59E0B',
       technology: '#EC4899', pattern: '#8B5CF6', erpsystem: '#14B8A6',
       erpmodule: '#F97316', businessflow: '#06B6D4', architecture: '#A855F7',
       externalintegration: '#EF4444', default: '#6B7280'
     };
 
-    // Parse observation — handles both string and object {content,timestamp,confidence} formats
-    const PREFIX_RE = /^\[(\d\.?\d*?)(?:\|(\d{4}-\d{2}-\d{2}))?\]\s*/;
+    const getColor = (type) => COLORS[(type || '').toLowerCase()] || COLORS.default;
+
+    /** Tier mapping: group 13 entity types into 4 tiers for filter chips */
+    const TIERS = {
+      BIZ: ['biz-domain', 'biz-rule', 'biz-flow', 'biz-entity'],
+      PATTERN: ['pattern-code', 'pattern-arch', 'pattern-integration'],
+      TECH: ['tech-stack', 'tech-config', 'tech-person', 'tech-decision'],
+      INCIDENT: ['incident-bug', 'incident-gotcha'],
+    };
+    const TIER_COLORS = { BIZ: '#6366F1', PATTERN: '#10B981', TECH: '#F59E0B', INCIDENT: '#F97316' };
+
+    function getTier(entityType) {
+      for (const [tier, types] of Object.entries(TIERS)) {
+        if (types.includes(entityType)) return tier;
+      }
+      return 'OTHER';
+    }
+
+    /* ================================================================
+     *  STATE
+     * ================================================================ */
+    let graph = null;
+    let renderer = null;
+    let entityMap = {};       // nodeId -> { name, entityType, observations[] }
+    let state = {
+      hoveredNode: null,
+      hoveredNeighbors: new Set(),
+      selectedNode: null,
+      searchQuery: '',
+      searchMatches: new Set(),
+      activeFilters: new Set(['all']),  // tier-level: 'all', 'BIZ', 'PATTERN', 'TECH', 'INCIDENT'
+      layoutRunning: false,
+      layoutRAF: null,
+      isDragging: false,
+      draggedNode: null,
+      zoomTier: 1,  // 0=detail, 1=mid, 2=overview
+      pinnedNodes: new Set(),
+      clusterMode: false,
+      contextMenuNode: null,
+    };
+
+    /* ================================================================
+     *  OBSERVATION PARSER
+     * ================================================================ */
+    const OBS_PREFIX = /^\[(\d\.?\d*?)(?:\|(\d{4}-\d{2}-\d{2}))?\]\s*/;
+
     function normalizeObs(obs) {
       if (typeof obs === 'string') return obs;
-      if (typeof obs === 'object' && obs !== null && 'content' in obs) {
-        return obs.content; // extract string from object format
-      }
+      if (typeof obs === 'object' && obs !== null && 'content' in obs) return obs.content;
       return String(obs);
     }
+
     function parseObs(obs) {
       const str = normalizeObs(obs);
-      const m = str.match(PREFIX_RE);
-      if (m) return { confidence: Math.min(parseFloat(m[1]), 1.0), date: m[2] || null, text: str.replace(PREFIX_RE, '') };
+      const m = str.match(OBS_PREFIX);
+      if (m) return { confidence: Math.min(parseFloat(m[1]), 1.0), date: m[2] || null, text: str.replace(OBS_PREFIX, '') };
       return { confidence: 0.8, date: null, text: str };
     }
+
     function confColor(c) {
       if (c < 0.3) return '#EF4444';
       if (c < 0.7) return '#F59E0B';
       return '#10B981';
     }
-    function isStaleObs(dateStr, threshold = 180) {
+
+    function isStale(dateStr, days = 180) {
       if (!dateStr) return false;
-      return (Date.now() - new Date(dateStr).getTime()) / 86400000 > threshold;
+      return (Date.now() - new Date(dateStr).getTime()) / 86400000 > days;
     }
 
     function shortenLabel(name) {
-      const parts = name.split(':');
-      if (parts.length >= 3) return parts.slice(1).join(':');
-      if (parts.length === 2) return parts[1];
-      return name;
+      const p = name.split(':');
+      // Take last segment only for display
+      let label = p.length >= 2 ? p[p.length - 1] : name;
+      // Truncate long labels
+      if (label.length > 22) label = label.slice(0, 20) + '...';
+      return label;
     }
 
-    function getColor(type) {
-      return COLORS[type.toLowerCase()] || COLORS.default;
+    /** Average confidence score for a node's observations */
+    function avgConfidence(nodeId) {
+      const ent = entityMap[nodeId];
+      if (!ent || !ent.observations.length) return 0.8;
+      const confs = ent.observations.map(o => parseObs(o).confidence);
+      return confs.reduce((a, b) => a + b, 0) / confs.length;
     }
 
+    /* ================================================================
+     *  FORCE-DIRECTED LAYOUT (Fruchterman-Reingold)
+     *  Built-in — no extra CDN dependency needed.
+     * ================================================================ */
+    function forceLayout(g, iterations, onTick) {
+      const nodes = g.nodes();
+      const n = nodes.length;
+      if (n === 0) return;
+
+      const area = Math.max(n * 8000, 200000);
+      const k = Math.sqrt(area / n);
+      const kSq = k * k;
+
+      // Assign random initial positions
+      nodes.forEach(node => {
+        if (g.getNodeAttribute(node, 'x') === undefined) {
+          g.setNodeAttribute(node, 'x', (Math.random() - 0.5) * Math.sqrt(area));
+          g.setNodeAttribute(node, 'y', (Math.random() - 0.5) * Math.sqrt(area));
+        }
+      });
+
+      // Group nudge: push same-type nodes closer ONLY in cluster mode
+      if (state.clusterMode) {
+        const typeGroups = {};
+        nodes.forEach(nd => {
+          const t = entityMap[nd]?.entityType || 'default';
+          if (!typeGroups[t]) typeGroups[t] = [];
+          typeGroups[t].push(nd);
+        });
+        const groupAngle = {};
+        let ai = 0;
+        Object.keys(typeGroups).forEach(t => { groupAngle[t] = (ai++ / Object.keys(typeGroups).length) * Math.PI * 2; });
+        nodes.forEach(nd => {
+          const t = entityMap[nd]?.entityType || 'default';
+          const a = groupAngle[t];
+          const nudge = k * 2.5;
+          g.setNodeAttribute(nd, 'x', g.getNodeAttribute(nd, 'x') + Math.cos(a) * nudge);
+          g.setNodeAttribute(nd, 'y', g.getNodeAttribute(nd, 'y') + Math.sin(a) * nudge);
+        });
+      }
+
+      let iter = 0;
+
+      function step() {
+        if (iter >= iterations || !state.layoutRunning) {
+          state.layoutRunning = false;
+          document.getElementById('layoutBtn').classList.remove('active');
+          document.getElementById('layoutBtn').textContent = 'Layout';
+          return;
+        }
+
+        const temp = (1 - iter / iterations) * 40;
+        const disp = {};
+        nodes.forEach(v => { disp[v] = { x: 0, y: 0 }; });
+
+        // Repulsion (all pairs) — with cluster bias
+        for (let i = 0; i < n; i++) {
+          const vi = nodes[i];
+          const xi = g.getNodeAttribute(vi, 'x');
+          const yi = g.getNodeAttribute(vi, 'y');
+          for (let j = i + 1; j < n; j++) {
+            const vj = nodes[j];
+            let dx = xi - g.getNodeAttribute(vj, 'x');
+            let dy = yi - g.getNodeAttribute(vj, 'y');
+            const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 0.1);
+            // Cluster mode: reduce repulsion for same-type, increase for different
+            let repMult = 1;
+            if (state.clusterMode) {
+              const sameType = (entityMap[vi]?.entityType || '') === (entityMap[vj]?.entityType || '');
+              repMult = sameType ? 0.4 : 1.8;
+            }
+            const force = (kSq / dist) * repMult;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            disp[vi].x += fx;  disp[vi].y += fy;
+            disp[vj].x -= fx;  disp[vj].y -= fy;
+          }
+        }
+
+        // Attraction (edges) — with cluster bias
+        g.forEachEdge((edge, attr, source, target) => {
+          let dx = g.getNodeAttribute(target, 'x') - g.getNodeAttribute(source, 'x');
+          let dy = g.getNodeAttribute(target, 'y') - g.getNodeAttribute(source, 'y');
+          const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 0.1);
+          let attrMult = 1;
+          if (state.clusterMode) {
+            const sameType = (entityMap[source]?.entityType || '') === (entityMap[target]?.entityType || '');
+            attrMult = sameType ? 2.5 : 0.6;
+          }
+          const force = ((dist * dist) / k) * attrMult;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          disp[source].x += fx;  disp[source].y += fy;
+          disp[target].x -= fx;  disp[target].y -= fy;
+        });
+
+        // Apply with temperature — skip pinned nodes
+        nodes.forEach(v => {
+          if (state.pinnedNodes.has(v)) return;
+          const d = disp[v];
+          const len = Math.max(Math.sqrt(d.x * d.x + d.y * d.y), 0.1);
+          const cap = Math.min(len, temp);
+          g.setNodeAttribute(v, 'x', g.getNodeAttribute(v, 'x') + (d.x / len) * cap);
+          g.setNodeAttribute(v, 'y', g.getNodeAttribute(v, 'y') + (d.y / len) * cap);
+        });
+
+        iter++;
+        if (onTick) onTick(iter, iterations);
+        state.layoutRAF = requestAnimationFrame(step);
+      }
+
+      state.layoutRunning = true;
+      document.getElementById('layoutBtn').classList.add('active');
+      document.getElementById('layoutBtn').textContent = 'Stop';
+      step();
+    }
+
+    /* ================================================================
+     *  FILE LOADING & GRAPH BUILDING
+     * ================================================================ */
     document.getElementById('fileInput').addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = function(event) {
-        try { loadBrainData(event.target.result); }
-        catch (err) { alert('Error parsing file: ' + err.message); }
+      reader.onload = (ev) => {
+        try { loadBrainData(ev.target.result); }
+        catch (err) { alert('Parse error: ' + err.message); }
       };
       reader.readAsText(file);
     });
 
     function loadBrainData(jsonl) {
-      allData.nodes = [];
-      allData.edges = [];
-      entities = {};
-      observations = {};
+      // Show loading
+      document.getElementById('emptyState').style.display = 'none';
+      const overlay = document.getElementById('loadingOverlay');
+      overlay.classList.add('visible');
 
-      const lines = jsonl.trim().split('\n').filter(line => line.trim());
+      entityMap = {};
+      const relations = [];
 
-      lines.forEach(line => {
+      jsonl.trim().split('\n').filter(Boolean).forEach(line => {
         try {
-          const data = JSON.parse(line);
-          if (data.type === 'entity') {
-            // Check if entity has any stale observations
-            const obs = data.observations || [];
-            const hasStale = obs.some(o => {
-              const p = parseObs(o);
-              return isStaleObs(p.date);
-            });
-            const baseColor = getColor(data.entityType);
-            entities[data.name] = {
-              id: data.name, label: shortenLabel(data.name),
-              color: hasStale ? { background: baseColor, border: '#EF4444', highlight: { background: baseColor, border: '#EF4444' } } : baseColor,
-              opacity: hasStale ? 0.6 : 1.0,
-              group: data.entityType,
-              observations: obs
-            };
-            observations[data.name] = obs;
-            allData.nodes.push(entities[data.name]);
-          } else if (data.type === 'relation') {
-            allData.edges.push({
-              from: data.from, to: data.to,
-              label: data.relationType,
-              font: { align: 'middle', size: 10, color: '#94A3B8' },
-              arrows: 'to'
-            });
+          const d = JSON.parse(line);
+          if (d.type === 'entity') {
+            entityMap[d.name] = { name: d.name, entityType: d.entityType, observations: d.observations || [] };
+          } else if (d.type === 'relation') {
+            relations.push(d);
           }
-        } catch (err) {
-          console.error('Error parsing line:', line, err);
+        } catch (err) { console.warn('Skip bad line:', err.message); }
+      });
+
+      // Build graphology graph
+      if (renderer) { renderer.kill(); renderer = null; }
+      graph = new graphology.Graph({ multi: true, type: 'directed' });
+
+      // Add nodes
+      Object.values(entityMap).forEach(ent => {
+        const degree = relations.filter(r => r.from === ent.name || r.to === ent.name).length;
+        const hasStale = ent.observations.some(o => isStale(parseObs(o).date));
+        const baseColor = getColor(ent.entityType);
+
+        graph.addNode(ent.name, {
+          label: shortenLabel(ent.name),
+          size: Math.max(5, Math.min(3 + degree * 1.5, 18)),
+          color: baseColor,
+          borderColor: hasStale ? '#EF4444' : baseColor,
+          entityType: ent.entityType,
+          x: (Math.random() - 0.5) * 800,
+          y: (Math.random() - 0.5) * 800,
+        });
+      });
+
+      // Add edges (skip if source/target missing)
+      relations.forEach((rel, i) => {
+        if (graph.hasNode(rel.from) && graph.hasNode(rel.to)) {
+          graph.addEdge(rel.from, rel.to, {
+            label: rel.relationType || '',
+            size: 1.5,
+            color: '#475569',
+          });
         }
       });
 
-      nodes.clear();
-      nodes.add(allData.nodes);
-      edges.clear();
-      edges.add(allData.edges);
+      // Init sigma renderer
+      initSigma();
 
-      document.getElementById('emptyState').style.display = 'none';
-      document.getElementById('detailPanel').classList.remove('hidden');
+      // Run layout then hide overlay
+      state.layoutRunning = true;
+      forceLayout(graph, 120, (iter, total) => {
+        if (iter >= total) {
+          overlay.classList.remove('visible');
+        }
+      });
+
+      // Update UI
       updateStats();
       updateLegend();
+      buildFilterChips();
+      document.getElementById('layoutBtn').style.display = 'inline-block';
+      document.getElementById('spreadBtn').style.display = 'inline-block';
+      document.getElementById('clusterBtn').style.display = 'inline-block';
+      document.getElementById('kbdHint').style.display = 'block';
+      document.getElementById('minimap').style.display = 'block';
+      document.getElementById('zoomControls').style.display = 'flex';
 
-      // Fit after physics settles
-      setTimeout(() => network.fit({ animation: true }), 500);
+      // Initial minimap render after layout settles
+      setTimeout(() => { renderMinimap(); }, 3500);
+
+      // Ensure overlay hides even if layout stops early
+      setTimeout(() => overlay.classList.remove('visible'), 3000);
     }
 
-    function updateStats() {
-      let staleCount = 0;
-      allData.nodes.forEach(node => {
-        (observations[node.id] || []).forEach(o => {
-          const parsed = parseObs(o);
-          if (isStaleObs(parsed.date)) staleCount++;
-        });
-      });
-      // Health badge: orphan + low-conf counts
-      const linked = new Set();
-      allData.edges.forEach(e => { linked.add(e.from); linked.add(e.to); });
-      const orphanCount = allData.nodes.filter(n => !linked.has(n.id)).length;
-      let totalObs = 0, lowConfCount = 0;
-      allData.nodes.forEach(n => {
-        (observations[n.id] || []).forEach(o => {
-          totalObs++;
-          if (parseObs(o).confidence < 0.3) lowConfCount++;
-        });
-      });
-      let penalty = 0;
-      if (allData.nodes.length > 0 && orphanCount / allData.nodes.length >= 0.1)
-        penalty += 0.20 * Math.min((orphanCount / allData.nodes.length) * 2, 1);
-      if (totalObs > 0 && staleCount > 0 && staleCount / totalObs >= 0.05)
-        penalty += 0.20 * Math.min((staleCount / totalObs) * 2, 1);
-      if (totalObs > 0 && lowConfCount / totalObs >= 0.15)
-        penalty += 0.20 * Math.min((lowConfCount / totalObs) * 2, 1);
-      const healthScore = Math.round((1 - penalty) * 100);
-      const healthColor = healthScore >= 90 ? '#10B981' : healthScore >= 70 ? '#F59E0B' : '#EF4444';
-      const healthTip = `${orphanCount} orphans, ${staleCount} stale, ${lowConfCount} low-conf`;
-      const staleStr = staleCount > 0 ? ` | ${staleCount} stale` : '';
-      const orphanStr = orphanCount > 0 ? ` | ${orphanCount} orphan` : '';
-      document.getElementById('stats').innerHTML =
-        `${nodes.length} entities | ${edges.length} relations${staleStr}${orphanStr} ` +
-        `<span style="background:${healthColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;margin-left:6px" title="${healthTip}">${healthScore}%</span>`;
-    }
+    /* ================================================================
+     *  SIGMA RENDERER
+     * ================================================================ */
+    function initSigma() {
+      const container = document.getElementById('sigma-container');
 
-    function updateLegend() {
-      const types = [...new Set(allData.nodes.map(n => n.group))].sort();
-      document.getElementById('legend').innerHTML = `
-        <div class="legend-title">Types</div>
-        ${types.map(t => `<div class="legend-item"><div class="legend-color" style="background:${getColor(t)}"></div><span>${t}</span></div>`).join('')}
-        <div style="margin-top:0.6rem;border-top:1px solid #334155;padding-top:0.5rem;color:#94A3B8;font-size:0.7rem">
-          Confidence:
-          <span style="color:#10B981">&#9679;</span> &ge;0.7
-          <span style="color:#F59E0B">&#9679;</span> &ge;0.3
-          <span style="color:#EF4444">&#9679;</span> &lt;0.3
-        </div>
-      `;
-      document.getElementById('legend').style.display = 'block';
+      renderer = new Sigma(graph, container, {
+        renderEdgeLabels: false,           // edge labels clutter — show in detail panel instead
+        defaultNodeColor: '#6B7280',
+        defaultEdgeColor: '#334155',
+        labelColor: { color: '#E2E8F0' },
+        labelSize: 11,
+        labelFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        edgeLabelSize: 8,
+        edgeLabelColor: { color: '#64748B' },
+        stagePadding: 40,
+        labelDensity: 0.04,               // show fewer labels (prevents overlap)
+        labelGridCellSize: 200,            // wider spacing between labels
+        labelRenderedSizeThreshold: 8,     // only show labels for larger/closer nodes
+        zIndex: true,
+        minCameraRatio: 0.04,
+        maxCameraRatio: 8,
 
-      const select = document.getElementById('filterType');
-      select.innerHTML = '<option value="all">All Types</option>';
-      types.forEach(type => {
-        const opt = document.createElement('option');
-        opt.value = type; opt.textContent = type;
-        select.appendChild(opt);
-      });
-    }
+        // Dark-themed hover label (override Sigma's white default)
+        hoverRenderer: (context, data, settings) => {
+          const size = data.size;
+          const label = data.label;
+          const color = data.color;
 
-    function filterNodes() {
-      const searchTerm = document.getElementById('searchBox').value.toLowerCase();
-      const filterType = document.getElementById('filterType').value;
+          // Outer ring
+          context.beginPath();
+          context.arc(data.x, data.y, size + 3, 0, Math.PI * 2);
+          context.fillStyle = color;
+          context.globalAlpha = 0.3;
+          context.fill();
+          context.globalAlpha = 1;
 
-      let filteredNodes = allData.nodes.filter(node => {
-        // Search: match full entity name, label, AND observations
-        let matchesSearch = !searchTerm;
-        if (searchTerm) {
-          matchesSearch = node.id.toLowerCase().includes(searchTerm) ||
-            node.label.toLowerCase().includes(searchTerm) ||
-            (observations[node.id] || []).some(o => normalizeObs(o).toLowerCase().includes(searchTerm));
+          // Node circle
+          context.beginPath();
+          context.arc(data.x, data.y, size, 0, Math.PI * 2);
+          context.fillStyle = color;
+          context.fill();
+
+          // Label with dark background pill
+          if (label) {
+            const fontSize = settings.labelSize || 11;
+            const font = settings.labelFont || 'sans-serif';
+            context.font = `${fontSize}px ${font}`;
+            const textWidth = context.measureText(label).width;
+            const pad = 5;
+            const x = data.x + size + 4;
+            const y = data.y - fontSize / 2 - pad;
+            const w = textWidth + pad * 2;
+            const h = fontSize + pad * 2;
+            const r = 4;
+
+            // Rounded dark rect
+            context.beginPath();
+            context.moveTo(x + r, y);
+            context.lineTo(x + w - r, y);
+            context.quadraticCurveTo(x + w, y, x + w, y + r);
+            context.lineTo(x + w, y + h - r);
+            context.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            context.lineTo(x + r, y + h);
+            context.quadraticCurveTo(x, y + h, x, y + h - r);
+            context.lineTo(x, y + r);
+            context.quadraticCurveTo(x, y, x + r, y);
+            context.closePath();
+            context.fillStyle = 'rgba(15, 23, 42, 0.95)';
+            context.fill();
+            context.strokeStyle = '#475569';
+            context.lineWidth = 1;
+            context.stroke();
+
+            // Label text
+            context.fillStyle = '#E2E8F0';
+            context.textBaseline = 'middle';
+            context.fillText(label, x + pad, data.y);
+          }
+        },
+
+        /* Reducers: handle semantic zoom, confidence sizing, hover, search, filtering */
+        nodeReducer: (node, data) => {
+          const res = { ...data };
+          const degree = graph.degree(node);
+          const conf = avgConfidence(node);
+
+          // Confidence-based size modifier (larger = more confident)
+          if (conf >= 0.85) {
+            res.size = (res.size || 8) * 1.15;
+          } else if (conf < 0.65) {
+            res.size = (res.size || 8) * 0.85;
+          }
+
+          // Semantic zoom: control label visibility by zoom tier
+          if (state.zoomTier === 2) {
+            // Overview: hide all labels
+            res.forceLabel = false;
+          } else if (state.zoomTier === 1) {
+            // Mid: show labels for high-degree or high-confidence nodes
+            res.forceLabel = degree > 4 || conf >= 0.85;
+          } else {
+            // Detail: show all labels
+            res.forceLabel = true;
+          }
+
+          // Tier filter (multi-select chips)
+          if (!state.activeFilters.has('all')) {
+            const ent = entityMap[node];
+            const tier = getTier(ent?.entityType);
+            if (!state.activeFilters.has(tier)) {
+              res.hidden = true;
+              return res;
+            }
+          }
+
+          // Search highlight (no highlighted=true to avoid white halo)
+          if (state.searchQuery) {
+            if (state.searchMatches.has(node)) {
+              res.size = (res.size || 8) * 1.3;
+              res.forceLabel = true;
+              res.zIndex = 2;
+            } else {
+              res.color = '#1E293B';
+              res.label = '';
+              res.zIndex = 0;
+            }
+          }
+
+          // Hover neighbor highlight
+          if (state.hoveredNode && !state.searchQuery) {
+            if (node === state.hoveredNode) {
+              res.size = (res.size || 8) * 1.4;
+              res.forceLabel = true;
+              res.zIndex = 3;
+            } else if (state.hoveredNeighbors.has(node)) {
+              res.size = (res.size || 8) * 1.15;
+              res.forceLabel = true;
+              res.zIndex = 2;
+            } else {
+              res.color = '#1a1f2e';
+              res.label = '';
+              res.zIndex = 0;
+            }
+          }
+
+          // Selected node emphasis — accent color + size boost
+          if (state.selectedNode === node) {
+            res.color = '#818CF8';
+            res.size = (res.size || 8) * 1.4;
+            res.forceLabel = true;
+            res.zIndex = 3;
+          }
+
+          return res;
+        },
+
+        edgeReducer: (edge, data) => {
+          const res = { ...data };
+          const src = graph.source(edge);
+          const tgt = graph.target(edge);
+
+          // Zoom-based edge density management
+          if (state.zoomTier === 2) {
+            const srcDeg = graph.degree(src);
+            const tgtDeg = graph.degree(tgt);
+            if (srcDeg < 3 && tgtDeg < 3) {
+              res.hidden = true;
+              return res;
+            }
+            res.color = '#2a2f3a';
+            res.size = 0.8;
+          } else if (state.zoomTier === 1) {
+            res.color = '#3d4555';
+            res.size = 1.2;
+          }
+
+          // Tier filter
+          if (!state.activeFilters.has('all')) {
+            const srcTier = getTier(entityMap[src]?.entityType);
+            const tgtTier = getTier(entityMap[tgt]?.entityType);
+            if (!state.activeFilters.has(srcTier) || !state.activeFilters.has(tgtTier)) {
+              res.hidden = true;
+              return res;
+            }
+          }
+
+          // Hover: show only connected edges
+          if (state.hoveredNode && !state.searchQuery) {
+            if (src === state.hoveredNode || tgt === state.hoveredNode) {
+              res.color = '#6366F1';
+              res.size = 2.5;
+              res.zIndex = 2;
+            } else {
+              res.hidden = true;
+            }
+          }
+
+          // Search: dim unmatched edges
+          if (state.searchQuery) {
+            if (state.searchMatches.has(src) && state.searchMatches.has(tgt)) {
+              res.zIndex = 1;
+            } else {
+              res.hidden = true;
+            }
+          }
+
+          return res;
         }
-        const matchesType = filterType === 'all' || node.group === filterType;
-        return matchesSearch && matchesType;
       });
 
-      const nodeIds = new Set(filteredNodes.map(n => n.id));
-      const filteredEdges = allData.edges.filter(e =>
-        nodeIds.has(e.from) && nodeIds.has(e.to)
-      );
+      /* ── Events ── */
 
-      nodes.clear();
-      nodes.add(filteredNodes);
-      edges.clear();
-      edges.add(filteredEdges);
-      updateStats();
+      // Hover → highlight neighbors
+      renderer.on('enterNode', ({ node }) => {
+        state.hoveredNode = node;
+        state.hoveredNeighbors = new Set(graph.neighbors(node));
+        renderer.refresh();
+        showTooltip(node);
+      });
 
-      if (filteredNodes.length > 0) {
-        document.getElementById('emptyState').style.display = 'none';
-        setTimeout(() => network.fit({ animation: true }), 300);
+      renderer.on('leaveNode', () => {
+        state.hoveredNode = null;
+        state.hoveredNeighbors.clear();
+        renderer.refresh();
+        hideTooltip();
+      });
+
+      // Click → select + show detail
+      renderer.on('clickNode', ({ node }) => {
+        state.selectedNode = node;
+        showDetail(node);
+        renderer.refresh();
+        hideTooltip();
+      });
+
+      // Click background → deselect
+      renderer.on('clickStage', () => {
+        state.selectedNode = null;
+        renderer.refresh();
+      });
+
+      // Right-click node → context menu
+      container.addEventListener('contextmenu', (e) => e.preventDefault());
+      renderer.on('rightClickNode', ({ node, event }) => {
+        event.original.preventDefault();
+        showContextMenu(node, event.original.clientX, event.original.clientY);
+        hideTooltip();
+      });
+
+      // Drag support
+      // Drag + long-press support
+      let longPressTimer = null;
+      renderer.on('downNode', ({ node, event }) => {
+        state.isDragging = true;
+        state.draggedNode = node;
+        renderer.getCamera().disable();
+
+        // Long-press (touch) → context menu
+        if (isTouchDevice) {
+          const touch = event.original.touches?.[0] || event.original;
+          longPressTimer = setTimeout(() => {
+            state.isDragging = false;
+            state.draggedNode = null;
+            renderer.getCamera().enable();
+            showContextMenu(node, touch.clientX, touch.clientY);
+            longPressTimer = null;
+          }, 500);
+        }
+      });
+
+      renderer.getMouseCaptor().on('mousemovebody', (e) => {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        if (!state.isDragging || !state.draggedNode) return;
+        const pos = renderer.viewportToGraph(e);
+        graph.setNodeAttribute(state.draggedNode, 'x', pos.x);
+        graph.setNodeAttribute(state.draggedNode, 'y', pos.y);
+      });
+
+      renderer.getMouseCaptor().on('mouseup', () => {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        if (state.isDragging) {
+          state.isDragging = false;
+          state.draggedNode = null;
+          renderer.getCamera().enable();
+        }
+      });
+
+      // Tooltip positioning on mouse move
+      renderer.getMouseCaptor().on('mousemovebody', (e) => {
+        if (state.hoveredNode && !state.isDragging) {
+          positionTooltip(e.original.clientX, e.original.clientY);
+        }
+      });
+
+      // Semantic zoom + minimap sync on camera change
+      renderer.getCamera().on('updated', (camState) => {
+        const ratio = camState.ratio;
+        let tier;
+        if (ratio > 1.5) tier = 2;       // overview — hide labels, sparse edges
+        else if (ratio > 0.5) tier = 1;  // mid — selective labels
+        else tier = 0;                   // detail — all labels
+
+        if (tier !== state.zoomTier) {
+          state.zoomTier = tier;
+          renderer.refresh();
+        }
+        scheduleMinimap();
+      });
+    }
+
+    /* ================================================================
+     *  SEARCH & FILTER
+     * ================================================================ */
+    function onSearchInput() {
+      state.searchQuery = document.getElementById('searchBox').value.toLowerCase().trim();
+      state.searchMatches.clear();
+
+      if (state.searchQuery) {
+        graph.forEachNode(node => {
+          const ent = entityMap[node];
+          if (!ent) return;
+          const nameMatch = node.toLowerCase().includes(state.searchQuery);
+          const labelMatch = (ent.name || '').toLowerCase().includes(state.searchQuery);
+          const obsMatch = ent.observations.some(o => normalizeObs(o).toLowerCase().includes(state.searchQuery));
+          if (nameMatch || labelMatch || obsMatch) {
+            state.searchMatches.add(node);
+          }
+        });
+        document.getElementById('resetBtn').style.display = 'inline-block';
       }
+
+      renderer.refresh();
+    }
+
+    /** Toggle a tier filter chip */
+    function toggleChip(tier) {
+      if (tier === 'all') {
+        state.activeFilters = new Set(['all']);
+      } else {
+        state.activeFilters.delete('all');
+        if (state.activeFilters.has(tier)) {
+          state.activeFilters.delete(tier);
+        } else {
+          state.activeFilters.add(tier);
+        }
+        if (state.activeFilters.size === 0) state.activeFilters.add('all');
+      }
+      updateChipUI();
+      document.getElementById('resetBtn').style.display =
+        state.activeFilters.has('all') ? 'none' : 'inline-block';
+      renderer.refresh();
+      scheduleMinimap();
+    }
+
+    /** Update chip active states in DOM */
+    function updateChipUI() {
+      document.querySelectorAll('#filterChips .chip').forEach(el => {
+        const tier = el.dataset.tier;
+        el.classList.toggle('active', state.activeFilters.has(tier));
+      });
+    }
+
+    /** Build filter chips from loaded data */
+    function buildFilterChips() {
+      const counts = {};
+      Object.values(entityMap).forEach(ent => {
+        const tier = getTier(ent.entityType);
+        counts[tier] = (counts[tier] || 0) + 1;
+      });
+
+      const container = document.getElementById('filterChips');
+      let html = `<button class="chip active" data-tier="all" onclick="toggleChip('all')">All</button>`;
+      for (const [tier, color] of Object.entries(TIER_COLORS)) {
+        if (counts[tier]) {
+          html += `<button class="chip" data-tier="${tier}" onclick="toggleChip('${tier}')" style="--chip-color:${color}">${tier} <span class="chip-count">${counts[tier]}</span></button>`;
+        }
+      }
+      container.innerHTML = html;
     }
 
     function resetView() {
+      state.searchQuery = '';
+      state.activeFilters = new Set(['all']);
+      state.selectedNode = null;
+      state.hoveredNode = null;
+      state.hoveredNeighbors.clear();
+      state.searchMatches.clear();
       document.getElementById('searchBox').value = '';
-      document.getElementById('filterType').value = 'all';
-      selectedNode = null;
-      nodes.clear();
-      nodes.add(allData.nodes);
-      edges.clear();
-      edges.add(allData.edges);
-      updateStats();
       document.getElementById('resetBtn').style.display = 'none';
-      setTimeout(() => network.fit({ animation: true }), 300);
+      updateChipUI();
+      if (renderer) {
+        renderer.getCamera().animatedReset();
+        renderer.refresh();
+      }
+      scheduleMinimap();
     }
 
+    /* ================================================================
+     *  ZOOM CONTROLS
+     * ================================================================ */
+    function zoomIn() {
+      const cam = renderer.getCamera();
+      cam.animate({ ratio: cam.ratio / 1.5 }, { duration: 200 });
+    }
+
+    function zoomOut() {
+      const cam = renderer.getCamera();
+      cam.animate({ ratio: cam.ratio * 1.5 }, { duration: 200 });
+    }
+
+    function zoomFit() {
+      const cam = renderer.getCamera();
+      cam.animate({ x: 0.5, y: 0.5, ratio: 1 }, { duration: 400 });
+    }
+
+    /* ================================================================
+     *  MINIMAP
+     * ================================================================ */
+    let minimapDebounce = null;
+    let minimapBBox = null;  // cached bounding box
+
+    function computeMinimapBBox() {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      graph.forEachNode((node) => {
+        const x = graph.getNodeAttribute(node, 'x');
+        const y = graph.getNodeAttribute(node, 'y');
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      });
+      minimapBBox = { minX, maxX, minY, maxY };
+    }
+
+    function renderMinimap() {
+      if (!graph || !renderer) return;
+      const canvas = document.getElementById('minimap');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      computeMinimapBBox();
+      const { minX, maxX, minY, maxY } = minimapBBox;
+      const pad = 12;
+      const rangeX = (maxX - minX) || 1;
+      const rangeY = (maxY - minY) || 1;
+      const scale = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
+      const offX = (w - rangeX * scale) / 2;
+      const offY = (h - rangeY * scale) / 2;
+
+      // Draw nodes as colored dots
+      graph.forEachNode((node, attrs) => {
+        // Skip filtered nodes
+        if (!state.activeFilters.has('all')) {
+          const tier = getTier(entityMap[node]?.entityType);
+          if (!state.activeFilters.has(tier)) return;
+        }
+        const x = offX + (attrs.x - minX) * scale;
+        const y = offY + (attrs.y - minY) * scale;
+        ctx.fillStyle = attrs.color || '#6B7280';
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw viewport rectangle
+      try {
+        const cam = renderer.getCamera().getState();
+        const container = document.getElementById('sigma-container');
+        const cw = container.offsetWidth;
+        const ch = container.offsetHeight;
+
+        // Sigma normalized coords → graph coords via camera state
+        // Camera (x,y) is center in [0,1] range, ratio controls zoom
+        // Approximate visible graph bounds
+        const halfW = (cw * cam.ratio) / 2;
+        const halfH = (ch * cam.ratio) / 2;
+
+        // Convert camera center from normalized to graph coords
+        // This is approximate — Sigma's internal mapping is complex
+        const graphCenterX = minX + cam.x * rangeX;
+        const graphCenterY = minY + cam.y * rangeY;
+
+        const vx = offX + (graphCenterX - halfW - minX) * scale;
+        const vy = offY + (graphCenterY - halfH - minY) * scale;
+        const vw = halfW * 2 * scale;
+        const vh = halfH * 2 * scale;
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(
+          Math.max(0, vx), Math.max(0, vy),
+          Math.min(w, vw), Math.min(h, vh)
+        );
+      } catch (e) { /* skip viewport rect if camera not ready */ }
+    }
+
+    function scheduleMinimap() {
+      clearTimeout(minimapDebounce);
+      minimapDebounce = setTimeout(renderMinimap, 300);
+    }
+
+    // Minimap click → navigate
+    document.getElementById('minimap').addEventListener('click', (e) => {
+      if (!graph || !renderer || !minimapBBox) return;
+      const rect = e.target.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const canvas = e.target;
+      const w = canvas.width, h = canvas.height;
+
+      const { minX, maxX, minY, maxY } = minimapBBox;
+      const rangeX = (maxX - minX) || 1;
+      const rangeY = (maxY - minY) || 1;
+      const scale = Math.min((w - 24) / rangeX, (h - 24) / rangeY);
+      const offX = (w - rangeX * scale) / 2;
+      const offY = (h - rangeY * scale) / 2;
+
+      // Convert pixel → normalized camera coords
+      const graphX = ((mx - offX) / scale + minX);
+      const graphY = ((my - offY) / scale + minY);
+      const normX = (graphX - minX) / rangeX;
+      const normY = (graphY - minY) / rangeY;
+
+      renderer.getCamera().animate({ x: normX, y: normY }, { duration: 300 });
+    });
+
+    /* ================================================================
+     *  LAYOUT TOGGLE
+     * ================================================================ */
+    function toggleLayout() {
+      if (state.layoutRunning) {
+        state.layoutRunning = false;
+        cancelAnimationFrame(state.layoutRAF);
+        document.getElementById('layoutBtn').classList.remove('active');
+        document.getElementById('layoutBtn').textContent = 'Layout';
+      } else {
+        forceLayout(graph, 200);
+      }
+    }
+
+    /** Spread nodes apart — increase repulsion-only layout pass */
+    function spreadNodes() {
+      if (!graph || !renderer) return;
+      const nodes = graph.nodes();
+      const n = nodes.length;
+      if (n === 0) return;
+
+      // One-shot repulsion pass: push all nodes away from each other
+      const area = Math.max(n * 8000, 200000);
+      const k = Math.sqrt(area / n);
+      const kSq = k * k;
+      const disp = {};
+      nodes.forEach(v => { disp[v] = { x: 0, y: 0 }; });
+
+      for (let i = 0; i < n; i++) {
+        const vi = nodes[i];
+        const xi = graph.getNodeAttribute(vi, 'x');
+        const yi = graph.getNodeAttribute(vi, 'y');
+        for (let j = i + 1; j < n; j++) {
+          const vj = nodes[j];
+          let dx = xi - graph.getNodeAttribute(vj, 'x');
+          let dy = yi - graph.getNodeAttribute(vj, 'y');
+          const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 0.1);
+          const force = (kSq / dist) * 3;  // 3x repulsion
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          disp[vi].x += fx;  disp[vi].y += fy;
+          disp[vj].x -= fx;  disp[vj].y -= fy;
+        }
+      }
+
+      // Apply displacement (no attraction — pure spread)
+      nodes.forEach(v => {
+        if (state.pinnedNodes.has(v)) return;
+        const d = disp[v];
+        const len = Math.max(Math.sqrt(d.x * d.x + d.y * d.y), 0.1);
+        const cap = Math.min(len, 60);
+        graph.setNodeAttribute(v, 'x', graph.getNodeAttribute(v, 'x') + (d.x / len) * cap);
+        graph.setNodeAttribute(v, 'y', graph.getNodeAttribute(v, 'y') + (d.y / len) * cap);
+      });
+
+      renderer.refresh();
+      scheduleMinimap();
+    }
+
+    /** Toggle cluster mode: re-run layout with same-type attraction bias */
+    function toggleCluster() {
+      state.clusterMode = !state.clusterMode;
+      const btn = document.getElementById('clusterBtn');
+      btn.classList.toggle('active', state.clusterMode);
+      btn.textContent = state.clusterMode ? 'Uncluster' : 'Cluster';
+      if (!state.layoutRunning) forceLayout(graph, 150);
+    }
+
+    /* ================================================================
+     *  CONTEXT MENU
+     * ================================================================ */
+    function showContextMenu(nodeId, x, y) {
+      state.contextMenuNode = nodeId;
+      const menu = document.getElementById('contextMenu');
+      const pinItem = menu.querySelector('[data-action="pin"]');
+      pinItem.textContent = state.pinnedNodes.has(nodeId) ? 'Unpin node' : 'Pin node';
+
+      menu.style.display = 'block';
+      // Viewport-aware positioning
+      const rect = menu.getBoundingClientRect();
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let mx = x, my = y;
+      if (mx + rect.width > vw - 8) mx = vw - rect.width - 8;
+      if (my + rect.height > vh - 8) my = vh - rect.height - 8;
+      menu.style.left = mx + 'px';
+      menu.style.top = my + 'px';
+    }
+
+    function hideContextMenu() {
+      document.getElementById('contextMenu').style.display = 'none';
+      state.contextMenuNode = null;
+    }
+
+    // Context menu action handlers
+    document.getElementById('contextMenu').addEventListener('click', (e) => {
+      const action = e.target.closest('.ctx-item')?.dataset.action;
+      const nodeId = state.contextMenuNode;
+      if (!action || !nodeId) return;
+
+      switch (action) {
+        case 'pin':
+          if (state.pinnedNodes.has(nodeId)) state.pinnedNodes.delete(nodeId);
+          else state.pinnedNodes.add(nodeId);
+          renderer.refresh();
+          break;
+        case 'focus':
+          focusNeighborhood(nodeId);
+          break;
+        case 'sametype': {
+          const ent = entityMap[nodeId];
+          if (ent) {
+            const tier = getTier(ent.entityType);
+            state.activeFilters = new Set([tier]);
+            updateChipUI();
+            document.getElementById('resetBtn').style.display = 'inline-block';
+            renderer.refresh();
+            scheduleMinimap();
+          }
+          break;
+        }
+        case 'center':
+          navigateToNode(nodeId);
+          break;
+        case 'copy':
+          navigator.clipboard.writeText(nodeId).catch(() => {});
+          break;
+      }
+      hideContextMenu();
+    });
+
+    // Close context menu on click outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.context-menu')) hideContextMenu();
+    });
+
+    /* ================================================================
+     *  TOOLTIP
+     * ================================================================ */
+    const tooltip = document.getElementById('nodeTooltip');
+
+    function showTooltip(nodeId) {
+      const ent = entityMap[nodeId];
+      if (!ent) return;
+
+      const obs = ent.observations;
+      const maxObs = 3;
+      const obsHtml = obs.slice(0, maxObs).map(o => {
+        const p = parseObs(o);
+        // Truncate long observations in tooltip
+        const short = p.text.length > 80 ? p.text.slice(0, 78) + '...' : p.text;
+        return `<div class="tt-obs-item">${short}</div>`;
+      }).join('');
+      const more = obs.length > maxObs
+        ? `<div class="tt-more">+${obs.length - maxObs} more (click)</div>` : '';
+
+      tooltip.innerHTML = `
+        <div class="tt-name">${shortenLabel(ent.name)}</div>
+        <span class="tt-type" style="background:${getColor(ent.entityType)}">${ent.entityType}</span>
+        ${obs.length ? `<div class="tt-obs">${obsHtml}${more}</div>` : ''}
+      `;
+      tooltip.style.display = 'block';
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = 'none';
+    }
+
+    function positionTooltip(mx, my) {
+      const gap = 14;
+      tooltip.style.left = '0px';
+      tooltip.style.top = '0px';
+      const r = tooltip.getBoundingClientRect();
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let x = mx + gap, y = my + gap;
+      if (x + r.width > vw - gap) x = mx - r.width - gap;
+      if (x < gap) x = gap;
+      if (y + r.height > vh - gap) y = my - r.height - gap;
+      if (y < gap) y = gap;
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    }
+
+    /* ================================================================
+     *  DETAIL PANEL
+     * ================================================================ */
     function showDetail(nodeId) {
-      const nodeData = entities[nodeId];
-      if (!nodeData) return;
-      selectedNode = nodeId;
+      const ent = entityMap[nodeId];
+      if (!ent) return;
 
-      document.getElementById('detailName').textContent = nodeData.label;
+      const panel = document.getElementById('detailPanel');
+      panel.classList.remove('hidden');
+
+      document.getElementById('detailName').textContent = shortenLabel(ent.name);
       const badge = document.getElementById('detailBadge');
-      badge.textContent = nodeData.group;
-      badge.style.background = getColor(nodeData.group);
-
-      const obs = observations[nodeId] || [];
-      const connectedEdges = allData.edges.filter(e => e.from === nodeId || e.to === nodeId);
+      badge.textContent = ent.entityType;
+      badge.style.background = getColor(ent.entityType);
 
       let html = '';
 
+      // Full entity name
+      html += `<div class="detail-section">
+        <div class="detail-section-title">Full Name</div>
+        <div style="font-size:0.78rem;color:var(--text-muted);word-break:break-all">${ent.name}</div>
+      </div>`;
+
       // Observations
-      if (obs.length > 0) {
-        const obsHtml = obs.map(o => {
-          const parsed = parseObs(o);
-          const stale = isStaleObs(parsed.date);
-          return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;opacity:${stale ? '0.6' : '1'};font-size:0.85rem;line-height:1.5;color:#CBD5E1;border-bottom:1px solid #1E293B">
-            <span style="width:8px;height:8px;border-radius:50%;background:${confColor(parsed.confidence)};flex-shrink:0" title="Confidence: ${parsed.confidence}"></span>
-            ${parsed.date ? `<span style="color:#64748B;font-size:0.75rem;flex-shrink:0">${parsed.date}</span>` : ''}
-            <span style="word-break:break-word">${parsed.text}</span>
-            ${stale ? '<span style="color:#EF4444;font-size:0.6rem;text-transform:uppercase;margin-left:auto;flex-shrink:0">stale</span>' : ''}
+      const obs = ent.observations;
+      if (obs.length) {
+        const rows = obs.map(o => {
+          const p = parseObs(o);
+          const staleFlag = isStale(p.date);
+          return `<div class="obs-row" style="opacity:${staleFlag ? 0.55 : 1}">
+            <div class="obs-dot" style="background:${confColor(p.confidence)}" title="Confidence: ${p.confidence}"></div>
+            ${p.date ? `<span class="obs-date">${p.date}</span>` : ''}
+            <span class="obs-text">${p.text}</span>
+            ${staleFlag ? '<span class="obs-stale">stale</span>' : ''}
           </div>`;
         }).join('');
         html += `<div class="detail-section">
           <div class="detail-section-title">Observations (${obs.length})</div>
-          ${obsHtml}
+          ${rows}
         </div>`;
       }
 
       // Connections
-      if (connectedEdges.length > 0) {
-        html += `<div class="detail-section"><div class="detail-section-title">Connections (${connectedEdges.length})</div>`;
-        connectedEdges.forEach(edge => {
-          const targetId = edge.from === nodeId ? edge.to : edge.from;
-          const direction = edge.from === nodeId ? '→' : '←';
-          const targetEntity = entities[targetId];
-          const color = targetEntity ? getColor(targetEntity.group) : '#6B7280';
-          html += `<div class="connection-item" onclick="navigateToNode('${targetId}')">
-            <div class="connection-dot" style="background:${color}"></div>
-            <span>${direction} ${targetId}</span>
-            <span class="connection-label">${edge.label}</span>
-          </div>`;
-        });
-        html += '</div>';
-      }
+      const conns = [];
+      graph.forEachEdge(nodeId, (edge, attr, source, target) => {
+        const dir = source === nodeId ? '→' : '←';
+        const other = source === nodeId ? target : source;
+        conns.push({ dir, other, label: attr.label || '' });
+      });
 
-      // Expand button
-      if (connectedEdges.length > 0) {
-        html += `<button class="btn-expand" onclick="expandNode('${nodeId}')">Show ${connectedEdges.length} connected nodes</button>`;
+      if (conns.length) {
+        const connHtml = conns.map(c => {
+          const otherEnt = entityMap[c.other];
+          const color = otherEnt ? getColor(otherEnt.entityType) : '#6B7280';
+          return `<div class="conn-item" onclick="navigateToNode('${c.other.replace(/'/g, "\\'")}')">
+            <div class="conn-dot" style="background:${color}"></div>
+            <span>${c.dir} ${shortenLabel(c.other)}</span>
+            <span class="conn-label">${c.label}</span>
+          </div>`;
+        }).join('');
+
+        html += `<div class="detail-section">
+          <div class="detail-section-title">Connections (${conns.length})</div>
+          ${connHtml}
+        </div>`;
+
+        html += `<button class="btn-expand" onclick="focusNeighborhood('${nodeId.replace(/'/g, "\\'")}')">
+          Focus ${conns.length} connected nodes
+        </button>`;
       }
 
       document.getElementById('detailBody').innerHTML = html || '<div class="detail-empty">No details</div>';
     }
 
-    function expandNode(nodeId) {
-      const connectedNodes = network.getConnectedNodes(nodeId);
-      const focusIds = new Set([...connectedNodes, nodeId]);
-      nodes.clear();
-      nodes.add(allData.nodes.filter(n => focusIds.has(n.id)));
-      edges.clear();
-      edges.add(allData.edges.filter(e => focusIds.has(e.from) && focusIds.has(e.to)));
-      updateStats();
-      document.getElementById('resetBtn').style.display = 'inline-block';
-      setTimeout(() => network.fit({ animation: true }), 300);
+    function closeDetail() {
+      document.getElementById('detailPanel').classList.add('hidden');
     }
 
     function navigateToNode(nodeId) {
+      state.selectedNode = nodeId;
       showDetail(nodeId);
-      network.selectNodes([nodeId]);
-      network.focus(nodeId, { scale: 1, animation: true });
+      const cam = renderer.getCamera();
+      const pos = renderer.getNodeDisplayData(nodeId);
+      if (pos) cam.animate({ x: pos.x, y: pos.y, ratio: 0.3 }, { duration: 400 });
+      renderer.refresh();
     }
 
-    function closeDetail() {
-      document.getElementById('detailPanel').classList.add('hidden');
-      setTimeout(() => network.redraw(), 350);
+    function focusNeighborhood(nodeId) {
+      const neighbors = graph.neighbors(nodeId);
+      const focusSet = new Set([nodeId, ...neighbors]);
+
+      // Use search matches to show only neighborhood
+      state.searchQuery = '__focus__';
+      state.searchMatches = focusSet;
+      document.getElementById('resetBtn').style.display = 'inline-block';
+      renderer.refresh();
+
+      // Zoom to fit the neighborhood
+      setTimeout(() => {
+        const cam = renderer.getCamera();
+        const nodePos = renderer.getNodeDisplayData(nodeId);
+        if (nodePos) cam.animate({ x: nodePos.x, y: nodePos.y, ratio: 0.5 }, { duration: 400 });
+      }, 50);
     }
 
-    // Init vis-network
-    const container = document.getElementById('network');
-    const options = {
-      nodes: {
-        shape: 'dot', size: 20,
-        font: { size: 13, color: '#F1F5F9' },
-        borderWidth: 2, borderColor: '#1E293B', shadow: true
-      },
-      edges: {
-        width: 1.5,
-        color: { color: '#334155', highlight: '#6366F1' },
-        smooth: { type: 'continuous', roundness: 0.2 }
-      },
-      physics: {
-        stabilization: { iterations: 150 },
-        barnesHut: {
-          gravitationalConstant: -3000,
-          springLength: 200,
-          springConstant: 0.04,
-          damping: 0.09
-        }
-      },
-      interaction: { hover: true, tooltipDelay: 0, hideEdgesOnDrag: true }
+    /* ================================================================
+     *  STATS & HEALTH
+     * ================================================================ */
+    function updateStats() {
+      if (!graph) return;
+      const nodeCount = graph.order;
+      const edgeCount = graph.size;
+
+      let staleCount = 0, totalObs = 0, lowConfCount = 0;
+      Object.values(entityMap).forEach(ent => {
+        ent.observations.forEach(o => {
+          totalObs++;
+          const p = parseObs(o);
+          if (isStale(p.date)) staleCount++;
+          if (p.confidence < 0.3) lowConfCount++;
+        });
+      });
+
+      const linked = new Set();
+      graph.forEachEdge((e, a, s, t) => { linked.add(s); linked.add(t); });
+      const orphanCount = nodeCount - linked.size;
+
+      // Health score
+      let penalty = 0;
+      if (nodeCount > 0 && orphanCount / nodeCount >= 0.1)
+        penalty += 0.20 * Math.min((orphanCount / nodeCount) * 2, 1);
+      if (totalObs > 0 && staleCount / totalObs >= 0.05)
+        penalty += 0.20 * Math.min((staleCount / totalObs) * 2, 1);
+      if (totalObs > 0 && lowConfCount / totalObs >= 0.15)
+        penalty += 0.20 * Math.min((lowConfCount / totalObs) * 2, 1);
+      const health = Math.round((1 - penalty) * 100);
+      const hColor = health >= 90 ? '#10B981' : health >= 70 ? '#F59E0B' : '#EF4444';
+      const hTip = `${orphanCount} orphans, ${staleCount} stale, ${lowConfCount} low-conf`;
+
+      const extra = [];
+      if (staleCount) extra.push(`${staleCount} stale`);
+      if (orphanCount) extra.push(`${orphanCount} orphan`);
+      const extraStr = extra.length ? ' | ' + extra.join(' | ') : '';
+
+      document.getElementById('stats').innerHTML =
+        `${nodeCount} entities | ${edgeCount} relations${extraStr} ` +
+        `<span style="background:${hColor};color:#fff;padding:2px 7px;border-radius:10px;font-size:0.7rem;font-weight:600;margin-left:4px" title="${hTip}">${health}%</span>`;
+    }
+
+    /* ================================================================
+     *  LEGEND
+     * ================================================================ */
+    function updateLegend() {
+      const types = [...new Set(Object.values(entityMap).map(e => e.entityType))].sort();
+      const legendEl = document.getElementById('legend');
+
+      legendEl.innerHTML = `
+        <div class="legend-title">Types</div>
+        ${types.map(t => `<div class="legend-item"><div class="legend-color" style="background:${getColor(t)}"></div><span>${t}</span></div>`).join('')}
+        <div class="legend-footer">
+          Confidence: <span style="color:#10B981">&#9679;</span>&ge;0.7
+          <span style="color:#F59E0B">&#9679;</span>&ge;0.3
+          <span style="color:#EF4444">&#9679;</span>&lt;0.3
+        </div>
+      `;
+      legendEl.style.display = 'block';
+    }
+
+    /* ================================================================
+     *  KEYBOARD SHORTCUTS
+     * ================================================================ */
+    document.addEventListener('keydown', (e) => {
+      // Escape → close menu / reset selection
+      if (e.key === 'Escape') {
+        hideContextMenu();
+        resetView();
+        closeDetail();
+      }
+      // Ctrl+F → focus search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        document.getElementById('searchBox').focus();
+      }
+      // L → toggle layout
+      if (e.key === 'l' && document.activeElement.tagName !== 'INPUT') {
+        toggleLayout();
+      }
+      // +/- → zoom (when not in input)
+      if (document.activeElement.tagName !== 'INPUT') {
+        if (e.key === '+' || e.key === '=') zoomIn();
+        if (e.key === '-') zoomOut();
+      }
+    });
+
+    /* ================================================================
+     *  MOBILE / TOUCH SUPPORT
+     * ================================================================ */
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    function isMobile() { return window.innerWidth < 768; }
+
+    /** Toggle bottom sheet on mobile */
+    function toggleSheet() {
+      const panel = document.getElementById('detailPanel');
+      panel.classList.toggle('collapsed');
+    }
+
+    // Patch showDetail to add sheet handle on mobile
+    const _origShowDetail = showDetail;
+    showDetail = function(nodeId) {
+      _origShowDetail(nodeId);
+      const panel = document.getElementById('detailPanel');
+      panel.classList.remove('collapsed');
+      if (isMobile() && !panel.querySelector('.sheet-handle')) {
+        panel.insertAdjacentHTML('afterbegin',
+          '<div class="sheet-handle" onclick="toggleSheet()"></div>');
+      }
     };
 
-    network = new vis.Network(container, { nodes, edges }, options);
-
-    // Click node → show detail only (no graph filter)
-    network.on('click', function(params) {
-      if (params.nodes.length > 0) {
-        const nodeId = params.nodes[0];
-        document.getElementById('detailPanel').classList.remove('hidden');
-        showDetail(nodeId);
-        network.focus(nodeId, { scale: 1, animation: true });
-      }
+    /* ================================================================
+     *  WINDOW RESIZE
+     * ================================================================ */
+    window.addEventListener('resize', () => {
+      if (renderer) renderer.refresh();
+      scheduleMinimap();
     });
-
-    // Hover → show tooltip clamped to viewport
-    const tooltip = document.getElementById('nodeTooltip');
-    let hoverTimeout = null;
-
-    network.on('hoverNode', function(params) {
-      clearTimeout(hoverTimeout);
-      hoverTimeout = setTimeout(() => {
-        const nodeData = entities[params.node];
-        if (!nodeData) return;
-
-        const obs = observations[params.node] || [];
-        const maxObs = 8; // limit observations shown in tooltip
-        const obsHtml = obs.slice(0, maxObs).map(o =>
-          `<div class="tt-obs-item">${normalizeObs(o)}</div>`
-        ).join('');
-        const moreText = obs.length > maxObs ? `<div style="color:#64748B;padding-top:0.3rem;font-size:0.75rem">+${obs.length - maxObs} more... (click to see all)</div>` : '';
-
-        tooltip.innerHTML = `
-          <div class="tt-name">${nodeData.label}</div>
-          <span class="tt-type" style="background:${getColor(nodeData.group)}">${nodeData.group}</span>
-          ${obs.length > 0 ? `<div class="tt-obs">${obsHtml}${moreText}</div>` : ''}
-        `;
-        tooltip.style.display = 'block';
-
-        // Position near cursor, clamped to viewport
-        const canvasPos = params.event.center || params.pointer?.DOM;
-        if (canvasPos) {
-          const rect = container.getBoundingClientRect();
-          positionTooltip(rect.left + canvasPos.x, rect.top + canvasPos.y);
-        }
-      }, 200);
-    });
-
-    network.on('blurNode', function() {
-      clearTimeout(hoverTimeout);
-      tooltip.style.display = 'none';
-    });
-
-    // Clamp tooltip within viewport
-    function positionTooltip(mouseX, mouseY) {
-      const gap = 12;
-      tooltip.style.left = '0px';
-      tooltip.style.top = '0px';
-
-      // Force layout to get actual dimensions
-      const ttRect = tooltip.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      let x = mouseX + gap;
-      let y = mouseY + gap;
-
-      // Clamp right edge
-      if (x + ttRect.width > vw - gap) {
-        x = mouseX - ttRect.width - gap;
-      }
-      // Clamp left edge
-      if (x < gap) x = gap;
-
-      // Clamp bottom edge
-      if (y + ttRect.height > vh - gap) {
-        y = mouseY - ttRect.height - gap;
-      }
-      // Clamp top edge
-      if (y < gap) y = gap;
-
-      tooltip.style.left = x + 'px';
-      tooltip.style.top = y + 'px';
-    }
-
-    // Hide tooltip on click (detail panel takes over)
-    network.on('click', function() {
-      clearTimeout(hoverTimeout);
-      tooltip.style.display = 'none';
-    });
-
-    // Double-click → reset
-    network.on('doubleClick', function(params) {
-      if (params.nodes.length === 0) resetView();
-    });
-
-    window.addEventListener('resize', () => network.fit());
   </script>
 </body>
 </html>

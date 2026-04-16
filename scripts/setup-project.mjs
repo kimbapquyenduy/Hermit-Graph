@@ -16,14 +16,17 @@
  *   hermit setup --list                       # List available skills
  *   hermit setup --only biz-guard,api-design  # Install only selected skills (Claude)
  *   hermit setup --skip db-migrations         # Install all except skipped (Claude)
+ *   hermit setup --skip-learn                 # Skip auto-learning project identity
  */
 
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, cpSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBrainPath, getPackageRoot, getInstallMode } from './lib/resolve-brain-path.mjs';
 import { exportAllHooks } from './lib/hook-export.mjs';
 import { exportAllCommands } from './lib/skill-export.mjs';
+import { learnProject, scanProject } from './lib/project-learner.mjs';
+import { writeBusinessMdIfMissing } from './lib/business-md-generator.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const brainRoot = getPackageRoot();
@@ -253,18 +256,18 @@ if (isMcpOnly) {
 
 if (agentKey === 'all') {
   // ── Setup ALL agents automatically ──
-  setupAllAgents();
+  await setupAllAgents();
   process.exit(0);
 }
 
 // ── Single agent setup ──
-setupSingleAgent(agentKey);
+await setupSingleAgent(agentKey);
 
 // ══════════════════════════════════════════════════════════════════════════
 // SETUP ALL AGENTS
 // ══════════════════════════════════════════════════════════════════════════
 
-function setupAllAgents() {
+async function setupAllAgents() {
   console.log('Hermit Graph — Full Setup (all agents)');
   console.log(`Project: ${projectRoot}`);
   console.log(`Brain:   ${brainJsonlPath}`);
@@ -272,7 +275,14 @@ function setupAllAgents() {
 
   // 1. Shared: brain.jsonl + templates
   ensureBrainJsonl();
-  copyBusinessTemplate(AGENTS.claude);
+  const projectInfo = scanProject(projectRoot);
+  copyBusinessTemplate(AGENTS.claude, projectInfo);
+
+  // 1b. Auto-learn project identity
+  if (!args.includes('--skip-learn')) {
+    console.log('\n── Auto-Learn ──');
+    await learnProject(projectRoot, brainJsonlPath);
+  }
 
   // 2. Claude Code (full: MCP + skills + commands + hooks + CLAUDE.md)
   console.log('\n── Claude Code ──');
@@ -313,13 +323,16 @@ function setupAllAgents() {
   console.log('');
   console.log('All agents configured. Restart each IDE/agent to activate.');
   console.log('Edit BUSINESS.md with your project business rules.');
+  console.log('');
+  console.log('For full project mastery, run /deep-scan in your first AI session.');
+  console.log('  This teaches your agent: business rules, API surface, data models, architecture.');
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 // SETUP SINGLE AGENT
 // ══════════════════════════════════════════════════════════════════════════
 
-function setupSingleAgent(key) {
+async function setupSingleAgent(key) {
   const ag = AGENTS[key];
   console.log(`Hermit Graph — ${ag.name} Setup`);
   console.log(`Project: ${projectRoot}`);
@@ -331,6 +344,15 @@ function setupSingleAgent(key) {
   console.log('');
 
   ensureBrainJsonl();
+  const projectInfo = scanProject(projectRoot);
+
+  // Auto-learn project identity
+  if (!args.includes('--skip-learn')) {
+    console.log('── Auto-Learn ──');
+    await learnProject(projectRoot, brainJsonlPath);
+    console.log('');
+  }
+
   ag.configureGlobalMcp();
   ag.configureProjectMcp();
 
@@ -338,7 +360,7 @@ function setupSingleAgent(key) {
   if (ag.supportsCommands) installClaudeCommands();
   if (ag.supportsHooks) installClaudeHooks();
 
-  copyBusinessTemplate(ag);
+  copyBusinessTemplate(ag, projectInfo);
 
   if (!ag.supportsHooks && ag.rulesFile) installRulesFileFor(key);
   if (key === 'claude') { setupClaudeMd(); setupGlobalClaudeMd(); }
@@ -356,6 +378,8 @@ function setupSingleAgent(key) {
     for (const cmd of ag.commandsHelp) console.log(`  ${cmd}`);
     console.log('');
   }
+  console.log('For full project mastery, run /deep-scan in your first AI session.');
+  console.log('  This teaches your agent: business rules, API surface, data models, architecture.');
 }
 
 function resolveSkillSelection() {
@@ -388,29 +412,39 @@ function ensureBrainJsonl() {
   }
 }
 
-function copyBusinessTemplate(targetAgent = null) {
-  const templates = [
-    { from: 'templates/BUSINESS.md', to: 'BUSINESS.md', note: 'Edit with your project business rules' },
-  ];
-  // Only copy test template for Claude (other agents don't have slash commands)
-  if (targetAgent?.supportsCommands) {
-    templates.push({
-      from: 'templates/tests/business-rules.test.template.ts',
-      to: 'tests/business-rules/rules.test.ts',
-      note: 'Edit test assertions for your rules',
-    });
+function copyBusinessTemplate(targetAgent = null, projectInfo = null) {
+  // BUSINESS.md — use smart generation if project info available, else template copy
+  const bizDst = join(projectRoot, 'BUSINESS.md');
+  if (!existsSync(bizDst)) {
+    if (projectInfo) {
+      const result = writeBusinessMdIfMissing(projectRoot, projectInfo);
+      if (result.created) {
+        console.log('  + Generated: BUSINESS.md (pre-filled from project scan)');
+        installed++;
+      }
+    } else {
+      const src = join(brainRoot, 'templates/BUSINESS.md');
+      if (existsSync(src)) {
+        copyFileSync(src, bizDst);
+        console.log('  + Template: BUSINESS.md — Edit with your project business rules');
+        installed++;
+      }
+    }
+  } else {
+    skipped++;
   }
 
-  for (const { from, to, note } of templates) {
-    const src = join(brainRoot, from);
-    const dst = join(projectRoot, to);
-    if (existsSync(src) && !existsSync(dst)) {
-      const dstDir = dirname(dst);
+  // Test template — only for agents with slash commands
+  if (targetAgent?.supportsCommands) {
+    const testSrc = join(brainRoot, 'templates/tests/business-rules.test.template.ts');
+    const testDst = join(projectRoot, 'tests/business-rules/rules.test.ts');
+    if (existsSync(testSrc) && !existsSync(testDst)) {
+      const dstDir = dirname(testDst);
       if (!existsSync(dstDir)) mkdirSync(dstDir, { recursive: true });
-      copyFileSync(src, dst);
-      console.log(`  + Template: ${to} — ${note}`);
+      copyFileSync(testSrc, testDst);
+      console.log('  + Template: tests/business-rules/rules.test.ts — Edit test assertions for your rules');
       installed++;
-    } else if (existsSync(dst)) {
+    } else if (existsSync(testDst)) {
       skipped++;
     }
   }
@@ -608,6 +642,18 @@ function installClaudeHooks() {
   for (const hook of readdirSync(hooksDir)) {
     const src = join(hooksDir, hook);
     const dst = join(destDir, hook);
+    // Recursively copy subdirectories (e.g., lib/ with shared hook modules)
+    if (statSync(src).isDirectory()) {
+      if (!existsSync(dst)) {
+        cpSync(src, dst, { recursive: true });
+        console.log(`  + Hook dir: ${hook}/`);
+        installed++;
+      } else {
+        // Always update lib/ to keep shared modules current
+        cpSync(src, dst, { recursive: true });
+      }
+      continue;
+    }
     if (!existsSync(dst)) {
       copyFileSync(src, dst);
       console.log(`  + Hook: ${hook}`);
