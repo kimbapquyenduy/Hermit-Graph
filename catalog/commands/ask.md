@@ -1,6 +1,7 @@
 ---
 description: ⚡ Answer technical and architectural questions.
 argument-hint: [technical-question]
+context: inline
 ---
 
 ## Context

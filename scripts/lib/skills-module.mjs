@@ -14,6 +14,9 @@ import { discoverHooks, exportHook, exportAllHooks } from './hook-export.mjs';
 import { discoverProjectSkills, exportProjectSkill, exportAllProjectSkills } from './project-skill-export.mjs';
 import { AGENTS } from './skill-adapters.mjs';
 
+const RO = { readOnlyHint: true };
+const IDEM = { idempotentHint: true };
+
 function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
@@ -62,6 +65,7 @@ export function register(server, ctx) {
     'hermit_skill_list',
     'List available hermit skills with per-agent compatibility.',
     { agent: z.enum(AGENT_NAMES).optional().describe('Filter by agent compatibility') },
+    RO,
     async ({ agent }) => {
       const skills = discoverSkills();
       const projectSkills = discoverProjectSkills();
@@ -103,6 +107,7 @@ export function register(server, ctx) {
       project: z.string().optional().describe('Project root path for project-mode export'),
       global: z.boolean().optional().default(false).describe('Export to agent global config dir'),
     },
+    IDEM,
     async ({ skillName, agent, project, global: isGlobal }) => {
       const projErr = validateProject(project);
       if (projErr) return projErr;
@@ -143,6 +148,7 @@ export function register(server, ctx) {
     'hermit_command_list',
     'List available hermit commands (slash commands) from catalog.',
     { agent: z.enum(AGENT_NAMES).optional().describe('Filter by agent (informational only)') },
+    RO,
     async ({ agent }) => {
       const commands = discoverCommands();
       if (!commands.length) return ok('No commands found in catalog/commands/.');
@@ -174,6 +180,7 @@ export function register(server, ctx) {
       project: z.string().optional().describe('Project root path for project-mode export'),
       global: z.boolean().optional().default(false).describe('Export to agent global config dir'),
     },
+    IDEM,
     async ({ commandName, agent, project, global: isGlobal }) => {
       const projErr = validateProject(project);
       if (projErr) return projErr;
@@ -206,6 +213,7 @@ export function register(server, ctx) {
     'hermit_hook_list',
     'List available hermit hooks with agent compatibility.',
     { agent: z.enum(AGENT_NAMES).optional().describe('Filter by target agent') },
+    RO,
     async ({ agent }) => {
       const hooks = discoverHooks();
       if (!hooks.length) return ok('No hooks found in catalog/hooks/.');
@@ -244,6 +252,7 @@ export function register(server, ctx) {
       project: z.string().optional().describe('Project root path for project-mode export'),
       global: z.boolean().optional().default(false).describe('Export to agent global config dir'),
     },
+    IDEM,
     async ({ hookName, agent, project, global: isGlobal }) => {
       const projErr = validateProject(project);
       if (projErr) return projErr;

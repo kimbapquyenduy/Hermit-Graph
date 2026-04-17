@@ -11,6 +11,8 @@
 import { z } from 'zod';
 import { getSkillIndex } from './skill-index.mjs';
 
+const RO = { readOnlyHint: true };
+
 // ── Keyword scoring ─────────────────────────────────────────────────
 
 /** Normalize query into lowercase terms, strip noise words. */
@@ -109,6 +111,7 @@ export function register(server, ctx) {
       source: z.enum(['catalog', 'project', 'all']).optional().default('all')
         .describe('Filter by skill source'),
     },
+    RO,
     async ({ query, limit, source }) => {
       const matches = searchSkills(query, { limit, source });
       const index = getSkillIndex();

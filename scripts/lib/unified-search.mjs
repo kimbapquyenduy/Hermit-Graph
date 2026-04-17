@@ -13,6 +13,8 @@ import {
   checkLowConfidence, checkMissingRelations, calculateHealth,
 } from './brain-health-checks.mjs';
 
+const RO = { readOnlyHint: true };
+
 function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
@@ -29,7 +31,7 @@ export function register(server, ctx) {
     query: z.string().min(1).max(500).describe('Search query'),
     limit: z.number().int().min(1).max(50).optional().default(20),
     cwd: z.string().optional().describe('Working directory for code search'),
-  }, async ({ query, limit, cwd }) => {
+  }, RO, async ({ query, limit, cwd }) => {
     try {
       const [kgResult, codeResult] = await Promise.allSettled([
         searchKG(query, limit),
@@ -50,7 +52,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Health Check ──
-  server.tool('hermit_health', 'Brain health check — 5 automated quality checks, score 0-100, recommendations', {}, async () => {
+  server.tool('hermit_health', 'Brain health check — 5 automated quality checks, score 0-100, recommendations', {}, RO, async () => {
     try {
       const { entities, relations } = loadBrain(brainPath);
       const checks = [

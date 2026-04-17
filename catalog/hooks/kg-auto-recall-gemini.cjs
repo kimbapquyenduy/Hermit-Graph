@@ -3,11 +3,13 @@
  * kg-auto-recall-gemini.cjs — Gemini CLI BeforeAgent Hook
  *
  * Thin adapter: reads stdin JSON {prompt, cwd, hook_event_name},
- * calls recall-core, outputs Gemini CLI hookSpecificOutput format.
- * All core logic lives in lib/recall-core.cjs.
+ * calls recall-core.recall(), outputs Gemini CLI hookSpecificOutput format.
  *
  * Gemini CLI BeforeAgent stdin: {prompt, session_id, cwd, hook_event_name, timestamp}
  * Gemini CLI BeforeAgent stdout: {hookSpecificOutput: {additionalContext: "..."}}
+ *
+ * Uses recall() for task-aware features: detectPromptType, extractTaskKeywords,
+ * expandRelations, TASK_TOKEN_CAP.
  *
  * Exit Codes:
  *   0 - Always (non-blocking — never fail the user's prompt)
@@ -26,15 +28,9 @@ function main() {
     const prompt = payload.prompt || '';
     if (prompt.length < 10) process.exit(0);
 
-    const keywords = core.extractKeywords(prompt);
-    if (!keywords.length) process.exit(0);
+    if (payload.cwd) process.env.CWD = payload.cwd;
 
-    // Use cwd from Gemini CLI payload for better scope detection
-    const scope = payload.cwd
-      ? core.detectProjectScopeFromPath(payload.cwd)
-      : core.detectProjectScope();
-    const results = core.searchBrain(keywords, scope);
-    const output = core.formatResults(results, keywords, scope);
+    const output = core.recall(prompt);
 
     // Gemini CLI BeforeAgent: hookSpecificOutput.additionalContext
     if (output) {

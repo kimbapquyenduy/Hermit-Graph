@@ -1,3 +1,8 @@
+---
+description: Nạp file vào Knowledge Graph
+context: fork
+---
+
 # Ingest — Nạp Tài Liệu Vào Knowledge Graph
 
 Đọc toàn bộ file (BRD/PRD/SRS/README/meeting notes) và extract TẤT CẢ knowledge vào KG.

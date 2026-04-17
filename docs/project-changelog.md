@@ -4,6 +4,52 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.2.0] — 2026-04-17
+
+### Added
+- **Task-aware recall for all agents** — All 10 recall hook files (claude, cursor, cline, gemini, codex × deployed + catalog) switched from manual `extractKeywords → searchBrain → formatResults` chain to `core.recall()` with prompt-type detection, smart keyword extraction, relation expansion, and token budgeting (TASK_TOKEN_CAP=1500)
+- **SubagentStart hook** — `kg-auto-recall.cjs` added to SubagentStart event in `.claude/settings.json`, giving subagents automatic KG context
+- **PreCompact hook** — `kg-pre-compact.cjs` (new file) fires before context compaction, reminds agents to save unsaved knowledge to KG
+- **MCP tool annotations** — `readOnlyHint: true` and `idempotentHint: true` on all 30 tools across 9 modules (memory, codegraph, intelligence, unified-search, session, skills, skill-search, deep-scan, setup) for safe agent parallelism via 5-arg `server.tool()` form
+- **YAML list frontmatter** — `parseFrontmatter()` in `skill-adapters.mjs` now supports `key:\n  - item` syntax, returning `string[]`
+- **Command context routing** — All 14 command files tagged with `context: fork` (8 commands) or `context: inline` (6 commands) for agent execution strategy
+- **Skill paths** — Added `paths:` YAML lists to `auto-memory` and `biz-guard` catalog skills
+- **Publish preflight** — `scripts/publish-preflight.mjs` with 8 automated checks (git clean, version/changelog sync, README match, unit tests, e2e tests, secrets scan, npm pack dry-run, Node version); wired as `prepublishOnly` in package.json
+- **New npm scripts** — `test:e2e`, `test:all`, `publish:dry` for dev workflow
+
+### Fixed
+- **Agent-specific recall hooks using old manual chain** — 4 agent variants (cursor, cline, gemini, codex) in `.claude/hooks/`, `catalog/hooks/`, `.cursor/hooks/`, `.gemini/hooks/` were still using old pattern; all 10 files updated to `core.recall()`
+- **`skill-index.mjs` parsePaths() crash on array** — After `parseFrontmatter()` upgrade returned arrays for YAML lists, `parsePaths()` called `.split()` on arrays; added `Array.isArray()` guard
+- **MCP tool count test** — Description said "28" while assertion checked 30; fixed to match
+
+### Changed
+- **Test count** — 103 unit/integration + 16 e2e passing (was 100 + 9)
+- **MCP tool count** — 30 tools (was 28; +deep_scan, +setup modules added prior)
+
+---
+
+## [6.1.0] — 2026-04-15
+
+### Added
+- **Unified Impact Bridge** — `hermit_impact` returns business rules at risk alongside code blast radius (3-layer: CodeGraph + KG rules + BUSINESS.md chains)
+- **`biz-linker.mjs`** — Deterministic file-path join between blast radius and KG RULE/FLOW entities
+- **`project-learner.mjs`** — Deterministic project scanner: reads package.json, tsconfig, README, etc. Writes BIZ + TECH entities to brain on setup
+- **Auto-fill BUSINESS.md** — `hermit setup` generates BUSINESS.md pre-filled with auto-detected Domain + Tech Stack
+- **Monorepo workspace scanning** — Auto-learn detects frameworks/tools in workspace packages (Yarn, npm, pnpm)
+- **5-second timeout guard** on auto-update hook
+
+### Fixed
+- Hook `lib/` subdirectory copies recursively during setup (MODULE_NOT_FOUND fix)
+- Yarn Berry `workspaces` object format no longer crashes project scanner
+- `ensureIndex` race condition — concurrent MCP calls deduplicated via promise map
+- Scoped npm package names (`@org/pkg`) no longer produce malformed entity names
+- `resolveDataDir` resolves relative `cwd` to absolute before path operations
+- Dead `embeddings` param removed from `hermit_index` schema
+- Removed `.claude-settings.json` from npm `files` array (privacy)
+- Auto-update hook project name uses PascalCase (consistent with KG naming)
+
+---
+
 ## [6.0.1] — 2026-04-15
 
 ### Fixed
@@ -556,4 +602,4 @@ None. All v2.3 USPs (4-tier taxonomy, confidence scoring, brain health, biz-guar
 
 ---
 
-*Last updated: 2026-04-15 | Current version: 6.0.1*
+*Last updated: 2026-04-17 | Current version: 6.2.0*

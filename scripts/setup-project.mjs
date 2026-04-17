@@ -12,6 +12,7 @@
  *   hermit setup --agent windsurf             # Setup for Windsurf
  *   hermit setup --agent cline                # Setup for Cline (VS Code extension)
  *   hermit setup --agent codex                # Setup for OpenAI Codex CLI
+ *   hermit setup --agent opencode             # Setup for OpenCode
  *   hermit setup --mcp-only                   # MCP config only (any agent)
  *   hermit setup --list                       # List available skills
  *   hermit setup --only biz-guard,api-design  # Install only selected skills (Claude)
@@ -170,6 +171,27 @@ const AGENTS = {
       'Session: hermit_session_start loads project context automatically',
     ],
   },
+  opencode: {
+    name: 'OpenCode',
+    configDir: '.opencode',
+    globalConfigPath: () => join(userHome, '.opencode', 'config.json'),
+    projectConfigPath: () => join(projectRoot, 'opencode.json'),
+    supportsSkills: false,
+    supportsCommands: false,
+    supportsHooks: false,
+    rulesFile: () => join(projectRoot, 'AGENTS.md'),
+    rulesFormat: 'file',
+    configureGlobalMcp: configureOpenCodeGlobalMcp,
+    configureProjectMcp: configureOpenCodeProjectMcp,
+    nextSteps: [
+      '1. Edit BUSINESS.md with your project business rules',
+      '2. Restart OpenCode — it now has memory via MCP!',
+    ],
+    commandsHelp: [
+      'MCP tools: search_nodes, create_entities, open_nodes, create_relations',
+      'Session: hermit_session_start loads project context automatically',
+    ],
+  },
 };
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -219,7 +241,7 @@ if (args.includes('--list')) {
   }
   console.log(`\nTotal: ${allSkills.length} skills`);
   console.log('\nOptions:');
-  console.log('  --agent <name>         Target agent (claude, cursor, windsurf, cline, codex, all)');
+  console.log('  --agent <name>         Target agent (claude, cursor, windsurf, cline, codex, opencode, all)');
   console.log('  --mcp-only             MCP config only (any agent)');
   console.log('  --only skill1,skill2   Install only selected skills (Claude only)');
   console.log('  --skip skill1,skill2   Install all except skipped skills (Claude only)');
@@ -301,10 +323,11 @@ async function setupAllAgents() {
   installRulesFileFor('cursor');
   exportHooksAndCommandsFor('cursor');  // handles global MCP + hooks + commands
 
-  // 4. Windsurf (MCP + rules)
+  // 4. Windsurf (MCP + rules + commands/skills export)
   console.log('\n── Windsurf ──');
   configureWindsurfGlobalMcp();
   installRulesFileFor('windsurf');
+  exportHooksAndCommandsFor('windsurf');
 
   // 5. Cline (auto-write MCP config)
   console.log('\n── Cline ──');
@@ -316,6 +339,13 @@ async function setupAllAgents() {
   console.log('\n── Codex ──');
   configureCodexGlobalMcp();
   installRulesFileFor('codex');
+
+  // 7. OpenCode (MCP + rules + commands export)
+  console.log('\n── OpenCode ──');
+  configureOpenCodeGlobalMcp();
+  configureOpenCodeProjectMcp();
+  installRulesFileFor('opencode');
+  exportHooksAndCommandsFor('opencode');
 
   // Summary
   console.log('');
@@ -366,6 +396,8 @@ async function setupSingleAgent(key) {
   if (key === 'claude') { setupClaudeMd(); setupGlobalClaudeMd(); }
   if (key === 'cursor') exportHooksAndCommandsFor('cursor');
   if (key === 'cline') exportHooksAndCommandsFor('cline');
+  if (key === 'windsurf') exportHooksAndCommandsFor('windsurf');
+  if (key === 'opencode') exportHooksAndCommandsFor('opencode');
 
   console.log('');
   console.log(`Done! Installed ${installed} items, ${skipped} already existed.`);
@@ -848,6 +880,60 @@ function configureCodexGlobalMcp() {
   } catch {
     console.log('  ! Warning: Could not auto-configure Codex config.toml');
     console.log(`    Manually add [mcp_servers.hermit-graph] to: ${configPath}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// OPENCODE — JSON config at ~/.opencode/config.json + project opencode.json
+// ══════════════════════════════════════════════════════════════════════════
+
+function configureOpenCodeGlobalMcp() {
+  if (!userHome) return;
+
+  const configPath = join(userHome, '.opencode', 'config.json');
+  try {
+    let config = {};
+    if (existsSync(configPath)) {
+      try { config = JSON.parse(readFileSync(configPath, 'utf-8')); } catch { /* corrupt — start fresh */ }
+    }
+
+    if (!config.mcpServers) config.mcpServers = {};
+    if (!config.mcpServers['hermit-graph']) {
+      delete config.mcpServers.memory; // remove legacy
+      config.mcpServers['hermit-graph'] = MCP_SERVER_CONFIG;
+      const dir = dirname(configPath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(configPath, JSON.stringify(config, null, 2));
+      console.log(`  + Configured: ~/.opencode/config.json (hermit-graph MCP)`);
+      installed++;
+    } else {
+      skipped++;
+    }
+  } catch {
+    console.log('  ! Warning: Could not auto-configure OpenCode config.json');
+    console.log(`    Manually add hermit-graph to: ${configPath}`);
+  }
+}
+
+function configureOpenCodeProjectMcp() {
+  const configPath = join(projectRoot, 'opencode.json');
+  try {
+    let config = {};
+    if (existsSync(configPath)) {
+      try { config = JSON.parse(readFileSync(configPath, 'utf-8')); } catch { /* corrupt */ }
+    }
+
+    if (!config.mcpServers) config.mcpServers = {};
+    if (!config.mcpServers['hermit-graph']) {
+      config.mcpServers['hermit-graph'] = MCP_SERVER_CONFIG;
+      writeFileSync(configPath, JSON.stringify(config, null, 2));
+      console.log(`  + Configured: opencode.json (hermit-graph MCP)`);
+      installed++;
+    } else {
+      skipped++;
+    }
+  } catch {
+    console.log('  ! Warning: Could not auto-configure opencode.json');
   }
 }
 

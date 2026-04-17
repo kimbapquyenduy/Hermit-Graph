@@ -2,10 +2,12 @@
 /**
  * kg-auto-recall-cline.cjs — Cline UserPromptSubmit Hook
  *
- * Thin adapter: reads stdin JSON {message, cwd}, calls recall-core, outputs JSON {contextModification}.
+ * Thin adapter: reads stdin JSON {message, cwd}, calls recall-core.recall(),
+ * outputs JSON {contextModification}.
  * Cline uses "message" (not "prompt") in stdin and "contextModification" in stdout.
- * If a cwd field is provided, it is used for project scope detection instead of process.cwd().
- * All core logic lives in lib/recall-core.cjs.
+ *
+ * Uses recall() for task-aware features: detectPromptType, extractTaskKeywords,
+ * expandRelations, TASK_TOKEN_CAP.
  *
  * Exit Codes:
  *   0 - Always (non-blocking — never fail the user's prompt)
@@ -22,18 +24,11 @@ function main() {
 
     const payload = JSON.parse(stdin);
     const prompt = payload.message || payload.prompt || '';
-    const cwd = payload.cwd || '';
     if (prompt.length < 10) process.exit(0);
 
-    const keywords = core.extractKeywords(prompt);
-    if (!keywords.length) process.exit(0);
+    if (payload.cwd) process.env.CWD = payload.cwd;
 
-    // Use provided CWD for scope detection if available
-    const scope = cwd
-      ? core.detectProjectScopeFromPath(cwd)
-      : core.detectProjectScope();
-    const results = core.searchBrain(keywords, scope);
-    const output = core.formatResults(results, keywords, scope);
+    const output = core.recall(prompt);
 
     // Cline: JSON stdout with contextModification field
     if (output) {

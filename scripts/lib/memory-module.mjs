@@ -10,6 +10,7 @@ import { obsText, parseObservation } from './parse-observation.mjs';
 import { archiveObservation, appendHistory } from './audit-trail.mjs';
 
 const MAX_RESPONSE_CHARS = 25000;
+const RO = { readOnlyHint: true };
 
 // ── Write Validation (universal — works for ALL agents) ──
 
@@ -219,7 +220,7 @@ export function register(server, ctx) {
     query: z.string().min(1),
     limit: z.number().int().min(1).max(50).optional().default(10),
     include_archived: z.boolean().optional().default(false),
-  }, async ({ query, limit, include_archived }) => {
+  }, RO, async ({ query, limit, include_archived }) => {
     const { entities } = readBrain(brainPath);
     let results = [];
     for (const [, e] of entities) {
@@ -238,7 +239,7 @@ export function register(server, ctx) {
   server.tool('hermit_semantic_search', 'Hybrid vector + keyword search (falls back to keyword-only if no embeddings)', {
     query: z.string().min(1),
     limit: z.number().int().min(1).max(50).optional().default(10),
-  }, async ({ query, limit }) => {
+  }, RO, async ({ query, limit }) => {
     try {
       const results = await search(query, { topK: limit });
       if (!results.length) return ok(`No results for "${query}".`);
@@ -253,7 +254,7 @@ export function register(server, ctx) {
   // ── T5: Open Nodes ──
   server.tool('hermit_open_nodes', 'Read full entity details by name(s)', {
     names: z.array(z.string().min(1)).min(1).max(20),
-  }, async ({ names }) => {
+  }, RO, async ({ names }) => {
     const { entities } = readBrain(brainPath);
     const found = [], missing = [];
     for (const name of names) {
@@ -343,7 +344,7 @@ export function register(server, ctx) {
     name: z.string().min(1),
     depth: z.number().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
-  }, async ({ name, depth, relationType }) => {
+  }, RO, async ({ name, depth, relationType }) => {
     const { entities, relations } = readBrain(brainPath);
     if (!findEntity(entities, name)) return fail(`Entity "${name}" not found.`);
     const visited = new Set();
@@ -376,7 +377,7 @@ export function register(server, ctx) {
     entityNames: z.array(z.string()).optional(),
     entityTypes: z.array(z.string()).optional(),
     include_archived: z.boolean().optional().default(false),
-  }, async ({ detailLevel, entityNames, entityTypes, include_archived }) => {
+  }, RO, async ({ detailLevel, entityNames, entityTypes, include_archived }) => {
     const { entities, relations } = readBrain(brainPath);
     let filtered = [...entities.values()];
     if (!include_archived) filtered = filtered.filter(e => !e._archived);

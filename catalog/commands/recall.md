@@ -1,3 +1,8 @@
+---
+description: Tìm thông tin đã lưu từ KG
+context: inline
+---
+
 # Recall — Hồi Tưởng Từ Bộ Não
 
 Tìm kiếm thông tin đã lưu trong MCP Memory KG.

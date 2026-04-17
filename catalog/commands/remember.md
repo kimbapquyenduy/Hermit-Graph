@@ -1,3 +1,8 @@
+---
+description: Lưu thông tin vào MCP Memory KG
+context: inline
+---
+
 # Remember — Lưu Vào Bộ Não
 
 Lưu thông tin vào MCP Memory KG.
