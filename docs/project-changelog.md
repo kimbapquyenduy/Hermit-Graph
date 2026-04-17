@@ -4,6 +4,16 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.3] — 2026-04-17
+
+### Added
+- **Viewer screenshots** in README — KG entity details, related traversal, CodeGraph impact analysis
+
+### Fixed
+- **Branch alignment** — local branch renamed from `master` to `main` to match GitHub default
+
+---
+
 ## [6.3.2] — 2026-04-17
 
 ### Added
