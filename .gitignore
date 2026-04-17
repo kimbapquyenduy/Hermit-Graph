@@ -73,6 +73,9 @@ test-ck
 .windsurfrules
 GEMINI.md
 
+# ClaudeKit (separate tool, not part of hermit-graph)
+kit/
+
 # Temp & test artifacts
 tmp/
 tests/
