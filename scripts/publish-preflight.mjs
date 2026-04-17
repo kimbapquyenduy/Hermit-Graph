@@ -5,7 +5,7 @@
  * Runs 8 checks before npm publish:
  * 1. Git working tree clean
  * 2. Version matches changelog
- * 3. README "What's New" matches version
+ * 3. README "What's New" matches version (skip if section absent)
  * 4. Unit tests pass (test-v4.mjs)
  * 5. E2E tests pass (test-e2e-code-intel.mjs)
  * 6. No secrets in package files
@@ -80,9 +80,11 @@ check(`Version ${version} matches changelog`, () => {
   }
 });
 
-// 3. README "What's New" match
+// 3. README "What's New" match (optional — skip if section removed)
 check('README "What\'s New" matches version', () => {
   const readme = readFile('README.md');
+  const hasWhatsNew = /^## What's New in v/m.test(readme);
+  if (!hasWhatsNew) return 'skip';
   const pattern = new RegExp(`^## What's New in v${version.replace(/\./g, '\\.')}`, 'm');
   if (!pattern.test(readme)) {
     throw new Error(`README "What's New" heading doesn't match v${version}`);

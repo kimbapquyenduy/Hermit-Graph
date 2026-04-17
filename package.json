@@ -1,6 +1,6 @@
 {
   "name": "hermit-graph",
-  "version": "6.3.0",
+  "version": "6.3.1",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode.",
   "type": "module",
   "bin": {
@@ -35,13 +35,21 @@
     "knowledge-graph",
     "mcp",
     "claude",
+    "claude-code",
     "cursor",
+    "gemini",
+    "gemini-cli",
     "windsurf",
     "cline",
     "codex",
+    "opencode",
     "coding-agent",
     "persistent-memory",
-    "brain"
+    "brain",
+    "ast-grep",
+    "code-intelligence",
+    "mcp-server",
+    "developer-tools"
   ],
   "repository": {
     "type": "git",

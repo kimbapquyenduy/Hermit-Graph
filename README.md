@@ -1,5 +1,10 @@
 <p align="center">
+  <img src="assets/brand/og-image-hermit-graph-1200x630.png" alt="Hermit Graph" width="600" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/npm/v/hermit-graph?style=flat-square&color=blue" alt="npm version" />
+  <img src="https://img.shields.io/npm/dw/hermit-graph?style=flat-square&color=blue" alt="npm downloads" />
   <img src="https://img.shields.io/github/stars/kimbapquyenduy/hermit-graph?style=flat-square&logo=github" alt="GitHub stars" />
   <img src="https://img.shields.io/badge/agents-Claude%20%7C%20Cursor%20%7C%20Gemini%20%7C%20Windsurf%20%7C%20Cline%20%7C%20Codex%20%7C%20OpenCode-blueviolet?style=flat-square" alt="Supported agents" />
   <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square" alt="Node 20+" />
@@ -27,6 +32,31 @@ AI coding agents forget everything between sessions. You re-explain the same arc
 
 **Hermit Graph fixes this.** It gives your agents a shared brain that persists across projects, sessions, and teams — automatically.
 
+## Before & After
+
+```
+WITHOUT hermit-graph:
+  Session 1: "We use Service Layer pattern, JWT auth with 7-day expiry..."
+  Session 2: "As I explained before, we use Service Layer pattern..."
+  Session 3: Agent violates a business rule it was never told about.
+  Session 4: You mass-rename a function. 3 files break silently.
+  You catch it in code review. It happens again next week.
+
+WITH hermit-graph:
+  Day 0:    hermit setup → brain seeded with your stack + rules
+  Session 1: /deep-scan → business rules, API surface, models captured
+  Session 2: Auto-recall fires → agent knows everything from line 1
+  Session 3: /impact validateUser → shows 12 callers before you touch it
+  Every session after: zero re-explaining. Zero forgotten rules.
+```
+
+## Who This Is For
+
+- **Solo dev juggling 3+ projects** — tired of re-explaining architecture decisions to every AI session
+- **Small team** where agents repeat mistakes because there's no institutional memory
+- **Tech lead** who needs AI to respect business rules, not just generate code fast
+- **Multi-agent user** (Claude + Cursor + Gemini) who wants one shared brain, not three separate contexts
+
 ## How It Works
 
 ```
@@ -38,19 +68,6 @@ You -> AI Agent -> Hermit Brain (brain.jsonl)
 ```
 
 Your agents save decisions, patterns, rules, and bugs into a structured knowledge graph. Next time — in any project, with any agent — they find it instantly.
-
----
-
-## What's New in v6.3.0
-
-**Dual Graph Viewers + Deep Scan Collector** — interactive WebGL viewers for both Knowledge Graph and CodeGraph, with business rule overlay on code symbols.
-
-- **CodeGraph Viewer** — `hermit view --code` opens a WebGL (Sigma.js) viewer for code symbols with file tree sidebar, color-by-kind/folder/language, impact blast radius with severity badges, and collapsible detail panels
-- **Knowledge Graph Viewer upgrade** — Related entities button (BFS 2-hop traversal), impact mode with edge dimming, node overlap resolution, improved spread/layout
-- **Brain-Code bridge** — CodeGraph viewer auto-loads `brain.jsonl`, matches business rules to code symbols by file path, shows affected rules in impact panel
-- **Deep Scan Collector** — `deep-scan-collector.mjs` module for structured phase-based project scanning with observation lifecycle protocol
-- **Selection ring** — Visual indicator for selected nodes using graph-to-viewport coordinate transform
-- **Force layout tuning** — Reduced attraction, overlap resolution per iteration, stronger spread button
 
 ---
 
@@ -738,6 +755,18 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 ## License
 
 **MIT License** — Hermit Graph is free and open source. All dependencies are MIT or permissive licensed.
+
+---
+
+## Get Started
+
+```bash
+npm install -g hermit-graph && cd your-project && hermit setup
+```
+
+Then run `/deep-scan` in your first AI session for full project mastery.
+
+If Hermit Graph helps you, [star the repo](https://github.com/kimbapquyenduy/hermit-graph) — it helps others find it.
 
 ---
 
