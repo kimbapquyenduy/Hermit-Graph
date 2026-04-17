@@ -28,7 +28,7 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project maintainer at **duy01.le.clv@gmail.com**.
+reported to the project maintainer at **lequyenduy.tdc2020@gmail.com**.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

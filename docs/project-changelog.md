@@ -4,6 +4,14 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.4] — 2026-04-17
+
+### Fixed
+- **Contact email** — updated CODE_OF_CONDUCT.md with correct maintainer email
+- **Git history cleanup** — cleaned up stale branches and legacy files from history
+
+---
+
 ## [6.3.3] — 2026-04-17
 
 ### Added
