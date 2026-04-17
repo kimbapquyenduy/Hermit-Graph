@@ -4,6 +4,25 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.1] — 2026-04-17
+
+### Added
+- **Brand guidelines** (`docs/brand-guidelines.md`) — color palette, typography, logo usage, voice & tone, mascot guidelines
+- **Brand assets** (`assets/brand/`) — OG image (1200x630), social preview (1280x640), logo concepts, design tokens (CSS + JSON)
+- **Marketing articles** (`assets/articles/`) — 6 launch/promo drafts (HN, Reddit, tutorial, awesome-list, GitHub optimization)
+- **Viewer favicons** — Both KG and CodeGraph viewers now show hermit crab favicon
+
+### Improved
+- **README** — Added OG image, npm downloads badge, "Before & After" comparison, "Who This Is For" section, "Get Started" CTA; removed version-specific "What's New" (changelog handles this)
+- **npm discoverability** — Added 8 keywords: claude-code, gemini, gemini-cli, opencode, ast-grep, code-intelligence, mcp-server, developer-tools
+- **KG viewer** — Title simplified to "Knowledge Graph"; file input hidden (uses Load button)
+- **CodeGraph viewer** — Title simplified to "CodeGraph"
+
+### Changed
+- **Preflight script** — "What's New" README check now optional (skip instead of fail)
+
+---
+
 ## [6.3.0] — 2026-04-17
 
 ### Added
@@ -629,4 +648,4 @@ None. All v2.3 USPs (4-tier taxonomy, confidence scoring, brain health, biz-guar
 
 ---
 
-*Last updated: 2026-04-17 | Current version: 6.2.0*
+*Last updated: 2026-04-17 | Current version: 6.3.1*
