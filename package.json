@@ -27,7 +27,8 @@
     "templates/",
     "viewer/index.html",
     "viewer/code-viewer.html",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "ai",

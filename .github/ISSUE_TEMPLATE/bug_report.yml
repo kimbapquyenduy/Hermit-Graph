@@ -1,0 +1,71 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the behavior.
+      placeholder: |
+        1. Run `hermit setup`
+        2. Call `hermit_search_nodes({query: "..."})`
+        3. See error...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: AI Agent
+      options:
+        - Claude Code
+        - Cursor
+        - Gemini CLI
+        - Windsurf
+        - Cline
+        - Codex
+        - OpenCode
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hermit Graph version
+      placeholder: "6.3.1"
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: "20.x"
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - WSL
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output / logs
+      description: Paste any relevant error messages or logs.
+      render: shell
