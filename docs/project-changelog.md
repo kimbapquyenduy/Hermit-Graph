@@ -4,6 +4,20 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.2] — 2026-04-17
+
+### Added
+- **Community files** — SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
+- **GitHub config** — Issue templates (bug report, feature request), PR template, Dependabot config
+- **LICENSE in npm** — Added to package.json files whitelist
+
+### Fixed
+- **npm image rendering** — OG image now uses absolute GitHub raw URL (was broken relative path)
+- **Viewer CDN comments** — Added license attribution to Graphology and Sigma.js imports
+- **.env.example** — Added security warning on default password
+
+---
+
 ## [6.3.1] — 2026-04-17
 
 ### Added
