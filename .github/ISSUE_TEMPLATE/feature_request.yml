@@ -1,0 +1,38 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem does this feature solve? Describe the use case.
+      placeholder: "I'm trying to ... but currently ..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you think this should work?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches you've thought about.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Area
+      options:
+        - Knowledge Graph (memory, entities, relations)
+        - CodeGraph (code intelligence, ast-grep)
+        - MCP Server (tools, protocol)
+        - CLI (brain-cli, setup, health)
+        - Agent Integration (catalog, templates)
+        - Viewer (graph visualization)
+        - Other
+    validations:
+      required: true

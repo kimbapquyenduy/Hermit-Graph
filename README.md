@@ -754,7 +754,7 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 
 ## License
 
-**MIT License** — Hermit Graph is free and open source. All dependencies are MIT or permissive licensed.
+**MIT License** — Hermit Graph is free and open source. All dependencies are permissively licensed (MIT, ISC, BSD, Apache-2.0).
 
 ---
 
