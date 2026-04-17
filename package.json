@@ -1,6 +1,6 @@
 {
   "name": "hermit-graph",
-  "version": "6.2.0",
+  "version": "6.3.0",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode.",
   "type": "module",
   "bin": {
@@ -26,6 +26,7 @@
     "catalog/",
     "templates/",
     "viewer/index.html",
+    "viewer/code-viewer.html",
     "README.md"
   ],
   "keywords": [
@@ -61,6 +62,7 @@
     "export": "node scripts/export-db-to-jsonl.mjs",
     "sync": "node scripts/sync-to-neo4j.mjs",
     "view": "node scripts/view-graph.mjs",
+    "view:code": "node scripts/view-graph.mjs --code",
     "view:live": "node scripts/export-db-to-jsonl.mjs && node scripts/view-graph.mjs",
     "setup:semantic": "node scripts/setup-semantic.mjs",
     "setup:conventions": "node scripts/setup-conventions.mjs",

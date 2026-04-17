@@ -89,6 +89,9 @@ write-report.mjs
 release-manifest.json
 GUIDE.md
 BUSINESS.md
+opencode.json
+scripts/run-conventions-mcp.py
+scripts/sync-to-neo4j.mjs
 
 # Temp & test artifacts
 tmp/

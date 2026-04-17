@@ -538,6 +538,118 @@ export function phaseThree(cwd) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// Phase 4-6 Hints: Business logic, conventions, integration file detection
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Detect candidate files for AI Phase 4 (conventions), Phase 5 (biz rules),
+ * and Phase 6 (integrations). Returns file paths grouped by category so AI
+ * knows WHERE to look — deterministic discovery, AI does the extraction.
+ */
+export function phaseFourFiveSixHints(cwd) {
+  const hints = {
+    // Phase 4: source files for convention detection
+    sourceFiles: [],
+    // Phase 5: business logic candidate files
+    services: [],
+    validators: [],
+    constants: [],
+    policies: [],
+    testFiles: [],
+    businessMd: null,
+    // Phase 6: integration candidate files
+    webhooks: [],
+    queues: [],
+    sdkClients: [],
+    envFiles: [],
+  };
+
+  // BUSINESS.md
+  const bizMd = join(cwd, 'BUSINESS.md');
+  if (existsSync(bizMd)) hints.businessMd = 'BUSINESS.md';
+
+  // Service layer files
+  hints.services = findFiles(cwd, [
+    /\.service\.\w+$/, /\.usecase\.\w+$/, /\.handler\.\w+$/,
+  ], 4).map(f => relative(cwd, f).replace(/\\/g, '/'));
+
+  // Also check service directories
+  for (const dir of ['services', 'usecases', 'domain', 'src/services', 'src/domain', 'src/usecases', 'lib/services']) {
+    const full = join(cwd, dir);
+    if (existsSync(full)) {
+      const files = findFiles(full, [/\.\w+$/], 2);
+      for (const f of files.slice(0, 20)) {
+        const rel = relative(cwd, f).replace(/\\/g, '/');
+        if (!hints.services.includes(rel)) hints.services.push(rel);
+      }
+    }
+  }
+  hints.services = hints.services.slice(0, 30);
+
+  // Validation / DTO files
+  hints.validators = findFiles(cwd, [
+    /\.dto\.\w+$/, /\.validator\.\w+$/, /\.validation\.\w+$/,
+    /\.guard\.\w+$/, /\.pipe\.\w+$/,
+  ], 4).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 20);
+
+  // Constants / enum files
+  hints.constants = findFiles(cwd, [
+    /^constants\.\w+$/, /^enums?\.\w+$/, /\.constants?\.\w+$/,
+    /\.enums?\.\w+$/, /^config\.\w+$/,
+  ], 3).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 15);
+
+  // Policy / middleware / permission files
+  hints.policies = findFiles(cwd, [
+    /\.policy\.\w+$/, /\.middleware\.\w+$/, /\.permission\.\w+$/,
+    /\.auth\.\w+$/, /\.acl\.\w+$/,
+  ], 4).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 15);
+
+  // Test files (for behavioral specs extraction)
+  hints.testFiles = findFiles(cwd, [
+    /\.test\.\w+$/, /\.spec\.\w+$/, /\.e2e\.\w+$/,
+    /test-[\w-]+\.\w+$/,
+  ], 4).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 20);
+
+  // Webhook / callback handlers
+  hints.webhooks = findFiles(cwd, [
+    /webhook/i, /callback/i,
+  ], 3).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 10);
+
+  // Queue / worker files
+  hints.queues = findFiles(cwd, [
+    /queue/i, /worker\.\w+$/, /consumer\.\w+$/, /producer\.\w+$/,
+    /\.job\.\w+$/, /\.cron\.\w+$/,
+  ], 3).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 10);
+
+  // SDK / API client files
+  hints.sdkClients = findFiles(cwd, [
+    /[\w-]*client\.\w+$/, /[\w-]*sdk\.\w+$/, /api-client/i,
+    /[\w-]*-api\.\w+$/,
+  ], 3).map(f => relative(cwd, f).replace(/\\/g, '/')).slice(0, 10);
+
+  // Env files (for cross-ref)
+  for (const envFile of ['.env.example', '.env.sample', '.env.development', '.env.local']) {
+    if (existsSync(join(cwd, envFile))) hints.envFiles.push(envFile);
+  }
+
+  // Source files for convention detection (sample 20+ from src/lib/app)
+  for (const dir of ['src', 'lib', 'app', 'scripts', 'pages', 'components']) {
+    const full = join(cwd, dir);
+    if (!existsSync(full)) continue;
+    const files = findFiles(full, [
+      /\.(js|ts|mjs|cjs|jsx|tsx|py|go|rs)$/,
+    ], 3);
+    for (const f of files.slice(0, 10)) {
+      hints.sourceFiles.push(relative(cwd, f).replace(/\\/g, '/'));
+    }
+    if (hints.sourceFiles.length >= 30) break;
+  }
+  hints.sourceFiles = hints.sourceFiles.slice(0, 30);
+
+  return hints;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // Main collector: run all deterministic phases
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -571,6 +683,7 @@ export function collectScanData(cwd, brainPath, opts = {}) {
   const dataOutput = phaseOneHalf(cwd);  // always runs if data dirs exist
   const architecture = shouldRun(2) ? phaseTwo(cwd) : null;
   const apiSurface = shouldRun(3) ? phaseThree(cwd) : null;
+  const bizHints = phaseFourFiveSixHints(cwd);  // always collect file hints for AI
 
   // AI phases to run (4-8 always need AI reasoning)
   const aiPhases = [4, 5, '5.5', 6, '6.5', 7, '7.5', 8];
@@ -595,5 +708,6 @@ export function collectScanData(cwd, brainPath, opts = {}) {
     architecture,
     apiSurface,
     dataOutput: dataOutput.dirs.length > 0 ? dataOutput : null,
+    bizHints,
   };
 }

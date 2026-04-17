@@ -41,16 +41,16 @@ Your agents save decisions, patterns, rules, and bugs into a structured knowledg
 
 ---
 
-## What's New in v6.2.0
+## What's New in v6.3.0
 
-**Hook Architecture Upgrade + MCP Annotations** — recall hooks use task-aware `recall()`, new PreCompact/SubagentStart hooks, all 30 MCP tools annotated for agent parallelism safety.
+**Dual Graph Viewers + Deep Scan Collector** — interactive WebGL viewers for both Knowledge Graph and CodeGraph, with business rule overlay on code symbols.
 
-- **Task-aware recall** — All recall hooks (7 agents) switched from manual chain to `core.recall()` with prompt-type detection, smart keyword extraction, relation expansion, and token budgeting
-- **SubagentStart hook** — Subagents now get KG context injection automatically
-- **PreCompact hook** — Reminds agents to save knowledge before context compaction
-- **MCP tool annotations** — `readOnlyHint` / `idempotentHint` on all 30 tools for safe parallel execution
-- **YAML list frontmatter** — `parseFrontmatter()` supports `key:\n  - item` syntax for skill paths
-- **Command context** — All 14 commands tagged with `context: fork|inline` for agent routing
+- **CodeGraph Viewer** — `hermit view --code` opens a WebGL (Sigma.js) viewer for code symbols with file tree sidebar, color-by-kind/folder/language, impact blast radius with severity badges, and collapsible detail panels
+- **Knowledge Graph Viewer upgrade** — Related entities button (BFS 2-hop traversal), impact mode with edge dimming, node overlap resolution, improved spread/layout
+- **Brain-Code bridge** — CodeGraph viewer auto-loads `brain.jsonl`, matches business rules to code symbols by file path, shows affected rules in impact panel
+- **Deep Scan Collector** — `deep-scan-collector.mjs` module for structured phase-based project scanning with observation lifecycle protocol
+- **Selection ring** — Visual indicator for selected nodes using graph-to-viewport coordinate transform
+- **Force layout tuning** — Reduced attraction, overlap resolution per iteration, stronger spread button
 
 ---
 
@@ -202,7 +202,8 @@ Session 3+:  + PATTERN: + INCIDENT: + DECISION: (auto-capture)
 - **Zero-config setup** — `hermit setup` configures all detected agents in one command
 
 ### Visualize & Audit
-- **HTML dashboard** — vis.js graph viewer with search, filter, dark theme
+- **Knowledge Graph viewer** — WebGL graph viewer with search, filter, type clustering, minimap, dark theme
+- **CodeGraph viewer** — Code symbol visualization with file tree, color-by modes, blast radius analysis, business rule overlay
 - **Brain health check** — 5-check scoring (stale, dupes, orphans, low-confidence, missing relations). Score 0-100
 - **Neo4j (optional)** — Full graph database with Cypher queries via Docker
 
@@ -343,7 +344,8 @@ hermit index [--force]    # Build/rebuild embedding index
 hermit export             # Export MCP DB to brain.jsonl
 hermit stale              # Report stale observations (>180 days)
 hermit serve              # Start MCP memory server
-hermit view               # Open dashboard viewer on localhost
+hermit view               # Open Knowledge Graph viewer
+hermit view --code        # Open CodeGraph viewer (code symbols + brain rules)
 
 # Skills management
 hermit skills                          # List all 6 skills + 14 commands
@@ -364,7 +366,8 @@ hermit skills export --all --hooks --agent all --project /path  # Hooks to all a
 npm test                  # Run test suite (103 tests + 16 e2e)
 npm run health            # Brain health check
 npm run sync              # Sync graph to Neo4j
-npm run view              # Serve HTML dashboard
+npm run view              # Open Knowledge Graph viewer
+npm run view:code         # Open CodeGraph viewer
 npm run build:index       # Build semantic embedding index
 npm run export            # Export MCP DB to brain.jsonl
 npm run stale             # Stale observation report
@@ -492,6 +495,61 @@ Set `HERMIT_AUTO_UPDATE=false` to disable.
 </details>
 
 <details>
+<summary><strong>Graph Viewers</strong></summary>
+
+Hermit includes two interactive WebGL graph viewers powered by Sigma.js + Graphology.
+
+**Knowledge Graph Viewer** — visualize your brain entities and relations:
+
+```bash
+hermit view               # or: npm run view
+```
+
+**CodeGraph Viewer** — visualize code symbols with business rule overlay:
+
+```bash
+hermit view --code        # or: npm run view:code
+```
+
+Both viewers open in your default browser as self-contained HTML files (no server needed).
+
+#### Shared Controls
+
+| Action | How |
+|--------|-----|
+| **Pan** | Click and drag background |
+| **Zoom** | Scroll wheel or `+`/`-` keys |
+| **Select node** | Click on a node |
+| **Deselect** | Press `Esc` or click background |
+| **Search** | `Ctrl+F` or click search box |
+| **Toggle sidebar** | Press `S` or click sidebar toggle arrow |
+| **Toggle layout** | Press `L` or click Layout button |
+| **Spread nodes** | Click Spread button (pushes overlapping nodes apart) |
+| **Cluster by type** | Click Cluster button |
+| **Drag node** | Click and drag a node to reposition |
+| **Pin node** | Right-click → Pin (prevents layout from moving it) |
+| **Export PNG** | Press `E` or right-click → Export PNG |
+
+#### Knowledge Graph Viewer
+
+- **Filter chips** — click entity type badges to show/hide types
+- **Related button** — select a node, click "Related" to highlight 2-hop neighborhood with edge dimming
+- **Confidence colors** — node size reflects connection degree, stale observations show red border
+- **Right-click menu** — Focus neighborhood, pin/unpin, copy name, export
+
+#### CodeGraph Viewer
+
+- **File tree sidebar** — browse symbols by file, click to navigate
+- **Color By modes** — switch between Kind (function/class/method), Folder, or Language coloring
+- **Stats grid** — Files, Symbols, Links, Languages at a glance
+- **Impact mode** — select a symbol, click "Impact" to see blast radius (d1=red, d2=yellow, d3=blue) with severity badge and percentage bar
+- **Business rules** — auto-loads `brain.jsonl`, matches RULE:/FLOW: entities to code symbols by file path, shows in detail panel and impact panel
+- **Selection ring** — blue ring highlights the currently selected node
+- **Collapsible sections** — detail panel sections expand/collapse with chevron toggle
+
+</details>
+
+<details>
 <summary><strong>Neo4j Viewer</strong></summary>
 
 ```bash
@@ -542,10 +600,12 @@ hermit-graph/
 │       ├── codegraph-module.mjs # 5 MCP code intelligence tools
 │       ├── unified-search.mjs   # KG + code unified search
 │       └── ...                  # 10+ other modules
-├── viewer/index.html            # Graph dashboard (vis.js)
+├── viewer/
+│   ├── index.html               # Knowledge Graph viewer (Sigma.js WebGL)
+│   └── code-viewer.html         # CodeGraph viewer (code symbols + brain rules)
 ├── docker/docker-compose.yml    # Neo4j (optional)
 ├── templates/                   # CLAUDE.md, BUSINESS.md templates
-└── package.json                 # v6.0.0
+└── package.json                 # v6.3.0
 ```
 
 </details>
@@ -590,6 +650,29 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 ---
 
 ## Changelog
+
+### v6.3.0 — Dual Graph Viewers + Brain-Code Bridge
+
+#### New
+- **CodeGraph Viewer** (`viewer/code-viewer.html`) — WebGL viewer for code symbols with file tree sidebar, color-by-kind/folder/language, impact blast radius with severity badges, collapsible detail panels, and selection ring
+- **Brain-Code bridge** — CodeGraph viewer auto-loads `brain.jsonl`, matches RULE:/FLOW: entities to code symbols by file path (3-strategy: exact, basename, partial), shows affected rules in detail + impact panels
+- **Related entities** (KG viewer) — "Related" button on selected nodes performs BFS 2-hop traversal with edge dimming, depth-colored nodes (d1=red, d2=yellow), and impact panel
+- **Deep Scan Collector** — `deep-scan-collector.mjs` for structured phase-based project scanning
+- **`hermit view --code`** — CLI flag to open CodeGraph viewer instead of KG viewer
+- **Sidebar reopen button** — Floating `▶` tab appears when sidebar is collapsed (CodeGraph viewer)
+- **Node overlap resolution** — Post-layout collision detection pushes overlapping nodes apart every iteration
+
+#### Improved
+- Force layout tuning — weaker attraction (nodes spread more), overlap resolution per iteration, stronger Spread button (10x repulsion)
+- Selection ring uses raw graph coordinates → `graphToViewport()` (correct Sigma.js v2 coordinate chain)
+- Node size multipliers reduced to prevent compounding (selected 1.15x, impact target 1.2x, d1 1.15x, d2 1.05x)
+- KG viewer: initial spread `±800` → `±2000`, area `n*8000` → `n*25000`, attraction scaled to 0.3x
+- CodeGraph viewer: area multipliers `30k/50k/80k` → `80k/120k/200k`, attraction `0.08/0.15/0.3` → `0.008/0.02/0.05`
+
+#### Fixed
+- Related mode not exiting when clicking a different node — now auto-exits impact mode on node change
+- Business rules not matching code symbols — file path matching was too strict (exact only), added basename + partial endsWith strategies
+- Impact panel referenced undefined `bizRules` variable — fixed to collect from graph node attributes
 
 ### v6.2.0 — Hook Architecture Upgrade + MCP Annotations
 

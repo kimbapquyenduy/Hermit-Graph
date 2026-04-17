@@ -586,6 +586,7 @@
           <div class="detail-name" id="detailName">—</div>
           <span class="detail-badge" id="detailBadge">—</span>
         </div>
+        <button class="btn" id="impactBtn" onclick="toggleImpact()" style="font-size:0.7rem;padding:0.25rem 0.6rem;background:#7C3AED;border-color:#7C3AED;color:#fff;display:none" title="Show related entities (2 hops)">Related</button>
         <button class="detail-close" onclick="closeDetail()">&times;</button>
       </div>
       <div class="detail-tabs" id="detailTabs" style="display:none">
@@ -688,6 +689,9 @@
       pinnedNodes: new Set(),
       clusterMode: false,
       contextMenuNode: null,
+      impactMode: false,
+      impactTarget: null,
+      impactNodes: new Map(), // nodeId -> { depth, color }
     };
 
     /* ================================================================
@@ -745,7 +749,7 @@
       const n = nodes.length;
       if (n === 0) return;
 
-      const area = Math.max(n * 8000, 200000);
+      const area = Math.max(n * 25000, 600000);
       const k = Math.sqrt(area / n);
       const kSq = k * k;
 
@@ -825,7 +829,7 @@
             const sameType = (entityMap[source]?.entityType || '') === (entityMap[target]?.entityType || '');
             attrMult = sameType ? 2.5 : 0.6;
           }
-          const force = ((dist * dist) / k) * attrMult;
+          const force = ((dist * dist) / k) * 0.3 * attrMult;
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
           disp[source].x += fx;  disp[source].y += fy;
@@ -841,6 +845,27 @@
           g.setNodeAttribute(v, 'x', g.getNodeAttribute(v, 'x') + (d.x / len) * cap);
           g.setNodeAttribute(v, 'y', g.getNodeAttribute(v, 'y') + (d.y / len) * cap);
         });
+
+        // Overlap resolution — push apart nodes whose circles overlap
+        for (let i = 0; i < n; i++) {
+          const vi = nodes[i];
+          const xi = g.getNodeAttribute(vi, 'x'), yi = g.getNodeAttribute(vi, 'y');
+          const ri = (g.getNodeAttribute(vi, 'size') || 8) * 2.5;
+          for (let j = i + 1; j < n; j++) {
+            const vj = nodes[j];
+            const xj = g.getNodeAttribute(vj, 'x'), yj = g.getNodeAttribute(vj, 'y');
+            const rj = (g.getNodeAttribute(vj, 'size') || 8) * 2.5;
+            let dx = xi - xj, dy = yi - yj;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+            const minDist = ri + rj;
+            if (dist < minDist) {
+              const push = (minDist - dist) / 2;
+              const ux = (dx / dist) * push, uy = (dy / dist) * push;
+              if (!state.pinnedNodes.has(vi)) { g.setNodeAttribute(vi, 'x', xi + ux); g.setNodeAttribute(vi, 'y', yi + uy); }
+              if (!state.pinnedNodes.has(vj)) { g.setNodeAttribute(vj, 'x', xj - ux); g.setNodeAttribute(vj, 'y', yj - uy); }
+            }
+          }
+        }
 
         iter++;
         if (onTick) onTick(iter, iterations);
@@ -903,8 +928,8 @@
           color: baseColor,
           borderColor: hasStale ? '#EF4444' : baseColor,
           entityType: ent.entityType,
-          x: (Math.random() - 0.5) * 800,
-          y: (Math.random() - 0.5) * 800,
+          x: (Math.random() - 0.5) * 2000,
+          y: (Math.random() - 0.5) * 2000,
         });
       });
 
@@ -924,7 +949,7 @@
 
       // Run layout then hide overlay
       state.layoutRunning = true;
-      forceLayout(graph, 120, (iter, total) => {
+      forceLayout(graph, 180, (iter, total) => {
         if (iter >= total) {
           overlay.classList.remove('visible');
         }
@@ -1095,12 +1120,32 @@
             }
           }
 
-          // Selected node emphasis — accent color + size boost
+          // Selected node emphasis
           if (state.selectedNode === node) {
-            res.color = '#818CF8';
-            res.size = (res.size || 8) * 1.4;
+            res.color = '#A5B4FC';
+            res.size = (res.size || 8) * 1.15;
             res.forceLabel = true;
-            res.zIndex = 3;
+            res.zIndex = 5;
+          }
+
+          // Impact / Related mode
+          if (state.impactMode && state.impactNodes.size > 0) {
+            const impact = state.impactNodes.get(node);
+            if (impact) {
+              res.color = impact.color;
+              res.size = (res.size || 8) * (impact.depth === 1 ? 1.15 : 1.0);
+              res.forceLabel = true;
+              res.zIndex = 3 - impact.depth;
+            } else if (node === state.impactTarget) {
+              res.color = '#FFFFFF';
+              res.size = (res.size || 8) * 1.2;
+              res.forceLabel = true;
+              res.zIndex = 5;
+            } else {
+              res.color = '#1a1f2e';
+              res.label = '';
+              res.zIndex = 0;
+            }
           }
 
           return res;
@@ -1147,6 +1192,15 @@
             }
           }
 
+          // Impact mode: show only edges between related nodes
+          if (state.impactMode && state.impactNodes.size > 0) {
+            const srcRelated = state.impactNodes.has(src) || src === state.impactTarget;
+            const tgtRelated = state.impactNodes.has(tgt) || tgt === state.impactTarget;
+            if (srcRelated && tgtRelated) {
+              res.color = '#6366F1'; res.size = 2; res.zIndex = 2;
+            } else { res.hidden = true; }
+          }
+
           // Search: dim unmatched edges
           if (state.searchQuery) {
             if (state.searchMatches.has(src) && state.searchMatches.has(tgt)) {
@@ -1179,6 +1233,8 @@
 
       // Click → select + show detail
       renderer.on('clickNode', ({ node }) => {
+        // Exit impact mode when clicking a different node
+        if (state.impactMode && node !== state.impactTarget) exitImpact();
         state.selectedNode = node;
         showDetail(node);
         renderer.refresh();
@@ -1497,7 +1553,7 @@
       if (n === 0) return;
 
       // One-shot repulsion pass: push all nodes away from each other
-      const area = Math.max(n * 8000, 200000);
+      const area = Math.max(n * 25000, 600000);
       const k = Math.sqrt(area / n);
       const kSq = k * k;
       const disp = {};
@@ -1694,6 +1750,13 @@
       badge.textContent = ent.entityType;
       badge.style.background = getColor(ent.entityType);
 
+      // Show Related button
+      const impBtn = document.getElementById('impactBtn');
+      if (impBtn) {
+        impBtn.style.display = 'inline-block';
+        impBtn.textContent = state.impactMode && state.impactTarget === nodeId ? 'Exit Related' : 'Related';
+      }
+
       // Show tabs
       document.getElementById('detailTabs').style.display = 'flex';
 
@@ -1777,6 +1840,101 @@
 
     function closeDetail() {
       document.getElementById('detailPanel').classList.add('hidden');
+      document.getElementById('detailTabs').style.display = 'none';
+      exitImpact();
+    }
+
+    /* ── Impact / Related Entities ── */
+    const IMPACT_DEPTH_COLORS = { 1: '#EF4444', 2: '#F59E0B', 3: '#3B82F6' };
+
+    function toggleImpact() {
+      if (state.impactMode) { exitImpact(); return; }
+      if (!state.selectedNode || !graph.hasNode(state.selectedNode)) return;
+      enterImpact(state.selectedNode);
+    }
+
+    function enterImpact(nodeId) {
+      state.impactMode = true;
+      state.impactTarget = nodeId;
+      state.impactNodes.clear();
+      // BFS up to 2 hops
+      const visited = new Set([nodeId]);
+      let frontier = [nodeId];
+      for (let depth = 1; depth <= 2; depth++) {
+        const next = [];
+        for (const nid of frontier) {
+          graph.forEachNeighbor(nid, neighbor => {
+            if (!visited.has(neighbor)) {
+              visited.add(neighbor);
+              state.impactNodes.set(neighbor, { depth, color: IMPACT_DEPTH_COLORS[depth] });
+              next.push(neighbor);
+            }
+          });
+        }
+        frontier = next;
+      }
+      // Update button
+      const btn = document.getElementById('impactBtn');
+      btn.style.background = 'var(--danger)';
+      btn.style.borderColor = 'var(--danger)';
+      btn.textContent = 'Exit Related';
+      // Show impact panel
+      showImpactPanel(nodeId);
+      renderer.refresh();
+    }
+
+    function exitImpact() {
+      state.impactMode = false;
+      state.impactTarget = null;
+      state.impactNodes.clear();
+      const btn = document.getElementById('impactBtn');
+      btn.style.background = '#7C3AED';
+      btn.style.borderColor = '#7C3AED';
+      btn.textContent = 'Related';
+      renderer.refresh();
+    }
+
+    function showImpactPanel(nodeId) {
+      const ent = entityMap[nodeId];
+      if (!ent) return;
+      const d1 = [], d2 = [];
+      state.impactNodes.forEach((info, nid) => {
+        const e = entityMap[nid];
+        if (!e) return;
+        (info.depth === 1 ? d1 : d2).push({ id: nid, name: e.name, type: e.entityType });
+      });
+      const total = d1.length + d2.length;
+
+      let html = '<div class="detail-tab-content active" data-tab="info"><div class="detail-section">';
+      html += '<div class="detail-section-title" style="color:var(--accent)">Related Entities</div>';
+      html += '<div class="info-row"><span class="info-label">Total related</span><span class="info-value">' + total + '</span></div>';
+      html += '<div class="info-row"><span class="info-label">Direct (1 hop)</span><span class="info-value" style="color:#EF4444">' + d1.length + '</span></div>';
+      html += '<div class="info-row"><span class="info-label">Indirect (2 hops)</span><span class="info-value" style="color:#F59E0B">' + d2.length + '</span></div>';
+      html += '</div>';
+
+      if (d1.length) {
+        html += '<div class="detail-section"><div class="conn-section-title" style="color:#EF4444">Direct (' + d1.length + ')</div>';
+        d1.forEach(n => {
+          const c = getColor(n.type);
+          html += '<div class="conn-item" onclick="navigateToNode(\'' + n.id.replace(/'/g, "\\'") + '\')">' +
+            '<div class="conn-dot" style="background:' + c + '"></div><span>' + shortenLabel(n.name) + '</span>' +
+            '<span class="conn-label">' + n.type + '</span></div>';
+        });
+        html += '</div>';
+      }
+      if (d2.length) {
+        html += '<div class="detail-section"><div class="conn-section-title" style="color:#F59E0B">Indirect (' + d2.length + ')</div>';
+        d2.forEach(n => {
+          const c = getColor(n.type);
+          html += '<div class="conn-item" onclick="navigateToNode(\'' + n.id.replace(/'/g, "\\'") + '\')">' +
+            '<div class="conn-dot" style="background:' + c + '"></div><span>' + shortenLabel(n.name) + '</span>' +
+            '<span class="conn-label">' + n.type + '</span></div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+
+      document.getElementById('detailBody').innerHTML = html;
       document.getElementById('detailTabs').style.display = 'none';
     }
 
