@@ -73,7 +73,9 @@ test-ck
 
 # Temp & test artifacts
 tmp/
+tests/
 er.name
+write-report.mjs
 BUSINESS.md
 
 # IDE (non-VSCode)
