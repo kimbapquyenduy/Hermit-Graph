@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/logo-concepts/hermit-graph-wordmark-horizontal.png" alt="Hermit Graph" width="480" />
+  <img src="assets/brand/og-image-hermit-graph-1200x630.png" alt="Hermit Graph" width="600" />
 </p>
 
 <p align="center">
