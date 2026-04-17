@@ -1,3 +1,8 @@
+---
+description: Gợi ý tái sử dụng patterns
+context: fork
+---
+
 # Suggest Reuse — Gợi Ý Tái Sử Dụng Từ Dự Án Khác
 
 Search brain for reusable patterns, solutions, and integrations from other projects.

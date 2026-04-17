@@ -1,3 +1,8 @@
+---
+description: Phát hiện convention của project
+context: fork
+---
+
 # Learn Project — Phát Hiện Convention
 
 Scan current project to auto-detect conventions and save to memory.

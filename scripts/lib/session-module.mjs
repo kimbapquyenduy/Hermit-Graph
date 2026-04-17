@@ -11,6 +11,8 @@
 
 import { z } from 'zod';
 import { readBrain } from './brain-io.mjs';
+
+const RO = { readOnlyHint: true };
 import { recallEntities, detectScope } from './session-recall.mjs';
 import { detectBranch, setBranchFilter } from './branch-context.mjs';
 
@@ -37,6 +39,7 @@ export function register(server, ctx) {
       cwd: z.string().optional().describe('Project working directory for scope detection'),
       query: z.string().optional().describe('Optional initial topic for targeted recall'),
     },
+    RO,
     async ({ cwd, query }) => {
       const workDir = cwd || process.cwd();
 

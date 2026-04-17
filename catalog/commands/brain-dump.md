@@ -1,3 +1,8 @@
+---
+description: Tổng kết session, lưu hết chưa lưu
+context: fork
+---
+
 # Brain Dump — Tổng Kết Session
 
 Chạy cuối session để đảm bảo không quên lưu gì.

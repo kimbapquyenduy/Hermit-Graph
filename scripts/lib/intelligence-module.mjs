@@ -11,6 +11,8 @@ import {
   detectBranch, getBranchFilter, setBranchFilter, clearBranchFilter,
 } from './branch-context.mjs';
 
+const RO = { readOnlyHint: true };
+
 function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
@@ -34,7 +36,7 @@ export function register(server, ctx) {
   server.tool('hermit_audit_trail', 'View observation change history for an entity — append-only audit log', {
     entityName: z.string().min(1).describe('Entity name to view history for'),
     limit: z.number().int().min(1).max(100).optional().default(20),
-  }, async ({ entityName, limit }) => {
+  }, RO, async ({ entityName, limit }) => {
     const { entities } = readBrain(brainPath);
     const entity = findEntity(entities, entityName);
     if (!entity) return fail(`Entity "${entityName}" not found.`);
@@ -80,7 +82,7 @@ export function register(server, ctx) {
     action: z.enum(['get', 'set_filter', 'clear_filter']).optional().default('get'),
     branch: z.string().optional().describe('Branch name for set_filter action'),
     cwd: z.string().optional().describe('Working directory for branch detection'),
-  }, async ({ action, branch, cwd }) => {
+  }, RO, async ({ action, branch, cwd }) => {
     if (action === 'set_filter') {
       if (!branch) return fail('Branch name required for set_filter action.');
       setBranchFilter(branch);

@@ -2,12 +2,20 @@
 
 You have access to a knowledge graph via MCP tools (hermit_*).
 
-## Session Start
-Call `hermit_session_start` with your current working directory at the start of each conversation.
-This returns project-scoped context from previous sessions.
+## CRITICAL: Session Start (MUST DO FIRST)
+
+**Before ANY other action**, call `hermit_session_start` with your current working directory.
+This returns project-scoped context from previous sessions — without it you are flying blind.
+
+```
+hermit_session_start({ cwd: "/path/to/project" })
+```
+
+If you skip this step, you will miss existing knowledge and waste time rediscovering context.
 
 ## Code Intelligence
-- Use `hermit_impact({target: "symbolName"})` before editing any function/class
+
+- Use `hermit_impact({target: "symbolName"})` **before editing any function/class** — check blast radius
 - Use `hermit_query({query: "concept"})` to find code by concept
 - Use `hermit_context({name: "symbolName"})` for 360-degree symbol view
 - Use `hermit_index({cwd: "project_path"})` to re-index when stale
@@ -15,16 +23,19 @@ This returns project-scoped context from previous sessions.
 - CodeGraph tools auto-reindex on stale errors, so manual reindex is rarely needed
 
 ## Before Each Task — Recall
-1. `hermit_search_nodes` with keywords relevant to the task → use existing context
-2. If task involves business logic → check for RULE: or FLOW: entities first
+
+1. `hermit_search_nodes` with keywords relevant to the task — use existing context
+2. If task involves business logic — check for RULE: or FLOW: entities first
 
 ## After Each Task — Save
+
 Save important learnings using `hermit_create_entities`:
 - **Entity naming**: TIER:SCOPE:LABEL (e.g., TECH:MyProject:Stack, RULE:Project:MaxDiscount)
 - **Observation format**: [confidence|YYYY-MM-DD] TEXT (e.g., [0.8|2026-04-13] Uses PostgreSQL 16)
 - **Always search first** with `hermit_search_nodes` to avoid duplicates — if exists, use `hermit_add_observations`
 
 ### 4-Tier Classification
+
 | Signal | Tier | EntityType |
 |--------|------|-----------|
 | Business domain/rules/flows | BIZ | biz-domain, biz-rule, biz-flow, biz-entity |
@@ -33,6 +44,7 @@ Save important learnings using `hermit_create_entities`:
 | Bugs/gotchas/lessons learned | INCIDENT | incident-bug, incident-gotcha |
 
 ### Auto-Save Triggers (save WITHOUT being asked)
+
 | Signal | Action |
 |--------|--------|
 | User states a preference | Save to tech-person entity |
@@ -42,8 +54,18 @@ Save important learnings using `hermit_create_entities`:
 | Discover architecture pattern | Save pattern-arch or pattern-code entity |
 | Switch to new project | Search first; if unknown → save biz-domain + tech-stack |
 
+## Available Workflows (via MCP commands)
+
+These workflows are available as MCP tools. Use them when the situation matches:
+
+- **hermit_deep_scan** — Full project scan for KG population. Run once per project for full mastery.
+- **hermit_impact** — Blast radius analysis before editing symbols. **Always run before code changes.**
+- **hermit_setup** — One-call agent onboarding (exports commands, hooks, skills).
+
 ## What NOT to Save
+
 - Temporary debug output, typo fixes, cosmetic changes
 
 ## One-Line Summary
-> **BEFORE task: search. AFTER task: save. ALWAYS. NO EXCEPTIONS.**
+
+> **START: session_start. BEFORE task: search + impact. AFTER task: save. ALWAYS. NO EXCEPTIONS.**

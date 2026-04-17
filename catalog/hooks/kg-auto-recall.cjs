@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 /**
- * kg-auto-recall.cjs — Claude Code UserPromptSubmit Hook
+ * kg-auto-recall.cjs — Claude Code UserPromptSubmit + SubagentStart Hook
  *
- * Thin adapter: reads stdin JSON {prompt}, calls recall-core, outputs plain text.
- * All core logic lives in lib/recall-core.cjs.
+ * Thin adapter: reads stdin JSON, calls recall-core.recall(), outputs plain text.
+ * Handles both event shapes:
+ *   - UserPromptSubmit: { prompt: "..." }
+ *   - SubagentStart:    { tool_input: { prompt: "..." }, cwd: "..." }
+ *
+ * Uses recall() instead of manual chain — activates task-aware features:
+ *   - detectPromptType() → 'task' for SubagentStart (lower token cap)
+ *   - extractTaskKeywords() → smarter keyword extraction for subagents
+ *   - expandRelations() → depth-1 related entities
  *
  * Exit Codes:
  *   0 - Always (non-blocking — never fail the user's prompt)
@@ -19,16 +26,13 @@ function main() {
     if (!stdin) process.exit(0);
 
     const payload = JSON.parse(stdin);
-    const prompt = payload.prompt || '';
+    const prompt = payload.tool_input?.prompt || payload.prompt || '';
     if (prompt.length < 10) process.exit(0);
 
-    const keywords = core.extractKeywords(prompt);
-    if (keywords.length === 0) process.exit(0);
+    // Use payload.cwd for scope detection (SubagentStart provides cwd)
+    if (payload.cwd) process.env.CWD = payload.cwd;
 
-    const projectScope = core.detectProjectScope();
-    const results = core.searchBrain(keywords, projectScope);
-    const output = core.formatResults(results, keywords, projectScope);
-
+    const output = core.recall(prompt);
     if (output) console.log(output);
     process.exit(0);
   } catch { process.exit(0); }

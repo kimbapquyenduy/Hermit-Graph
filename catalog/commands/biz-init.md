@@ -1,3 +1,8 @@
+---
+description: Tạo BUSINESS.md cho project mới
+context: fork
+---
+
 # Business Init
 
 Khởi tạo BUSINESS.md cho project mới. Hỏi user để map toàn bộ business logic.

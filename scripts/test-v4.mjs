@@ -403,7 +403,7 @@ async function mcpIntegrationTests() {
     assert(init.result.serverInfo.version === pkg.version, `Expected ${pkg.version}, got ${init.result.serverInfo.version}`);
   });
 
-  await test('MCP: tools/list returns 28 tools', async () => {
+  await test('MCP: tools/list returns 30 tools', async () => {
     const responses = await sendMcp([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '0.1' } } },
       { jsonrpc: '2.0', method: 'notifications/initialized' },
@@ -411,7 +411,7 @@ async function mcpIntegrationTests() {
     ]);
     const list = responses.find(r => r.id === 2);
     assert(list, 'Should get tools/list response');
-    assert(list.result.tools.length === 28, `Expected 28 tools, got ${list.result.tools.length}`);
+    assert(list.result.tools.length === 30, `Expected 30 tools, got ${list.result.tools.length}`);
   });
 
   await test('MCP: hermit_search_nodes returns results', async () => {
@@ -1107,6 +1107,40 @@ async function entityExtractorTests() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// ── Frontmatter Parser Tests ──────────────────────────────────────────────
+
+async function frontmatterTests() {
+  console.log('\n── Frontmatter Parser ──');
+  const { parseFrontmatter } = await import('../scripts/lib/skill-adapters.mjs');
+
+  await test('parseFrontmatter handles flat key:value', () => {
+    const { fm, body } = parseFrontmatter('---\nname: test\ndescription: hello world\n---\nbody content');
+    if (!fm) throw new Error('fm should not be null');
+    if (fm.name !== 'test') throw new Error(`expected "test", got "${fm.name}"`);
+    if (fm.description !== 'hello world') throw new Error(`expected "hello world", got "${fm.description}"`);
+    if (body !== 'body content') throw new Error(`unexpected body: "${body}"`);
+  });
+
+  await test('parseFrontmatter handles YAML lists', () => {
+    const input = '---\nname: test\npaths:\n  - data/brain.jsonl\n  - BUSINESS.md\ntags: memory\n---\nbody';
+    const { fm } = parseFrontmatter(input);
+    if (!fm) throw new Error('fm should not be null');
+    if (!Array.isArray(fm.paths)) throw new Error('paths should be array');
+    if (fm.paths.length !== 2) throw new Error(`expected 2 paths, got ${fm.paths.length}`);
+    if (fm.paths[0] !== 'data/brain.jsonl') throw new Error(`unexpected path[0]: "${fm.paths[0]}"`);
+    if (fm.paths[1] !== 'BUSINESS.md') throw new Error(`unexpected path[1]: "${fm.paths[1]}"`);
+    if (fm.tags !== 'memory') throw new Error('flat value after list should work');
+  });
+
+  await test('parseFrontmatter strips quotes from list items', () => {
+    const input = '---\npaths:\n  - "src/**/*.ts"\n  - \'lib/*.js\'\n---\nbody';
+    const { fm } = parseFrontmatter(input);
+    if (!Array.isArray(fm.paths)) throw new Error('paths should be array');
+    if (fm.paths[0] !== 'src/**/*.ts') throw new Error(`quotes not stripped: "${fm.paths[0]}"`);
+    if (fm.paths[1] !== 'lib/*.js') throw new Error(`quotes not stripped: "${fm.paths[1]}"`);
+  });
+}
+
 // MAIN
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -1127,6 +1161,7 @@ try {
   await skillIndexTests();
   await recallCoreTests();
   await entityExtractorTests();
+  await frontmatterTests();
 } finally {
   cleanup();
 }

@@ -3,6 +3,9 @@ description: "Business-aware coding guard — validates changes against business
 tags: "business, rules, guard, validation, impact"
 complexity: "moderate"
 requires-tools: "file-ops, mcp"
+paths:
+  - BUSINESS.md
+  - "**/BUSINESS.md"
 ---
 # Biz Guard — Business-Aware Coding Skill
 

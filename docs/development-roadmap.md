@@ -147,38 +147,60 @@ This roadmap tracks the evolution of Hermit Graph — a persistent memory system
 
 ---
 
-## Future Roadmap (Post v6.0)
+### v6.1.0 — Unified Impact Bridge (2026-04-15, Complete)
 
-### v6.1 — Observability & Quality (Proposed, Q2 2026)
+**Status:** Complete
+**Completion Date:** 2026-04-15
 
-**Scope (pending approval):**
+**Deliverables:**
+- Unified Impact Bridge — `hermit_impact` returns business rules at risk alongside code blast radius
+- `biz-linker.mjs` — Deterministic file-path join between blast radius and KG RULE/FLOW entities
+- `project-learner.mjs` — Deterministic project scanner, writes BIZ + TECH entities on setup
+- Auto-fill BUSINESS.md with auto-detected Domain + Tech Stack
+- Monorepo workspace scanning (Yarn, npm, pnpm workspaces)
+
+---
+
+### v6.2.0 — Hook Architecture Upgrade + MCP Annotations (2026-04-17, Complete)
+
+**Status:** Complete
+**Completion Date:** 2026-04-17
+
+**Deliverables:**
+- Task-aware recall — All recall hooks (7 agents, 10 files) switched to `core.recall()` with prompt-type detection, keyword extraction, relation expansion, token budgeting
+- SubagentStart hook — Subagents get KG context injection automatically
+- PreCompact hook — Reminds agents to save knowledge before context compaction
+- MCP tool annotations — `readOnlyHint`/`idempotentHint` on all 30 tools across 9 modules
+- YAML list frontmatter — `parseFrontmatter()` supports multi-line list syntax
+- Command context routing — All 14 commands tagged with `context: fork|inline`
+
+**Key Metrics:**
+- 103 unit/integration + 16 e2e tests passing
+- 30 MCP tools (all annotated for parallelism safety)
+- 10 recall hook files updated across 7 agents
+
+---
+
+## Future Roadmap
+
+### v7.0 — Observability & IDE Integration (Research Phase)
+
+**Scope (under investigation):**
 - Telemetry dashboard (search volume, stale rates, entity growth)
 - Automated stale entity cleanup (policy-driven)
-- Performance profiling (index build, search latency tracking)
-- Expand hook coverage (Windsurf + OpenCode auto-recall/update hooks)
+- VSCode extension with inline brain suggestions
+- Additional language support for code intelligence (Go, Rust, Java)
 
 **Priority:** Medium
 
 ---
 
-### v7.0 — IDE Integration (Research Phase)
-
-**Scope (under investigation):**
-- VSCode extension with inline brain suggestions
-- Cursor.ai native integration (brain sidebar)
-- JetBrains IDE plugin (IntelliJ, WebStorm, etc.)
-- Additional language support for code intelligence (Go, Rust, Java)
-
-**Priority:** Low (requires partner API access)
-
----
-
 ## Success Criteria
 
-- v6.0 ships with built-in code intelligence, zero external subprocess dependencies
+- v6.2 ships with task-aware recall, MCP annotations, full hook architecture
 - All v2.3 USPs preserved (4-tier taxonomy, confidence scoring, health diagnostics, biz-guard)
-- 7-agent support operational
-- 100+ tests passing
+- 7-agent support operational with consistent recall() across all hooks
+- 103+ tests passing
 - Performance targets met (index <5s, queries <50ms)
 
 ---
@@ -191,4 +213,4 @@ This roadmap tracks the evolution of Hermit Graph — a persistent memory system
 
 ---
 
-*Last updated: 2026-04-15 | Status: v6.0.0 Complete*
+*Last updated: 2026-04-17 | Status: v6.2.0 Complete*

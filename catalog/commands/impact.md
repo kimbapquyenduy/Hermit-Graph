@@ -1,3 +1,8 @@
+---
+description: Phân tích ảnh hưởng trước khi sửa code
+context: inline
+---
+
 # Impact Check
 
 Unified impact analysis: CodeGraph blast radius + KG business rules + BUSINESS.md chains.

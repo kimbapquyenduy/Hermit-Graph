@@ -5,7 +5,7 @@
  * (paths, formats, write strategies).
  * Pure data module — no fs operations, no side effects.
  *
- * Agents: Claude Code, Cursor, Cline, Gemini CLI, Codex
+ * Agents: Claude Code, Cursor, Cline, Gemini CLI, Codex, OpenCode, Windsurf
  * Strategies: per-file-copy, per-file-wrap, merge-single
  *
  * Claude-reference stripping (via md-strip.mjs) is applied automatically
@@ -22,11 +22,13 @@ const HOME = process.env.USERPROFILE || process.env.HOME || '';
 
 /**
  * Parse YAML frontmatter from SKILL.md content.
- * Returns { fm: {key: value} | null, body: string }.
+ * Returns { fm: {key: value|string[]} | null, body: string }.
  *
- * Limitation: Only handles simple key: value pairs.
- * YAML lists (key:\n  - item) and nested objects are NOT supported.
- * Values are always strings. This is intentional — skills use flat metadata only.
+ * Supports:
+ * - Flat key: value pairs → string
+ * - YAML lists (key:\n  - item1\n  - item2) → string[]
+ * - Quoted values stripped of surrounding quotes
+ * No YAML library — intentionally minimal.
  */
 export function parseFrontmatter(content) {
   if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) {
@@ -37,12 +39,35 @@ export function parseFrontmatter(content) {
 
   const fmBlock = content.slice(4, endIdx);
   const fm = {};
-  for (const line of fmBlock.split('\n')) {
+  const lines = fmBlock.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
     const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
+    if (colonIdx === -1) { i++; continue; }
+
     const key = line.slice(0, colonIdx).trim();
     const val = line.slice(colonIdx + 1).trim();
-    fm[key] = val;
+
+    // Check if next lines form a YAML list
+    if (val === '' && i + 1 < lines.length && /^\s+-\s/.test(lines[i + 1])) {
+      const items = [];
+      i++;
+      while (i < lines.length && /^\s+-\s/.test(lines[i])) {
+        let item = lines[i].replace(/^\s+-\s*/, '').trim();
+        // Strip surrounding quotes
+        if ((item.startsWith('"') && item.endsWith('"')) || (item.startsWith("'") && item.endsWith("'"))) {
+          item = item.slice(1, -1);
+        }
+        items.push(item);
+        i++;
+      }
+      fm[key] = items;
+    } else {
+      fm[key] = val;
+      i++;
+    }
   }
 
   // Body starts after closing --- and newline
@@ -59,7 +84,8 @@ const STRIP_OPTS = {
   cline:    { agent: 'cline',    preserveDelegation: true,  preserveHooks: true  },
   gemini:   { agent: 'gemini',   preserveDelegation: false, preserveHooks: false },
   codex:    { agent: 'codex',    preserveDelegation: false, preserveHooks: false },
-  opencode: { agent: 'opencode', preserveDelegation: true,  preserveHooks: true  },
+  opencode:  { agent: 'opencode',  preserveDelegation: true,  preserveHooks: true  },
+  windsurf:  { agent: 'windsurf',  preserveDelegation: false, preserveHooks: false },
 };
 
 // ── Transform functions ────────────────────────────────────────────────
@@ -244,5 +270,22 @@ export const AGENTS = {
       libPath: (root) => join(root, '.opencode', 'hooks', 'lib'),
       globalLibPath: () => join(HOME, '.opencode', 'hooks', 'lib'),
     },
+  },
+
+  windsurf: {
+    mcpCapable: true,
+    skills: {
+      path: (_name, root) => join(root, '.windsurfrules'),
+      globalPath: () => join(HOME, '.codeium', 'windsurf', 'memories', 'global_rules.md'),
+      strategy: 'merge-single',
+      transform: (content, meta) => stripAndFormat(content, meta, 'windsurf', sectionWrap),
+    },
+    commands: {
+      path: (_name, root) => join(root, '.windsurfrules'),
+      globalPath: () => join(HOME, '.codeium', 'windsurf', 'memories', 'global_rules.md'),
+      strategy: 'merge-single',
+      transform: (content, meta) => stripAndFormat(content, meta, 'windsurf', commandSectionWrap),
+    },
+    hooks: null, // Windsurf does not support hooks
   },
 };

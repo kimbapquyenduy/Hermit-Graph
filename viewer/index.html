@@ -277,7 +277,7 @@
       display: flex;
       flex-direction: column;
       flex-shrink: 0;
-      transition: width 0.25s ease, opacity 0.25s ease;
+      transition: opacity 0.25s ease;
       overflow: hidden;
     }
     .detail-panel.hidden { width: 0; border: none; opacity: 0; }
@@ -356,6 +356,121 @@
       border-radius: 0.2rem; font-family: inherit; font-size: 0.6rem;
     }
 
+    /* ── Toast notifications ── */
+    .toast-container {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      z-index: 10000; display: flex; flex-direction: column-reverse;
+      gap: 0.5rem; pointer-events: none;
+    }
+    .toast {
+      background: rgba(30, 41, 59, 0.95); border: 1px solid var(--border);
+      padding: 0.55rem 1rem; border-radius: 0.5rem;
+      font-size: 0.78rem; color: var(--text-secondary);
+      backdrop-filter: blur(8px); box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      animation: toastIn 0.25s ease-out; pointer-events: auto; white-space: nowrap;
+    }
+    .toast.dismissing { animation: toastOut 0.2s ease-in forwards; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(12px); } }
+
+    /* ── Export modal ── */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 9998;
+      display: none; align-items: center; justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal {
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 0.75rem; padding: 1.25rem; width: 380px; max-width: 90vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .modal-title {
+      font-size: 1rem; font-weight: 700; color: var(--text-primary);
+      margin-bottom: 1rem; display: inline-block;
+    }
+    .modal-close {
+      float: right; background: none; border: none; color: var(--text-dim);
+      font-size: 1.2rem; cursor: pointer; padding: 0; line-height: 1;
+    }
+    .modal-close:hover { color: var(--text-secondary); }
+    .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .export-card {
+      background: var(--bg-primary); border: 1px solid var(--border);
+      border-radius: 0.5rem; padding: 1rem; text-align: center;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .export-card:hover { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+    .export-icon { font-size: 1.5rem; margin-bottom: 0.4rem; }
+    .export-label { font-size: 0.78rem; color: var(--text-secondary); font-weight: 600; }
+    .export-desc { font-size: 0.65rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      margin-left: auto; display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0;
+    }
+    .stat-card {
+      background: var(--bg-primary); border: 1px solid var(--border);
+      border-radius: 0.5rem; padding: 0.35rem 0.65rem; text-align: center;
+      min-width: 70px; cursor: default; transition: border-color 0.15s;
+    }
+    .stat-card:hover { border-color: var(--text-dim); }
+    .stat-card.clickable { cursor: pointer; }
+    .stat-card.clickable:hover { border-color: var(--accent); }
+    .stat-number { font-size: 1rem; font-weight: 700; color: var(--text-primary); line-height: 1.2; }
+    .stat-label { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-card.warn .stat-number { color: var(--warning); }
+    .stat-card.danger .stat-number { color: var(--danger); }
+
+    /* ── Health ring ── */
+    .health-ring { position: relative; width: 42px; height: 42px; flex-shrink: 0; cursor: help; }
+    .health-ring svg { transform: rotate(-90deg); }
+    .health-ring-text {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 0.65rem; font-weight: 700; color: var(--text-primary);
+    }
+    .health-tooltip {
+      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: rgba(30, 41, 59, 0.97); border: 1px solid var(--border);
+      padding: 0.5rem 0.7rem; border-radius: 0.4rem; font-size: 0.7rem;
+      color: var(--text-secondary); white-space: nowrap; display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100;
+    }
+    .health-ring:hover .health-tooltip { display: block; }
+
+    /* ── Detail resize handle ── */
+    .detail-resize-handle {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      cursor: col-resize; background: transparent; z-index: 5; transition: background 0.15s;
+    }
+    .detail-resize-handle:hover, .detail-resize-handle.active { background: var(--accent); }
+
+    /* ── Detail tabs ── */
+    .detail-tabs {
+      display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .detail-tab {
+      flex: 1; padding: 0.5rem 0; text-align: center;
+      font-size: 0.72rem; font-weight: 600; color: var(--text-dim);
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .detail-tab:hover { color: var(--text-secondary); }
+    .detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .detail-tab-content { display: none; }
+    .detail-tab-content.active { display: block; }
+    .info-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.3rem 0; font-size: 0.78rem; border-bottom: 1px solid rgba(51,65,85,0.3);
+    }
+    .info-label { color: var(--text-dim); font-size: 0.7rem; }
+    .info-value { color: var(--text-secondary); font-weight: 600; }
+    .conn-section-title {
+      font-size: 0.6rem; font-weight: 600; text-transform: uppercase;
+      color: var(--text-dim); letter-spacing: 0.06em; margin: 0.6rem 0 0.3rem;
+    }
+
     /* ── Responsive: Tablet ── */
     @media (max-width: 1023px) {
       .detail-panel { width: 280px; }
@@ -370,11 +485,16 @@
       .controls { width: 100%; }
       .search-box { width: 100%; }
       .filter-chips { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
-      .stats { width: 100%; text-align: right; font-size: 0.7rem; }
+      .stats-bar { flex-wrap: wrap; gap: 0.3rem; width: 100%; }
+      .stat-card { min-width: 60px; padding: 0.25rem 0.45rem; }
+      .stat-number { font-size: 0.85rem; }
+      .health-ring { width: 36px; height: 36px; }
+      .health-ring svg { width: 36px; height: 36px; }
 
       #minimap { display: none !important; }
       .kbd-hint { display: none !important; }
       .legend { display: none !important; }
+      .detail-resize-handle { display: none; }
 
       .zoom-controls { bottom: auto; top: 0.75rem; right: 0.75rem; }
       .zoom-btn { width: 40px; height: 40px; font-size: 1.3rem; }
@@ -419,10 +539,11 @@
       <button class="btn btn-layout" id="spreadBtn" onclick="spreadNodes()" style="display:none" title="Push nodes apart">Spread</button>
       <button class="btn btn-layout" id="clusterBtn" onclick="toggleCluster()" style="display:none" title="Group by type">Cluster</button>
       <button class="btn btn-reset" id="resetBtn" onclick="resetView()" style="display:none">Reset</button>
+      <button class="btn" id="exportBtn" onclick="openExport()" style="display:none" title="Export graph data (E)">Export</button>
       <input type="text" class="search-box" id="searchBox" placeholder="Search nodes..." oninput="onSearchInput()">
       <div class="filter-chips" id="filterChips"></div>
     </div>
-    <div class="stats" id="stats"></div>
+    <div class="stats-bar" id="statsBar"></div>
   </div>
 
   <div class="main">
@@ -443,7 +564,7 @@
         <button class="zoom-btn" onclick="zoomFit()" title="Fit all nodes">&#x2B1C;</button>
       </div>
       <div class="kbd-hint" id="kbdHint">
-        <kbd>Esc</kbd> deselect &nbsp; <kbd>Ctrl+F</kbd> search &nbsp; <kbd>L</kbd> layout &nbsp; <kbd>+</kbd><kbd>-</kbd> zoom
+        <kbd>Esc</kbd> deselect &nbsp; <kbd>Ctrl+F</kbd> search &nbsp; <kbd>L</kbd> layout &nbsp; <kbd>E</kbd> export &nbsp; <kbd>+</kbd><kbd>-</kbd> zoom
       </div>
     </div>
 
@@ -459,6 +580,7 @@
     </div>
 
     <div class="detail-panel hidden" id="detailPanel">
+      <div class="detail-resize-handle" id="resizeHandle"></div>
       <div class="detail-header">
         <div>
           <div class="detail-name" id="detailName">—</div>
@@ -466,11 +588,47 @@
         </div>
         <button class="detail-close" onclick="closeDetail()">&times;</button>
       </div>
+      <div class="detail-tabs" id="detailTabs" style="display:none">
+        <div class="detail-tab active" data-tab="info" onclick="switchTab('info')">Info</div>
+        <div class="detail-tab" data-tab="observations" onclick="switchTab('observations')">Obs</div>
+        <div class="detail-tab" data-tab="connections" onclick="switchTab('connections')">Conn</div>
+      </div>
       <div class="detail-body" id="detailBody">
         <div class="detail-empty">Click a node to view details</div>
       </div>
     </div>
   </div>
+
+  <!-- Export Modal -->
+  <div class="modal-overlay" id="exportOverlay" onclick="if(event.target===this)closeExport()">
+    <div class="modal">
+      <button class="modal-close" onclick="closeExport()">&times;</button>
+      <div class="modal-title">Export Graph</div>
+      <div class="modal-grid">
+        <div class="export-card" onclick="exportJSON()">
+          <div class="export-icon">{ }</div>
+          <div class="export-label">JSON</div>
+          <div class="export-desc">Filtered graph data</div>
+        </div>
+        <div class="export-card" onclick="exportMarkdown()">
+          <div class="export-icon">&#9998;</div>
+          <div class="export-label">Markdown</div>
+          <div class="export-desc">Entity table + observations</div>
+        </div>
+        <div class="export-card" onclick="exportPNG()">
+          <div class="export-icon">&#128247;</div>
+          <div class="export-label">PNG</div>
+          <div class="export-desc">Canvas screenshot</div>
+        </div>
+        <div class="export-card" onclick="exportCopy()">
+          <div class="export-icon">&#128203;</div>
+          <div class="export-label">Copy</div>
+          <div class="export-desc">Selected node to clipboard</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="toast-container" id="toastContainer"></div>
 
   <script>
     /* ================================================================
@@ -721,7 +879,7 @@
       jsonl.trim().split('\n').filter(Boolean).forEach(line => {
         try {
           const d = JSON.parse(line);
-          if (d.type === 'entity') {
+          if (d.type === 'entity' && !d._archived) {
             entityMap[d.name] = { name: d.name, entityType: d.entityType, observations: d.observations || [] };
           } else if (d.type === 'relation') {
             relations.push(d);
@@ -779,6 +937,7 @@
       document.getElementById('layoutBtn').style.display = 'inline-block';
       document.getElementById('spreadBtn').style.display = 'inline-block';
       document.getElementById('clusterBtn').style.display = 'inline-block';
+      document.getElementById('exportBtn').style.display = 'inline-block';
       document.getElementById('kbdHint').style.display = 'block';
       document.getElementById('minimap').style.display = 'block';
       document.getElementById('zoomControls').style.display = 'flex';
@@ -1416,11 +1575,14 @@
       if (!action || !nodeId) return;
 
       switch (action) {
-        case 'pin':
-          if (state.pinnedNodes.has(nodeId)) state.pinnedNodes.delete(nodeId);
+        case 'pin': {
+          const wasPinned = state.pinnedNodes.has(nodeId);
+          if (wasPinned) state.pinnedNodes.delete(nodeId);
           else state.pinnedNodes.add(nodeId);
           renderer.refresh();
+          showToast(wasPinned ? 'Node unpinned' : 'Node pinned');
           break;
+        }
         case 'focus':
           focusNeighborhood(nodeId);
           break;
@@ -1440,7 +1602,9 @@
           navigateToNode(nodeId);
           break;
         case 'copy':
-          navigator.clipboard.writeText(nodeId).catch(() => {});
+          navigator.clipboard.writeText(nodeId)
+            .then(() => showToast('Copied to clipboard'))
+            .catch(() => showToast('Copy failed'));
           break;
       }
       hideContextMenu();
@@ -1501,79 +1665,119 @@
     /* ================================================================
      *  DETAIL PANEL
      * ================================================================ */
+    /** Switch detail panel tab */
+    function switchTab(tabName) {
+      document.querySelectorAll('#detailTabs .detail-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tabName);
+      });
+      document.querySelectorAll('.detail-tab-content').forEach(c => {
+        c.classList.toggle('active', c.dataset.tab === tabName);
+      });
+    }
+
     function showDetail(nodeId) {
       const ent = entityMap[nodeId];
       if (!ent) return;
 
       const panel = document.getElementById('detailPanel');
       panel.classList.remove('hidden');
+      panel.classList.remove('collapsed');
+
+      // Mobile: add sheet handle if needed
+      if (isMobile() && !panel.querySelector('.sheet-handle')) {
+        panel.insertAdjacentHTML('afterbegin',
+          '<div class="sheet-handle" onclick="toggleSheet()"></div>');
+      }
 
       document.getElementById('detailName').textContent = shortenLabel(ent.name);
       const badge = document.getElementById('detailBadge');
       badge.textContent = ent.entityType;
       badge.style.background = getColor(ent.entityType);
 
-      let html = '';
+      // Show tabs
+      document.getElementById('detailTabs').style.display = 'flex';
 
-      // Full entity name
-      html += `<div class="detail-section">
-        <div class="detail-section-title">Full Name</div>
-        <div style="font-size:0.78rem;color:var(--text-muted);word-break:break-all">${ent.name}</div>
-      </div>`;
-
-      // Observations
       const obs = ent.observations;
+      const avgConf = obs.length
+        ? (obs.map(o => parseObs(o).confidence).reduce((a, b) => a + b, 0) / obs.length).toFixed(2) : '-';
+      const escName = nodeId.replace(/'/g, "\\'");
+
+      // ── Tab 1: Info ──
+      let infoHtml = `<div class="detail-tab-content active" data-tab="info"><div class="detail-section">
+        <div class="info-row"><span class="info-label">Full Name</span><span class="info-value" style="word-break:break-all;text-align:right;max-width:60%">${ent.name}</span></div>
+        <div class="info-row"><span class="info-label">Type</span><span class="info-value">${ent.entityType}</span></div>
+        <div class="info-row"><span class="info-label">Tier</span><span class="info-value">${getTier(ent.entityType)}</span></div>
+        <div class="info-row"><span class="info-label">Avg Confidence</span><span class="info-value"><span style="color:${confColor(parseFloat(avgConf) || 0.8)}">${avgConf}</span></span></div>
+        <div class="info-row"><span class="info-label">Observations</span><span class="info-value">${obs.length}</span></div>
+        <div class="info-row"><span class="info-label">Connections</span><span class="info-value">${graph.degree(nodeId)}</span></div>
+      </div></div>`;
+
+      // ── Tab 2: Observations ──
+      let obsHtml = `<div class="detail-tab-content" data-tab="observations"><div class="detail-section">`;
       if (obs.length) {
-        const rows = obs.map(o => {
+        obs.forEach(o => {
           const p = parseObs(o);
           const staleFlag = isStale(p.date);
-          return `<div class="obs-row" style="opacity:${staleFlag ? 0.55 : 1}">
+          obsHtml += `<div class="obs-row" style="opacity:${staleFlag ? 0.55 : 1}">
             <div class="obs-dot" style="background:${confColor(p.confidence)}" title="Confidence: ${p.confidence}"></div>
             ${p.date ? `<span class="obs-date">${p.date}</span>` : ''}
             <span class="obs-text">${p.text}</span>
             ${staleFlag ? '<span class="obs-stale">stale</span>' : ''}
           </div>`;
-        }).join('');
-        html += `<div class="detail-section">
-          <div class="detail-section-title">Observations (${obs.length})</div>
-          ${rows}
-        </div>`;
+        });
+      } else {
+        obsHtml += '<div class="detail-empty" style="height:auto;padding:1rem">No observations</div>';
       }
+      obsHtml += '</div></div>';
 
-      // Connections
-      const conns = [];
+      // ── Tab 3: Connections ──
+      const incoming = [], outgoing = [];
       graph.forEachEdge(nodeId, (edge, attr, source, target) => {
-        const dir = source === nodeId ? '→' : '←';
-        const other = source === nodeId ? target : source;
-        conns.push({ dir, other, label: attr.label || '' });
+        if (source === nodeId) outgoing.push({ other: target, label: attr.label || '' });
+        else incoming.push({ other: source, label: attr.label || '' });
       });
 
-      if (conns.length) {
-        const connHtml = conns.map(c => {
-          const otherEnt = entityMap[c.other];
-          const color = otherEnt ? getColor(otherEnt.entityType) : '#6B7280';
-          return `<div class="conn-item" onclick="navigateToNode('${c.other.replace(/'/g, "\\'")}')">
+      let connHtml = `<div class="detail-tab-content" data-tab="connections"><div class="detail-section">`;
+      if (outgoing.length) {
+        connHtml += `<div class="conn-section-title">Outgoing (${outgoing.length})</div>`;
+        outgoing.forEach(c => {
+          const color = entityMap[c.other] ? getColor(entityMap[c.other].entityType) : '#6B7280';
+          connHtml += `<div class="conn-item" onclick="navigateToNode('${c.other.replace(/'/g, "\\'")}')">
             <div class="conn-dot" style="background:${color}"></div>
-            <span>${c.dir} ${shortenLabel(c.other)}</span>
+            <span>&#8594; ${shortenLabel(c.other)}</span>
             <span class="conn-label">${c.label}</span>
           </div>`;
-        }).join('');
-
-        html += `<div class="detail-section">
-          <div class="detail-section-title">Connections (${conns.length})</div>
-          ${connHtml}
-        </div>`;
-
-        html += `<button class="btn-expand" onclick="focusNeighborhood('${nodeId.replace(/'/g, "\\'")}')">
-          Focus ${conns.length} connected nodes
+        });
+      }
+      if (incoming.length) {
+        connHtml += `<div class="conn-section-title">Incoming (${incoming.length})</div>`;
+        incoming.forEach(c => {
+          const color = entityMap[c.other] ? getColor(entityMap[c.other].entityType) : '#6B7280';
+          connHtml += `<div class="conn-item" onclick="navigateToNode('${c.other.replace(/'/g, "\\'")}')">
+            <div class="conn-dot" style="background:${color}"></div>
+            <span>&#8592; ${shortenLabel(c.other)}</span>
+            <span class="conn-label">${c.label}</span>
+          </div>`;
+        });
+      }
+      if (!incoming.length && !outgoing.length) {
+        connHtml += '<div class="detail-empty" style="height:auto;padding:1rem">No connections</div>';
+      }
+      connHtml += '</div>';
+      if (incoming.length + outgoing.length > 0) {
+        connHtml += `<button class="btn-expand" onclick="focusNeighborhood('${escName}')">
+          Focus ${incoming.length + outgoing.length} connected nodes
         </button>`;
       }
+      connHtml += '</div>';
 
-      document.getElementById('detailBody').innerHTML = html || '<div class="detail-empty">No details</div>';
+      document.getElementById('detailBody').innerHTML = infoHtml + obsHtml + connHtml;
+      switchTab('info');
     }
 
     function closeDetail() {
       document.getElementById('detailPanel').classList.add('hidden');
+      document.getElementById('detailTabs').style.display = 'none';
     }
 
     function navigateToNode(nodeId) {
@@ -1634,17 +1838,62 @@
       if (totalObs > 0 && lowConfCount / totalObs >= 0.15)
         penalty += 0.20 * Math.min((lowConfCount / totalObs) * 2, 1);
       const health = Math.round((1 - penalty) * 100);
-      const hColor = health >= 90 ? '#10B981' : health >= 70 ? '#F59E0B' : '#EF4444';
-      const hTip = `${orphanCount} orphans, ${staleCount} stale, ${lowConfCount} low-conf`;
 
-      const extra = [];
-      if (staleCount) extra.push(`${staleCount} stale`);
-      if (orphanCount) extra.push(`${orphanCount} orphan`);
-      const extraStr = extra.length ? ' | ' + extra.join(' | ') : '';
+      // Health ring SVG
+      const ringColor = health >= 90 ? 'var(--success)' : health >= 70 ? 'var(--warning)' : 'var(--danger)';
+      const circumference = 2 * Math.PI * 16;
+      const offset = circumference - (health / 100) * circumference;
+      const warn = (v, threshold) => v > threshold ? '&#9888;' : '&#10003;';
 
-      document.getElementById('stats').innerHTML =
-        `${nodeCount} entities | ${edgeCount} relations${extraStr} ` +
-        `<span style="background:${hColor};color:#fff;padding:2px 7px;border-radius:10px;font-size:0.7rem;font-weight:600;margin-left:4px" title="${hTip}">${health}%</span>`;
+      const bar = document.getElementById('statsBar');
+      bar.innerHTML = `
+        <div class="stat-card"><div class="stat-number">${nodeCount}</div><div class="stat-label">Entities</div></div>
+        <div class="stat-card"><div class="stat-number">${edgeCount}</div><div class="stat-label">Relations</div></div>
+        <div class="stat-card clickable ${staleCount ? 'warn' : ''}" onclick="filterStale()" title="Click to filter stale nodes">
+          <div class="stat-number">${staleCount}</div><div class="stat-label">Stale</div>
+        </div>
+        <div class="stat-card clickable ${orphanCount > nodeCount * 0.1 ? 'danger' : ''}" onclick="filterOrphans()" title="Click to filter orphan nodes">
+          <div class="stat-number">${orphanCount}</div><div class="stat-label">Orphans</div>
+        </div>
+        <div class="health-ring">
+          <svg width="42" height="42" viewBox="0 0 40 40">
+            <circle cx="20" cy="20" r="16" fill="none" stroke="var(--border)" stroke-width="3"/>
+            <circle cx="20" cy="20" r="16" fill="none" stroke="${ringColor}" stroke-width="3"
+              stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+              stroke-linecap="round" style="transition: stroke-dashoffset 0.6s ease"/>
+          </svg>
+          <div class="health-ring-text">${health}%</div>
+          <div class="health-tooltip">
+            <div><strong>Health: ${health}%</strong></div>
+            <div>Orphans: ${orphanCount} ${warn(orphanCount / Math.max(nodeCount, 1), 0.1)}</div>
+            <div>Stale: ${staleCount} ${warn(staleCount / Math.max(totalObs, 1), 0.05)}</div>
+            <div>Low-conf: ${lowConfCount} ${warn(lowConfCount / Math.max(totalObs, 1), 0.15)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function filterOrphans() {
+      const linked = new Set();
+      graph.forEachEdge((e, a, s, t) => { linked.add(s); linked.add(t); });
+      state.searchQuery = '__orphans__';
+      state.searchMatches = new Set(graph.nodes().filter(n => !linked.has(n)));
+      document.getElementById('resetBtn').style.display = 'inline-block';
+      renderer.refresh();
+      showToast(`Showing ${state.searchMatches.size} orphan nodes`);
+    }
+
+    function filterStale() {
+      state.searchQuery = '__stale__';
+      state.searchMatches = new Set();
+      Object.entries(entityMap).forEach(([name, ent]) => {
+        if (ent.observations.some(o => isStale(parseObs(o).date))) {
+          state.searchMatches.add(name);
+        }
+      });
+      document.getElementById('resetBtn').style.display = 'inline-block';
+      renderer.refresh();
+      showToast(`Showing ${state.searchMatches.size} nodes with stale observations`);
     }
 
     /* ================================================================
@@ -1670,8 +1919,9 @@
      *  KEYBOARD SHORTCUTS
      * ================================================================ */
     document.addEventListener('keydown', (e) => {
-      // Escape → close menu / reset selection
+      // Escape → close menu / reset selection / close export
       if (e.key === 'Escape') {
+        closeExport();
         hideContextMenu();
         resetView();
         closeDetail();
@@ -1684,6 +1934,10 @@
       // L → toggle layout
       if (e.key === 'l' && document.activeElement.tagName !== 'INPUT') {
         toggleLayout();
+      }
+      // E → export (when not in input)
+      if (e.key === 'e' && document.activeElement.tagName !== 'INPUT' && graph) {
+        openExport();
       }
       // +/- → zoom (when not in input)
       if (document.activeElement.tagName !== 'INPUT') {
@@ -1705,18 +1959,6 @@
       panel.classList.toggle('collapsed');
     }
 
-    // Patch showDetail to add sheet handle on mobile
-    const _origShowDetail = showDetail;
-    showDetail = function(nodeId) {
-      _origShowDetail(nodeId);
-      const panel = document.getElementById('detailPanel');
-      panel.classList.remove('collapsed');
-      if (isMobile() && !panel.querySelector('.sheet-handle')) {
-        panel.insertAdjacentHTML('afterbegin',
-          '<div class="sheet-handle" onclick="toggleSheet()"></div>');
-      }
-    };
-
     /* ================================================================
      *  WINDOW RESIZE
      * ================================================================ */
@@ -1724,6 +1966,177 @@
       if (renderer) renderer.refresh();
       scheduleMinimap();
     });
+
+    /* ================================================================
+     *  TOAST NOTIFICATIONS
+     * ================================================================ */
+    function showToast(message, durationMs = 2500) {
+      const container = document.getElementById('toastContainer');
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.classList.add('dismissing');
+        el.addEventListener('animationend', () => el.remove());
+      }, durationMs);
+    }
+
+    /* ================================================================
+     *  EXPORT
+     * ================================================================ */
+    function openExport() {
+      document.getElementById('exportOverlay').classList.add('visible');
+    }
+    function closeExport() {
+      document.getElementById('exportOverlay').classList.remove('visible');
+    }
+
+    /** Returns entities passing current filter/search */
+    function getVisibleEntities() {
+      return Object.values(entityMap).filter(ent => {
+        if (!state.activeFilters.has('all')) {
+          const tier = getTier(ent.entityType);
+          if (!state.activeFilters.has(tier)) return false;
+        }
+        if (state.searchQuery && !state.searchQuery.startsWith('__')) {
+          if (!state.searchMatches.has(ent.name)) return false;
+        }
+        return true;
+      });
+    }
+
+    function exportJSON() {
+      const entities = getVisibleEntities();
+      const names = new Set(entities.map(e => e.name));
+      const relations = [];
+      graph.forEachEdge((edge, attr, source, target) => {
+        if (names.has(source) && names.has(target)) {
+          relations.push({ from: source, to: target, relationType: attr.label || '' });
+        }
+      });
+      const data = { entities, relations, exportedAt: new Date().toISOString() };
+      downloadFile(JSON.stringify(data, null, 2), 'hermit-graph-export.json', 'application/json');
+      showToast(`Exported ${entities.length} entities as JSON`);
+      closeExport();
+    }
+
+    function exportMarkdown() {
+      const entities = getVisibleEntities();
+      let md = '# Hermit Graph Export\n\n';
+      md += `> ${entities.length} entities | ${new Date().toISOString()}\n\n`;
+      md += '| Entity | Type | Observations | Avg Confidence |\n';
+      md += '|--------|------|-------------|----------------|\n';
+      entities.forEach(ent => {
+        const avg = ent.observations.length
+          ? (ent.observations.map(o => parseObs(o).confidence).reduce((a, b) => a + b, 0) / ent.observations.length).toFixed(2)
+          : '-';
+        md += `| ${ent.name} | ${ent.entityType} | ${ent.observations.length} | ${avg} |\n`;
+      });
+      md += '\n---\n\n## Details\n\n';
+      entities.forEach(ent => {
+        md += `### ${ent.name}\n**Type:** ${ent.entityType}\n\n`;
+        ent.observations.forEach(o => {
+          const p = parseObs(o);
+          md += `- [${p.confidence}] ${p.text}${p.date ? ` _(${p.date})_` : ''}\n`;
+        });
+        md += '\n';
+      });
+      downloadFile(md, 'hermit-graph-export.md', 'text/markdown');
+      showToast(`Exported ${entities.length} entities as Markdown`);
+      closeExport();
+    }
+
+    function exportPNG() {
+      const layers = document.querySelectorAll('#sigma-container canvas');
+      if (!layers.length) { showToast('No canvas to capture'); return; }
+      const canvas = document.createElement('canvas');
+      const mainCanvas = layers[layers.length - 1];
+      canvas.width = mainCanvas.width;
+      canvas.height = mainCanvas.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-primary').trim();
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      layers.forEach(layer => ctx.drawImage(layer, 0, 0));
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'hermit-graph.png';
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Exported graph as PNG');
+        closeExport();
+      });
+    }
+
+    function exportCopy() {
+      if (!state.selectedNode) {
+        showToast('Select a node first');
+        closeExport();
+        return;
+      }
+      const ent = entityMap[state.selectedNode];
+      if (!ent) { showToast('Node data not found'); closeExport(); return; }
+      const lines = [`${ent.name} (${ent.entityType})`];
+      ent.observations.forEach(o => {
+        const p = parseObs(o);
+        lines.push(`  [${p.confidence}] ${p.text}`);
+      });
+      navigator.clipboard.writeText(lines.join('\n'))
+        .then(() => showToast('Node data copied to clipboard'))
+        .catch(() => showToast('Copy failed'));
+      closeExport();
+    }
+
+    function downloadFile(content, filename, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /* ================================================================
+     *  RESIZABLE DETAIL PANEL
+     * ================================================================ */
+    (function initResize() {
+      const handle = document.getElementById('resizeHandle');
+      const panel = document.getElementById('detailPanel');
+      let startX, startWidth;
+
+      // Restore saved width
+      try {
+        const saved = localStorage.getItem('hermit-panel-width');
+        if (saved) {
+          const w = parseInt(saved, 10);
+          if (w >= 200 && w <= 500) panel.style.width = w + 'px';
+        }
+      } catch (e) { /* localStorage unavailable */ }
+
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        startX = e.clientX;
+        startWidth = panel.offsetWidth;
+        handle.classList.add('active');
+
+        function onMove(ev) {
+          const delta = startX - ev.clientX;
+          const newWidth = Math.min(500, Math.max(200, startWidth + delta));
+          panel.style.width = newWidth + 'px';
+        }
+        function onUp() {
+          handle.classList.remove('active');
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          try { localStorage.setItem('hermit-panel-width', panel.offsetWidth); } catch (e) {}
+          if (renderer) renderer.refresh();
+        }
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    })();
   </script>
 </body>
 </html>

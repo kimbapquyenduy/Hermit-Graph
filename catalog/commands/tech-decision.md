@@ -1,3 +1,8 @@
+---
+description: Ghi nhận quyết định kỹ thuật
+context: inline
+---
+
 # Tech Decision — Ghi Lại & Tra Cứu Quyết Định Kỹ Thuật
 
 Record và retrieve technology/architecture decisions vào KG để không bao giờ quên tại sao team chọn X thay vì Y.

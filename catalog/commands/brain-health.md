@@ -1,3 +1,8 @@
+---
+description: Kiểm tra sức khỏe bộ não
+context: inline
+---
+
 # Brain Health — Kiểm Tra Sức Khỏe Bộ Não
 
 Run 5 automated quality checks on the knowledge graph, calculate health score (0-100), and suggest fixes.

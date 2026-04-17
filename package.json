@@ -1,13 +1,28 @@
 {
   "name": "hermit-graph",
-  "version": "6.1.0",
+  "version": "6.2.0",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode.",
   "type": "module",
   "bin": {
     "hermit": "./scripts/brain-cli.mjs"
   },
   "files": [
-    "scripts/",
+    "scripts/lib/",
+    "scripts/brain-cli.mjs",
+    "scripts/brain-health.mjs",
+    "scripts/build-embedding-index.mjs",
+    "scripts/clean-skills.mjs",
+    "scripts/export-db-to-jsonl.mjs",
+    "scripts/hermit-mcp-server.mjs",
+    "scripts/merge-brain-jsonl.mjs",
+    "scripts/migrate-v3-to-v4.mjs",
+    "scripts/setup-conventions.mjs",
+    "scripts/setup-project.mjs",
+    "scripts/setup-semantic.mjs",
+    "scripts/skills-manager.mjs",
+    "scripts/stale-report.mjs",
+    "scripts/backfill-confidence.mjs",
+    "scripts/view-graph.mjs",
     "catalog/",
     "templates/",
     "viewer/index.html",
@@ -51,7 +66,11 @@
     "setup:conventions": "node scripts/setup-conventions.mjs",
     "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
     "build:index": "node scripts/build-embedding-index.mjs",
-    "build:index:force": "node scripts/build-embedding-index.mjs --force"
+    "build:index:force": "node scripts/build-embedding-index.mjs --force",
+    "prepublishOnly": "node scripts/publish-preflight.mjs",
+    "test:e2e": "node scripts/test-e2e-code-intel.mjs",
+    "test:all": "node scripts/test-v4.mjs && node scripts/test-e2e-code-intel.mjs",
+    "publish:dry": "npm pack --dry-run"
   },
   "dependencies": {
     "@ast-grep/napi": "^0.42.1",

@@ -47,6 +47,8 @@ async function loadModules() {
     './lib/session-module.mjs',
     './lib/skills-module.mjs',
     './lib/skill-search-module.mjs',
+    './lib/setup-module.mjs',
+    './lib/deep-scan-module.mjs',
   ];
 
   for (const mod of modules) {

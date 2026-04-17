@@ -1,3 +1,8 @@
+---
+description: Debug vấn đề có hệ thống, lưu incident
+context: fork
+---
+
 # Diagnose — Chẩn Đoán & Sửa Lỗi
 
 Systematic debugging workflow: từ triệu chứng đến root cause, fix, và lưu vào KG.

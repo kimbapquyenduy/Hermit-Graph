@@ -9,6 +9,9 @@ import { basename, join, resolve } from 'path';
 import { existsSync } from 'fs';
 import * as codeIntel from './code-intel/index.mjs';
 
+const RO = { readOnlyHint: true };
+const IDEM = { idempotentHint: true };
+
 // ── Data directory resolution ──
 
 function resolveDataDir(cwd) {
@@ -55,7 +58,7 @@ export function register(server, ctx) {
   server.tool('hermit_query', 'Find code by concept — semantic code search via CodeGraph', {
     query: z.string().min(1).max(500).describe('Concept to search for in code'),
     cwd: z.string().optional().describe('Working directory (git repo root). Defaults to process.cwd()'),
-  }, async ({ query, cwd }) => {
+  }, RO, async ({ query, cwd }) => {
     try {
       const dataDir = await ensureIndex(cwd, log);
       const result = codeIntel.query(query, dataDir);
@@ -67,7 +70,7 @@ export function register(server, ctx) {
   server.tool('hermit_context', 'Get 360-degree view of a symbol — callers, callees, execution flows', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
-  }, async ({ name, cwd }) => {
+  }, RO, async ({ name, cwd }) => {
     try {
       const dataDir = await ensureIndex(cwd, log);
       const result = codeIntel.context(name, dataDir);
@@ -80,7 +83,7 @@ export function register(server, ctx) {
     target: z.string().min(1).describe('Symbol name to analyze impact for'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().default('upstream'),
     cwd: z.string().optional(),
-  }, async ({ target, direction, cwd }) => {
+  }, RO, async ({ target, direction, cwd }) => {
     try {
       const dataDir = await ensureIndex(cwd, log);
       const result = codeIntel.impact(target, direction, dataDir);
@@ -100,7 +103,7 @@ export function register(server, ctx) {
   // ── T4: Detect Changes (index status) ──
   server.tool('hermit_detect_changes', 'Check index status and detect what changed since last index', {
     cwd: z.string().optional(),
-  }, async ({ cwd }) => {
+  }, RO, async ({ cwd }) => {
     try {
       const dataDir = resolveDataDir(cwd);
       const result = codeIntel.changes(cwd || process.cwd(), dataDir);
@@ -111,7 +114,7 @@ export function register(server, ctx) {
   // ── T5: Index (analyze project) ──
   server.tool('hermit_index', 'Index or re-index a project for code intelligence (runs ast-grep analyze)', {
     cwd: z.string().describe('Project root directory to index'),
-  }, async ({ cwd }) => {
+  }, IDEM, async ({ cwd }) => {
     try {
       const dataDir = resolveDataDir(cwd);
       codeIntel.clearCodeGraph(dataDir);

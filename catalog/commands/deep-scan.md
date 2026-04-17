@@ -1,3 +1,8 @@
+---
+description: Full project scan cho KG
+context: fork
+---
+
 # Deep Scan — Full Project Mastery
 
 Scan current project to build comprehensive KG knowledge.
@@ -33,6 +38,12 @@ Examples: `/deep-scan`, `/deep-scan D:\discord`, `/deep-scan --force`, `/deep-sc
 ---
 
 ## Phase 0: Smart Change Detection
+
+### Step 0: Use hermit_deep_scan tool (if available)
+- Call `hermit_deep_scan({cwd: "{project_path}", force: {true|false}})` for fast Phase 0-3
+- If tool returns structured data → skip to Phase 4 with returned identity/architecture/apiSurface data
+- If tool returns "no-changes" → stop (or use --force)
+- If tool is unavailable or errors → fall through to manual Phase 0 below
 
 ### Step 1: Parse arguments
 - Extract project path from $ARGUMENTS (default: current working directory)

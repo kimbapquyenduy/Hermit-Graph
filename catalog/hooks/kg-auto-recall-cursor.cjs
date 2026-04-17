@@ -2,9 +2,11 @@
 /**
  * kg-auto-recall-cursor.cjs — Cursor onPromptSubmit Hook
  *
- * Thin adapter: reads stdin JSON {prompt}, calls recall-core, outputs plain text.
+ * Thin adapter: reads stdin JSON {prompt}, calls recall-core.recall(), outputs plain text.
  * Cursor's hook format is identical to Claude Code (plain text stdout).
- * All core logic lives in lib/recall-core.cjs.
+ *
+ * Uses recall() for task-aware features: detectPromptType, extractTaskKeywords,
+ * expandRelations, TASK_TOKEN_CAP.
  *
  * Exit Codes:
  *   0 - Always (non-blocking — never fail the user's prompt)
@@ -23,13 +25,9 @@ function main() {
     const prompt = payload.prompt || '';
     if (prompt.length < 10) process.exit(0);
 
-    const keywords = core.extractKeywords(prompt);
-    if (!keywords.length) process.exit(0);
+    if (payload.cwd) process.env.CWD = payload.cwd;
 
-    const scope = core.detectProjectScope();
-    const results = core.searchBrain(keywords, scope);
-    const output = core.formatResults(results, keywords, scope);
-
+    const output = core.recall(prompt);
     if (output) console.log(output);
     process.exit(0);
   } catch { process.exit(0); }

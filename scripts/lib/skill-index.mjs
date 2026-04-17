@@ -63,6 +63,8 @@ function extractTags(name, fm) {
  */
 function parsePaths(fm) {
   if (!fm?.paths) return [];
+  // Handle both array (YAML list) and string (comma-separated) formats
+  if (Array.isArray(fm.paths)) return fm.paths.map(p => p.trim()).filter(Boolean);
   return fm.paths.split(/[,\s]+/).map(p => p.trim()).filter(Boolean);
 }
 

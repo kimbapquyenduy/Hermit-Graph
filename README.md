@@ -41,18 +41,16 @@ Your agents save decisions, patterns, rules, and bugs into a structured knowledg
 
 ---
 
-## What's New in v6.0.0
+## What's New in v6.2.0
 
-**Built-in Code Intelligence** — ast-grep powered code analysis replaces the external GitNexus dependency. Zero subprocesses, <100ms queries, fully MIT licensed.
+**Hook Architecture Upgrade + MCP Annotations** — recall hooks use task-aware `recall()`, new PreCompact/SubagentStart hooks, all 30 MCP tools annotated for agent parallelism safety.
 
-- **`hermit_query`** — Find code by concept (symbols + execution flows)
-- **`hermit_context`** — 360-degree view of any symbol (callers, callees)
-- **`hermit_impact`** — Blast radius analysis before editing (3-hop BFS, risk levels)
-- **`hermit_detect_changes`** — Check if code index is stale
-- **`hermit_index`** — Full or incremental project indexing
-- **JS/TS + Python** support via @ast-grep/napi
-- **Auto-indexes** on first query — no manual setup needed
-- **Incremental indexing** — only re-parses changed files via git diff
+- **Task-aware recall** — All recall hooks (7 agents) switched from manual chain to `core.recall()` with prompt-type detection, smart keyword extraction, relation expansion, and token budgeting
+- **SubagentStart hook** — Subagents now get KG context injection automatically
+- **PreCompact hook** — Reminds agents to save knowledge before context compaction
+- **MCP tool annotations** — `readOnlyHint` / `idempotentHint` on all 30 tools for safe parallel execution
+- **YAML list frontmatter** — `parseFrontmatter()` supports `key:\n  - item` syntax for skill paths
+- **Command context** — All 14 commands tagged with `context: fork|inline` for agent routing
 
 ---
 
@@ -198,7 +196,7 @@ Session 3+:  + PATTERN: + INCIDENT: + DECISION: (auto-capture)
 
 ### Work Across 7 Agents
 - **One memory, seven agents, zero conflicts** — File-lock safe concurrent access
-- **MCP protocol** — Standard integration via 28 tools + 1 resource
+- **MCP protocol** — Standard integration via 30 tools + 1 resource (all annotated with readOnlyHint/idempotentHint)
 - **Native hooks for 5 agents** — Auto-recall and auto-update hooks for Claude, Cursor, Gemini, Cline, Codex
 - **Skill distribution** — Export skills, commands, and hooks to any agent in their native format
 - **Zero-config setup** — `hermit setup` configures all detected agents in one command
@@ -363,7 +361,7 @@ hermit skills export --all --hooks --agent all --project /path  # Hooks to all a
 <summary><strong>NPM Scripts</strong></summary>
 
 ```bash
-npm test                  # Run test suite (100 tests)
+npm test                  # Run test suite (103 tests + 16 e2e)
 npm run health            # Brain health check
 npm run sync              # Sync graph to Neo4j
 npm run view              # Serve HTML dashboard
@@ -374,7 +372,12 @@ npm run migrate           # Migrate v3 to v4 format
 npm run setup             # Setup Hermit Graph for a new project
 npm run setup:semantic    # Setup semantic search (JS-native)
 npm run setup:all         # Setup everything (project + semantic)
+npm run test:e2e          # Run e2e code intelligence tests (16 tests)
+npm run test:all          # Run unit + e2e tests together
+npm run publish:dry       # Preview what npm will package
 ```
+
+> `npm publish` auto-runs preflight checks (git clean, version/changelog sync, tests, secrets scan, node version). See `scripts/publish-preflight.mjs`.
 
 </details>
 
@@ -525,7 +528,7 @@ hermit-graph/
 ├── scripts/
 │   ├── brain-cli.mjs            # CLI entry point
 │   ├── skills-manager.mjs       # Skill install/remove/list/export
-│   ├── hermit-mcp-server.mjs    # MCP server (28 tools + 1 resource)
+│   ├── hermit-mcp-server.mjs    # MCP server (30 tools + 1 resource)
 │   └── lib/
 │       ├── code-intel/          # Built-in code intelligence (v6)
 │       │   ├── parser.mjs       # ast-grep wrapper (JS/TS/Python)
@@ -588,6 +591,22 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 
 ## Changelog
 
+### v6.2.0 — Hook Architecture Upgrade + MCP Annotations
+
+#### New
+- **Task-aware recall** — All recall hooks (7 agents, 10 files) switched from manual `extractKeywords → searchBrain → formatResults` chain to `core.recall()` with prompt-type detection, smart keyword extraction, relation expansion, and token budgeting (TASK_TOKEN_CAP=1500)
+- **SubagentStart hook** — `kg-auto-recall.cjs` now fires on SubagentStart events, giving subagents KG context automatically
+- **PreCompact hook** — `kg-pre-compact.cjs` reminds agents to save knowledge before context compaction
+- **MCP tool annotations** — `readOnlyHint` and `idempotentHint` on all 30 tools across 9 modules for safe agent parallelism
+- **YAML list frontmatter** — `parseFrontmatter()` supports `key:\n  - item` syntax; `parsePaths()` handles both string and array formats
+- **Command context routing** — All 14 commands tagged with `context: fork` (8) or `context: inline` (6) for agent execution routing
+- **Publish preflight** — `prepublishOnly` hook runs 8 automated checks before `npm publish` (git clean, version sync, tests, secrets scan)
+
+#### Fixed
+- Agent-specific recall hooks (cursor, cline, gemini, codex) were still using old manual chain — all 10 files updated
+- `skill-index.mjs` `parsePaths()` crashed on array paths after frontmatter upgrade — added `Array.isArray()` guard
+- MCP tool count test description mismatched assertion (28 vs 30)
+
 ### v6.1.0 — Unified Impact Bridge
 
 #### New
@@ -627,8 +646,8 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 - **Unified search** — `hermit_unified_search` merges KG entities + code symbols in one query
 
 #### Improved
-- **100 tests passing** (up from 98)
-- **MCP server** boots with all 28 tools, zero external dependencies
+- **103 tests + 16 e2e passing** (up from 100)
+- **MCP server** boots with all 30 tools, zero external dependencies
 - **Performance** — Full index ~2s, queries <10ms, impact <20ms
 
 ---
