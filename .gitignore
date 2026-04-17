@@ -23,7 +23,7 @@ __pycache__/
 *.pyc
 .venv/
 
-# Brain data
+# Brain data (user-specific)
 data/
 
 # Build & output
@@ -49,8 +49,7 @@ Thumbs.db
 *.tsbuildinfo
 
 # Plans & reports (generated, not tracked)
-plans/**/*
-!plans/templates/*
+plans/
 
 # Screenshots
 screenshots/
@@ -72,16 +71,29 @@ test-ck
 .clinerules
 .windsurfrules
 GEMINI.md
+AGENTS.md
+.mcp.json
 
 # ClaudeKit (separate tool, not part of hermit-graph)
 kit/
+
+# Abandoned / not part of hermit-graph
+mcp-memory-libsql/
+docker/
+
+# Dev scratch scripts (not part of package)
+run_tests.mjs
+run_tests_full.mjs
+test_mcp.mjs
+write-report.mjs
+release-manifest.json
+GUIDE.md
+BUSINESS.md
 
 # Temp & test artifacts
 tmp/
 tests/
 er.name
-write-report.mjs
-BUSINESS.md
 
 # IDE (non-VSCode)
 .cursor/
