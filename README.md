@@ -224,6 +224,21 @@ Session 3+:  + PATTERN: + INCIDENT: + DECISION: (auto-capture)
 - **Brain health check** — 5-check scoring (stale, dupes, orphans, low-confidence, missing relations). Score 0-100
 - **Neo4j (optional)** — Full graph database with Cypher queries via Docker
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kimbapquyenduy/hermit-graph/main/assets/kg-viewer-entity-details.png" alt="Knowledge Graph Viewer — entity details" width="800" />
+  <br><em>Knowledge Graph Viewer — browse entities, view observations, search across your brain</em>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kimbapquyenduy/hermit-graph/main/assets/kg-viewer-related-traversal.png" alt="Knowledge Graph Viewer — related traversal" width="800" />
+  <br><em>Related Traversal — 2-hop BFS from any node, depth-colored blast radius</em>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kimbapquyenduy/hermit-graph/main/assets/codegraph-viewer-impact-analysis.png" alt="CodeGraph Viewer — impact analysis" width="800" />
+  <br><em>CodeGraph Viewer — code symbols with impact analysis, severity badges, business rule overlay</em>
+</p>
+
 ---
 
 ## Why Hermit Graph?
