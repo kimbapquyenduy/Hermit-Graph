@@ -140,7 +140,7 @@ Built-in code intelligence powered by ast-grep. Zero external dependencies beyon
 
 ### 5. Dashboard / UI Layer
 
-#### Viewer (`viewer/index.html`)
+#### Knowledge Graph Viewer (`viewer/index.html`)
 - **Purpose:** Web-based knowledge graph browser
 - **Features:**
   - Full entity name search + observation text search
@@ -149,6 +149,22 @@ Built-in code intelligence powered by ast-grep. Zero external dependencies beyon
   - Export/import controls
 - **Data source:** Reads `data/brain-embeddings.json`
 - **Launch:** `npm run view:live`
+
+#### CodeGraph Viewer (`viewer/code-viewer.html`)
+- **Purpose:** Standalone visualization tool for code intelligence (ast-grep symbol graph)
+- **Technology:** Sigma.js v2.4.0 + Graphology v0.25.4 (same CDN as KG viewer)
+- **Data source:** Loads `data/code-symbols.jsonl` (JSONL format from CodeGraph indexer)
+- **Features:**
+  - Force-directed graph rendering with zoom/pan controls
+  - File tree sidebar with symbol hierarchy (functions, classes, methods)
+  - Search/filter by symbol name, type, file path
+  - Impact analysis via BFS (upstream/downstream/both directions, 3-hop depth)
+  - Process flow detection (DFS execution chain visualization)
+  - Business rule overlay (links code symbols to KG RULE entities)
+  - Export capabilities (JSON graph, SVG diagram, PNG screenshot)
+  - Keyboard shortcuts for navigation and analysis
+- **Size:** 2118 LOC (standalone, zero dependencies beyond CDN scripts)
+- **Launch:** Open `viewer/code-viewer.html` in browser after running `npm run build:index` (ensures code-symbols.jsonl is populated)
 
 ---
 
@@ -331,6 +347,7 @@ Commit merged brain.jsonl
 | Incremental indexing via git diff | indexer.mjs | v6.0.0 |
 | 3-hop BFS blast radius analysis | impact.mjs | v6.0.0 |
 | DFS execution flow detection | process-detector.mjs | v6.0.0 |
+| CodeGraph Viewer (code intelligence UI) | viewer/code-viewer.html (Sigma.js + Graphology) | v6.2.0 |
 
 ---
 

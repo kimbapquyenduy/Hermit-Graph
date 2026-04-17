@@ -4,6 +4,32 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.0] — 2026-04-17
+
+### Added
+- **CodeGraph Viewer** (`viewer/code-viewer.html`) — WebGL viewer for code symbols with file tree sidebar, color-by-kind/folder/language, impact blast radius with severity badges, collapsible detail panels, selection ring
+- **Brain-Code bridge** — CodeGraph viewer auto-loads `brain.jsonl`, matches RULE/FLOW entities to code symbols by file path (3-strategy: exact, basename, partial), shows affected rules in detail + impact panels
+- **Related entities** (KG viewer) — "Related" button performs BFS 2-hop traversal with edge dimming, depth-colored nodes
+- **Deep Scan Collector** — `deep-scan-collector.mjs` for structured phase-based project scanning
+- **`hermit view --code`** — CLI flag to open CodeGraph viewer
+- **`npm run view:code`** — NPM script shortcut for CodeGraph viewer
+- **Sidebar reopen button** — Floating tab when sidebar collapsed (CodeGraph viewer)
+- **Node overlap resolution** — Collision detection pushes overlapping nodes apart every layout iteration
+
+### Improved
+- Force layout: weaker attraction, overlap resolution per iteration, stronger Spread button
+- Selection ring uses correct Sigma.js v2 coordinate chain (raw graph coords → graphToViewport)
+- Node size multipliers reduced (selected 1.15x, impact 1.2x) to prevent compounding
+- KG viewer layout: wider initial spread, 3x area, 0.3x attraction
+- CodeGraph layout: density-adaptive area multipliers increased, attraction halved
+
+### Fixed
+- Related mode not exiting when clicking different node
+- Biz rules not matching code symbols (path matching too strict)
+- Impact panel undefined `bizRules` variable
+
+---
+
 ## [6.2.0] — 2026-04-17
 
 ### Added
@@ -16,6 +42,7 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 - **Skill paths** — Added `paths:` YAML lists to `auto-memory` and `biz-guard` catalog skills
 - **Publish preflight** — `scripts/publish-preflight.mjs` with 8 automated checks (git clean, version/changelog sync, README match, unit tests, e2e tests, secrets scan, npm pack dry-run, Node version); wired as `prepublishOnly` in package.json
 - **New npm scripts** — `test:e2e`, `test:all`, `publish:dry` for dev workflow
+- **CodeGraph Viewer** (`viewer/code-viewer.html`) — Standalone visualization tool for code intelligence (2118 LOC, Sigma.js v2.4.0 + Graphology v0.25.4). Features: force-directed graph rendering, file tree sidebar with symbol hierarchy, search/filter, impact analysis via 3-hop BFS (upstream/downstream/both), process flow detection via DFS, business rule overlay (code ↔ KG RULE entities), export (JSON/SVG/PNG), keyboard shortcuts. Zero dependencies beyond CDN scripts.
 
 ### Fixed
 - **Agent-specific recall hooks using old manual chain** — 4 agent variants (cursor, cline, gemini, codex) in `.claude/hooks/`, `catalog/hooks/`, `.cursor/hooks/`, `.gemini/hooks/` were still using old pattern; all 10 files updated to `core.recall()`

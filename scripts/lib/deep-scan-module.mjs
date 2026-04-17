@@ -19,35 +19,62 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 const AI_PHASE_INSTRUCTIONS = `
 ## AI Phase 4-8 Instructions
 
-Use the structured data above to execute these phases. Follow the deep-scan command protocol for entity naming and observation format.
+Use the structured data above to execute these phases. The "Phase 4-6 File Hints" section lists candidate files detected deterministically — READ these files to extract knowledge.
 
 ### Phase 4: Code Patterns & Conventions
-Scan 20+ source files for: naming convention, import style, error handling, auth pattern, component structure, state management, API call pattern. Save as PATTERN:ARCH:{ProjectName}:Conventions (pattern-arch) + individual PATTERN:{ProjectName}:{PatternName} (pattern-code) entities.
+Read 20+ source files from the sourceFiles hint list. Detect:
+- Naming convention (camelCase/snake_case/PascalCase — >80% = 0.9, 60-80% = 0.7)
+- Import style (ESM/CJS/mixed, barrel exports)
+- Error handling (try-catch, Result<T>, error middleware chain)
+- Auth pattern (JWT/session/OAuth — where check lives)
+- Component structure, state management, API call pattern
+
+Save as: \`PATTERN:ARCH:{ProjectName}:Conventions\` (pattern-arch)
 
 ### Phase 5: Business Logic & Domain Rules
-Read key source files identified in architecture. Extract business rules, validation logic, state machines, domain flows. Save as RULE:{ProjectName}:{RuleName} (biz-rule), FLOW:{ProjectName}:{FlowName} (biz-flow), ENTITY:{ProjectName}:{EntityName} (biz-entity).
+**Read files from these hint categories:** services, validators, constants, policies, testFiles, businessMd.
+Extract one entity per discovered rule:
+
+\`\`\`
+RULE:{ProjectName}:{RuleName} (biz-rule) — 4 obs minimum:
+  [0.8|date] RULE: {description}
+  [0.8|date] CONTEXT: {when/where applies}
+  [0.8|date] VIOLATION: {error msg, status code on violation}
+  [0.8|date] FILES: {file:line where implemented}
+\`\`\`
+
+Extract flows:
+\`\`\`
+FLOW:{ProjectName}:{FlowName} (biz-flow) — 3 obs minimum:
+  [0.8|date] FLOW: {step1 → step2 → step3}
+  [0.8|date] TRIGGER: {what starts this flow}
+  [0.8|date] SIDE_EFFECTS: {emails, notifications, webhooks}
+\`\`\`
+
+Also scan test files for behavioral specs (\`it('should...'\`), and source files for business rule comments (\`// BUSINESS RULE:\`, \`// RULE:\`, \`// CONSTRAINT:\`, \`// IMPORTANT:\`).
 
 ### Phase 5.5: Tech Decisions
-Scan ADR dirs, README sections, code comments (DECISION:/WHY:/CHOSE:), config migrations. Save as TECH:Decision:{ProjectName}:{Topic} (tech-decision).
+Scan ADR dirs, README sections, code comments (DECISION:/WHY:/CHOSE:). Save as TECH:Decision:{ProjectName}:{Topic} (tech-decision).
 
 ### Phase 6: Integrations & Config
-Scan external service configs, SDK inits, webhook handlers, queue consumers. Save as PATTERN:INT:{ProjectName}:{ServiceName} (pattern-integration) + TECH:{ProjectName}:Config:{ConfigArea} (tech-config).
+**Read files from hint categories:** webhooks, queues, sdkClients, envFiles.
+Save as: \`PATTERN:INT:{ProjectName}:{ServiceName}\` (pattern-integration) with SERVICE, PROTOCOL, AUTH, ENDPOINTS_USED, ERROR_HANDLING observations.
 
 ### Phase 6.5: Incidents & Gotchas
-Scan HACK/FIXME/WORKAROUND comments, git reverts, skipped tests, changelog. Save as INCIDENT:{ProjectName}:{BugDesc} (incident-bug) + GOTCHA:{ProjectName}:{Description} (incident-gotcha).
+Scan HACK/FIXME/WORKAROUND comments, git reverts, skipped tests. Save as INCIDENT:{ProjectName}:{BugDesc} (incident-bug).
 
-### Phase 7: Relations (40+ types, zero-orphan goal)
-Connect ALL entities with typed relations. Categories: BIZ hub, business logic, code patterns, tech decisions, tech config, integrations, incidents, people, data corpus, architecture internal.
+### Phase 7: Relations
+Connect ALL entities with typed relations. Zero-orphan goal. Key relation types: uses, has_architecture, has_data_model, affects, integrates_with, built_with, decided_for, has_incident.
 
 ### Phase 7.5: ScanMeta Update
-Save TECH:{ProjectName}:ScanMeta with LAST_SCAN, GIT_HEAD, DIR counts, phase list, entity/relation counts.
+Save TECH:{ProjectName}:ScanMeta with LAST_SCAN, GIT_HEAD, DIR counts, entity/relation counts.
 
 ### Phase 8: Summary Report
-Output coverage table for all 13 entity types. List impact-ready entities and unresolved questions.
+Output coverage table for all 13 entity types. List impact-ready entities, key findings, and unresolved questions.
 
 ### Observation Format
 All observations MUST use: [{confidence}|{YYYY-MM-DD}] PREFIX: content
-Follow the Observation Lifecycle Protocol for incremental scans.
+Follow Observation Lifecycle Protocol for incremental scans (dedup by PREFIX).
 `.trim();
 
 export function register(server, ctx) {
@@ -134,6 +161,32 @@ export function register(server, ctx) {
           }
           if (result.apiSurface.schemas.length) {
             lines.push(`Schema files: ${result.apiSurface.schemas.join(', ')}`);
+          }
+          lines.push('');
+        }
+
+        // Phase 4-6 file hints for AI
+        if (result.bizHints) {
+          lines.push('### Phase 4-6: File Hints for AI');
+          const h = result.bizHints;
+          if (h.businessMd) lines.push(`BUSINESS.md: exists (read first for Phase 5)`);
+          if (h.sourceFiles.length) lines.push(`Source files (Phase 4 conventions, ${h.sourceFiles.length}): ${h.sourceFiles.slice(0, 15).join(', ')}${h.sourceFiles.length > 15 ? `, ... +${h.sourceFiles.length - 15} more` : ''}`);
+          if (h.services.length) lines.push(`Service/domain files (Phase 5 rules, ${h.services.length}): ${h.services.join(', ')}`);
+          if (h.validators.length) lines.push(`Validator/DTO files (Phase 5 rules, ${h.validators.length}): ${h.validators.join(', ')}`);
+          if (h.constants.length) lines.push(`Constants/enum files (Phase 5, ${h.constants.length}): ${h.constants.join(', ')}`);
+          if (h.policies.length) lines.push(`Policy/middleware files (Phase 5, ${h.policies.length}): ${h.policies.join(', ')}`);
+          if (h.testFiles.length) lines.push(`Test files (Phase 5 behavioral specs, ${h.testFiles.length}): ${h.testFiles.slice(0, 10).join(', ')}${h.testFiles.length > 10 ? `, ... +${h.testFiles.length - 10} more` : ''}`);
+          if (h.webhooks.length) lines.push(`Webhook/callback files (Phase 6, ${h.webhooks.length}): ${h.webhooks.join(', ')}`);
+          if (h.queues.length) lines.push(`Queue/worker files (Phase 6, ${h.queues.length}): ${h.queues.join(', ')}`);
+          if (h.sdkClients.length) lines.push(`SDK/API client files (Phase 6, ${h.sdkClients.length}): ${h.sdkClients.join(', ')}`);
+          if (h.envFiles.length) lines.push(`Env files (Phase 6 cross-ref): ${h.envFiles.join(', ')}`);
+
+          const total = h.services.length + h.validators.length + h.constants.length
+            + h.policies.length + h.testFiles.length + h.webhooks.length
+            + h.queues.length + h.sdkClients.length;
+          if (total === 0 && !h.businessMd) {
+            lines.push('No business-rule or integration files detected by pattern matching.');
+            lines.push('AI should grep for: BUSINESS RULE, RULE:, CONSTRAINT:, IMPORTANT: comments in source files.');
           }
           lines.push('');
         }

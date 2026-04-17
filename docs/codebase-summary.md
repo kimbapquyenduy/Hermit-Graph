@@ -90,7 +90,8 @@ D:/Project/Personal Project/hermit-graph/
 │   └── session-hook-{cursor,gemini,cline,codex}.cjs    # Session lifecycle adapters
 │
 ├── viewer/
-│   ├── index.html                      # Dashboard UI
+│   ├── index.html                      # Knowledge Graph dashboard UI
+│   ├── code-viewer.html                # CodeGraph visualization tool (Sigma.js + Graphology)
 │   ├── data.json                       # Static data source (for development)
 │   └── [CSS/JS assets]
 │
@@ -170,6 +171,7 @@ D:/Project/Personal Project/hermit-graph/
 | File | Purpose |
 |------|---------|
 | `viewer/index.html` | Web dashboard (entity browser, search, stale indicators) |
+| `viewer/code-viewer.html` | CodeGraph visualization (2118 LOC) — force-directed graph rendering, impact analysis, process flow detection, business rule overlay, export (JSON/SVG/PNG) |
 
 ---
 

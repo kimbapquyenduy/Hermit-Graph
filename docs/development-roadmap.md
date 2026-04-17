@@ -161,7 +161,7 @@ This roadmap tracks the evolution of Hermit Graph — a persistent memory system
 
 ---
 
-### v6.2.0 — Hook Architecture Upgrade + MCP Annotations (2026-04-17, Complete)
+### v6.2.0 — Hook Architecture Upgrade + MCP Annotations + CodeGraph Viewer (2026-04-17, Complete)
 
 **Status:** Complete
 **Completion Date:** 2026-04-17
@@ -173,11 +173,13 @@ This roadmap tracks the evolution of Hermit Graph — a persistent memory system
 - MCP tool annotations — `readOnlyHint`/`idempotentHint` on all 30 tools across 9 modules
 - YAML list frontmatter — `parseFrontmatter()` supports multi-line list syntax
 - Command context routing — All 14 commands tagged with `context: fork|inline`
+- CodeGraph Viewer (`viewer/code-viewer.html`) — Standalone Sigma.js visualization for code intelligence (2118 LOC). Force-directed graph rendering, impact analysis BFS, process flow detection, business rule overlay, export to JSON/SVG/PNG
 
 **Key Metrics:**
 - 103 unit/integration + 16 e2e tests passing
 - 30 MCP tools (all annotated for parallelism safety)
 - 10 recall hook files updated across 7 agents
+- New viewer provides interactive exploration of CodeGraph symbols + relationships
 
 ---
 

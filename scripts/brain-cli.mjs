@@ -75,8 +75,8 @@ const COMMANDS = {
     run: () => runScript('migrate-v3-to-v4.mjs', args),
   },
   view: {
-    desc: 'Open dashboard viewer',
-    usage: 'hermit view',
+    desc: 'Open dashboard viewer (--code for CodeGraph)',
+    usage: 'hermit view [--code] [path]',
     run: runView,
   },
   help: {
