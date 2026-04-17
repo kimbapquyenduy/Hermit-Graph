@@ -104,3 +104,7 @@ er.name
 # Serena cache
 .serena/cache
 .gitnexus
+
+# Brand drafts & dev-only assets
+assets/articles/
+assets/brand/design-tokens.*
