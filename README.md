@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/og-image-hermit-graph-1200x630.png" alt="Hermit Graph" width="600" />
+  <img src="https://raw.githubusercontent.com/kimbapquyenduy/hermit-graph/main/assets/brand/og-image-hermit-graph-1200x630.png" alt="Hermit Graph" width="600" />
 </p>
 
 <p align="center">
@@ -667,6 +667,14 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 ---
 
 ## Changelog
+
+### v6.3.2 — Public Release Readiness
+
+- Add community files: SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
+- Add GitHub issue/PR templates and Dependabot config
+- Include LICENSE in npm package
+- Fix README image rendering on npmjs.com (use absolute URLs)
+- Add license attribution to viewer CDN imports
 
 ### v6.3.0 — Dual Graph Viewers + Brain-Code Bridge
 
