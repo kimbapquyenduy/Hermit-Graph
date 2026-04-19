@@ -15,6 +15,7 @@ import { exportAllHooks } from './hook-export.mjs';
 import { exportAllProjectSkills } from './project-skill-export.mjs';
 import { learnProject } from './project-learner.mjs';
 import { AGENTS } from './skill-adapters.mjs';
+import { zBoolean } from './zod-coerce.mjs';
 
 const IDEM = { idempotentHint: true };
 
@@ -32,7 +33,7 @@ export function register(server, ctx) {
     {
       agent: z.enum([...AGENT_NAMES, 'all']).describe('Target agent (claude/cursor/gemini/cline/codex/opencode/all)'),
       cwd: z.string().optional().describe('Project working directory for auto-learn'),
-      global: z.boolean().optional().default(true).describe('Export to agent global config dir'),
+      global: zBoolean().optional().default(true).describe('Export to agent global config dir'),
     },
     IDEM,
     async ({ agent, cwd, global: isGlobal }) => {

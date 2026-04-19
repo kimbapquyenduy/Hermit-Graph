@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { collectScanData } from './deep-scan-collector.mjs';
+import { zBoolean } from './zod-coerce.mjs';
 
 const RO = { readOnlyHint: true };
 
@@ -85,7 +86,7 @@ export function register(server, ctx) {
     'Scan project for KG knowledge. Phase 0-3 deterministic. Returns structured data for AI Phase 4-8.',
     {
       cwd: z.string().optional().describe('Project root directory to scan'),
-      force: z.boolean().optional().default(false).describe('Force full rescan ignoring ScanMeta'),
+      force: zBoolean().optional().default(false).describe('Force full rescan ignoring ScanMeta'),
     },
     RO,
     async ({ cwd, force }) => {

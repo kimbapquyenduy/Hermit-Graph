@@ -13,6 +13,7 @@ import { discoverSkills, exportSkill, exportAll, checkCompat, discoverCommands, 
 import { discoverHooks, exportHook, exportAllHooks } from './hook-export.mjs';
 import { discoverProjectSkills, exportProjectSkill, exportAllProjectSkills } from './project-skill-export.mjs';
 import { AGENTS } from './skill-adapters.mjs';
+import { zBoolean } from './zod-coerce.mjs';
 
 const RO = { readOnlyHint: true };
 const IDEM = { idempotentHint: true };
@@ -105,7 +106,7 @@ export function register(server, ctx) {
       skillName: z.string().describe('Skill name from catalog, or "__all__" for all skills'),
       agent: z.enum([...AGENT_NAMES, 'all']).describe('Target agent (claude/cursor/gemini/codex/opencode/all)'),
       project: z.string().optional().describe('Project root path for project-mode export'),
-      global: z.boolean().optional().default(false).describe('Export to agent global config dir'),
+      global: zBoolean().optional().default(false).describe('Export to agent global config dir'),
     },
     IDEM,
     async ({ skillName, agent, project, global: isGlobal }) => {
@@ -178,7 +179,7 @@ export function register(server, ctx) {
       commandName: z.string().describe('Command name from catalog, or "__all__" for all commands'),
       agent: z.enum([...AGENT_NAMES, 'all']).describe('Target agent (claude/cursor/gemini/codex/opencode/all)'),
       project: z.string().optional().describe('Project root path for project-mode export'),
-      global: z.boolean().optional().default(false).describe('Export to agent global config dir'),
+      global: zBoolean().optional().default(false).describe('Export to agent global config dir'),
     },
     IDEM,
     async ({ commandName, agent, project, global: isGlobal }) => {
@@ -250,7 +251,7 @@ export function register(server, ctx) {
       hookName: z.string().describe('Hook filename, or "__all__" for all hooks for the agent'),
       agent: z.enum(AGENT_NAMES).describe('Target agent (claude/cursor/gemini/codex/opencode)'),
       project: z.string().optional().describe('Project root path for project-mode export'),
-      global: z.boolean().optional().default(false).describe('Export to agent global config dir'),
+      global: zBoolean().optional().default(false).describe('Export to agent global config dir'),
     },
     IDEM,
     async ({ hookName, agent, project, global: isGlobal }) => {

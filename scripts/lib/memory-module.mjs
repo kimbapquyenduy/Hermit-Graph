@@ -8,6 +8,7 @@ import { readBrain, writeBrain, withBrainLock } from './brain-io.mjs';
 import { search } from './semantic-search.mjs';
 import { obsText, parseObservation } from './parse-observation.mjs';
 import { archiveObservation, appendHistory } from './audit-trail.mjs';
+import { zNumber, zBoolean, zArray } from './zod-coerce.mjs';
 
 const MAX_RESPONSE_CHARS = 25000;
 const RO = { readOnlyHint: true };
@@ -146,11 +147,11 @@ export function register(server, ctx) {
 
   // ── T1: Create Entities ──
   server.tool('hermit_create_entities', 'Create or merge entities in the knowledge graph. Deduplicates by name (case-insensitive)', {
-    entities: z.array(z.object({
+    entities: zArray(z.object({
       name: z.string().min(1).describe('Entity name (TIER:SCOPE:LABEL format)'),
       entityType: z.string().min(1).describe('One of 13 entity types'),
-      observations: z.array(z.string()).min(1).describe('Observations with [confidence|date] prefix'),
-    })).min(1),
+      observations: zArray(z.string(), { min: 1 }).describe('Observations with [confidence|date] prefix'),
+    }), { min: 1 }),
   }, async ({ entities: input }) => {
     // Validate all observations before writing
     for (const item of input) {
@@ -188,11 +189,11 @@ export function register(server, ctx) {
 
   // ── T2: Create Relations ──
   server.tool('hermit_create_relations', 'Create relations between entities. Deduplicates by from+to+relationType', {
-    relations: z.array(z.object({
+    relations: zArray(z.object({
       from: z.string().min(1),
       to: z.string().min(1),
       relationType: z.string().min(1),
-    })).min(1),
+    }), { min: 1 }),
   }, async ({ relations: input }) => {
     const result = await withBrainLock(brainPath, () => {
       const { entities, relations } = readBrain(brainPath);
@@ -218,8 +219,8 @@ export function register(server, ctx) {
   // ── T3: Search Nodes (keyword) ──
   server.tool('hermit_search_nodes', 'Keyword search across entity names, types, and observations', {
     query: z.string().min(1),
-    limit: z.number().int().min(1).max(50).optional().default(10),
-    include_archived: z.boolean().optional().default(false),
+    limit: zNumber().int().min(1).max(50).optional().default(10),
+    include_archived: zBoolean().optional().default(false),
   }, RO, async ({ query, limit, include_archived }) => {
     const { entities } = readBrain(brainPath);
     let results = [];
@@ -238,7 +239,7 @@ export function register(server, ctx) {
   // ── T4: Semantic Search ──
   server.tool('hermit_semantic_search', 'Hybrid vector + keyword search (falls back to keyword-only if no embeddings)', {
     query: z.string().min(1),
-    limit: z.number().int().min(1).max(50).optional().default(10),
+    limit: zNumber().int().min(1).max(50).optional().default(10),
   }, RO, async ({ query, limit }) => {
     try {
       const results = await search(query, { topK: limit });
@@ -253,7 +254,7 @@ export function register(server, ctx) {
 
   // ── T5: Open Nodes ──
   server.tool('hermit_open_nodes', 'Read full entity details by name(s)', {
-    names: z.array(z.string().min(1)).min(1).max(20),
+    names: zArray(z.string().min(1), { min: 1, max: 20 }),
   }, RO, async ({ names }) => {
     const { entities } = readBrain(brainPath);
     const found = [], missing = [];
@@ -270,7 +271,7 @@ export function register(server, ctx) {
   // ── T6: Add Observations ──
   server.tool('hermit_add_observations', 'Append observations to an existing entity', {
     entityName: z.string().min(1),
-    observations: z.array(z.string()).min(1),
+    observations: zArray(z.string(), { min: 1 }),
   }, async ({ entityName, observations: newObs }) => {
     // Validate observations before writing
     const invalid = validateObservations(newObs);
@@ -290,7 +291,7 @@ export function register(server, ctx) {
 
   // ── T7: Archive Entities (with audit trail) ──
   server.tool('hermit_archive_entities', 'Soft-delete entities (set _archived=true)', {
-    names: z.array(z.string().min(1)).min(1),
+    names: zArray(z.string().min(1), { min: 1 }),
   }, async ({ names }) => {
     const result = await withBrainLock(brainPath, () => {
       const { entities, relations } = readBrain(brainPath);
@@ -314,7 +315,7 @@ export function register(server, ctx) {
   // ── T8: Archive Observations (with audit trail) ──
   server.tool('hermit_archive_observations', 'Soft-archive specific observations within an entity by content match', {
     entityName: z.string().min(1),
-    observations: z.array(z.string()).min(1).describe('Observation texts to archive (partial match)'),
+    observations: zArray(z.string(), { min: 1 }).describe('Observation texts to archive (partial match)'),
   }, async ({ entityName, observations: targets }) => {
     const result = await withBrainLock(brainPath, () => {
       const { entities, relations } = readBrain(brainPath);
@@ -342,7 +343,7 @@ export function register(server, ctx) {
   // ── T9: Get Related ──
   server.tool('hermit_get_related', 'Traverse relations from an entity (BFS, 1-5 hops)', {
     name: z.string().min(1),
-    depth: z.number().int().min(1).max(5).optional().default(1),
+    depth: zNumber().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
   }, RO, async ({ name, depth, relationType }) => {
     const { entities, relations } = readBrain(brainPath);
@@ -374,9 +375,9 @@ export function register(server, ctx) {
   // ── T10: Read Graph ──
   server.tool('hermit_read_graph', 'Read knowledge graph with filters', {
     detailLevel: z.enum(['minimal', 'detail', 'entity-list']).optional().default('minimal'),
-    entityNames: z.array(z.string()).optional(),
-    entityTypes: z.array(z.string()).optional(),
-    include_archived: z.boolean().optional().default(false),
+    entityNames: zArray(z.string()).optional(),
+    entityTypes: zArray(z.string()).optional(),
+    include_archived: zBoolean().optional().default(false),
   }, RO, async ({ detailLevel, entityNames, entityTypes, include_archived }) => {
     const { entities, relations } = readBrain(brainPath);
     let filtered = [...entities.values()];
