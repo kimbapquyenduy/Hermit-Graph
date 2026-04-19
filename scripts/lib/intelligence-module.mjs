@@ -10,6 +10,7 @@ import { obsText, parseObservation } from './parse-observation.mjs';
 import {
   detectBranch, getBranchFilter, setBranchFilter, clearBranchFilter,
 } from './branch-context.mjs';
+import { zNumber, zBoolean } from './zod-coerce.mjs';
 
 const RO = { readOnlyHint: true };
 
@@ -35,7 +36,7 @@ export function register(server, ctx) {
   // ── T1: Audit Trail ──
   server.tool('hermit_audit_trail', 'View observation change history for an entity — append-only audit log', {
     entityName: z.string().min(1).describe('Entity name to view history for'),
-    limit: z.number().int().min(1).max(100).optional().default(20),
+    limit: zNumber().int().min(1).max(100).optional().default(20),
   }, RO, async ({ entityName, limit }) => {
     const { entities } = readBrain(brainPath);
     const entity = findEntity(entities, entityName);
@@ -58,7 +59,7 @@ export function register(server, ctx) {
 
   // ── T2: Consolidate ──
   server.tool('hermit_consolidate', 'Run consolidation — dedup entities, flag contradictions. Use dry_run=true to preview', {
-    dryRun: z.boolean().optional().default(true).describe('Preview changes without applying'),
+    dryRun: zBoolean().optional().default(true).describe('Preview changes without applying'),
   }, async ({ dryRun }) => {
     try {
       const report = await withBrainLock(brainPath, () => {

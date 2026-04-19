@@ -12,6 +12,7 @@ import {
   loadBrain, checkStale, checkDuplicates, checkOrphans,
   checkLowConfidence, checkMissingRelations, calculateHealth,
 } from './brain-health-checks.mjs';
+import { zNumber } from './zod-coerce.mjs';
 
 const RO = { readOnlyHint: true };
 
@@ -29,7 +30,7 @@ export function register(server, ctx) {
   // ── T1: Unified Search (KG + Code in parallel) ──
   server.tool('hermit_unified_search', 'Search knowledge graph entities AND code symbols together, ranked by relevance', {
     query: z.string().min(1).max(500).describe('Search query'),
-    limit: z.number().int().min(1).max(50).optional().default(20),
+    limit: zNumber().int().min(1).max(50).optional().default(20),
     cwd: z.string().optional().describe('Working directory for code search'),
   }, RO, async ({ query, limit, cwd }) => {
     try {

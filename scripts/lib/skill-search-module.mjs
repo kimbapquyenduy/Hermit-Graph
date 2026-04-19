@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import { getSkillIndex } from './skill-index.mjs';
+import { zNumber } from './zod-coerce.mjs';
 
 const RO = { readOnlyHint: true };
 
@@ -106,7 +107,7 @@ export function register(server, ctx) {
     'Search hermit skills by query — find relevant skills for a task',
     {
       query: z.string().min(1).max(500).describe('Search query (natural language or keywords)'),
-      limit: z.number().int().min(1).max(20).optional().default(5)
+      limit: zNumber().int().min(1).max(20).optional().default(5)
         .describe('Max results to return'),
       source: z.enum(['catalog', 'project', 'all']).optional().default('all')
         .describe('Filter by skill source'),
