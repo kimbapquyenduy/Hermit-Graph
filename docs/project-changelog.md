@@ -4,6 +4,15 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.5] — 2026-04-19
+
+### Fixed
+- **MCP client string-arg coercion** — tool schemas now accept stringified primitives and JSON-stringified arrays from clients that serialize all args as strings (Cursor, Cline, certain bridges). Previously failed with `Invalid input: expected number/array, received string` on tools like `hermit_search_nodes { limit: 3 }`, `hermit_add_observations { observations: [...] }`, `hermit_create_entities { entities: [...] }`
+- **New helper** — `scripts/lib/zod-coerce.mjs` exports `zNumber()`, `zBoolean()`, `zArray(inner, { min, max })` — coerces strings at parse boundary while preserving all constraints (min/max/enum/minLength)
+- **Applied to 7 modules** — memory, intelligence, unified-search, skill-search, deep-scan, skills, setup. Zero behavior change for correctly-typed clients (Claude Code)
+
+---
+
 ## [6.3.4] — 2026-04-17
 
 ### Fixed
