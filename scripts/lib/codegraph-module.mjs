@@ -14,11 +14,19 @@ const IDEM = { idempotentHint: true };
 
 // ── Data directory resolution ──
 
+/**
+ * Resolve the target project directory for CodeGraph operations.
+ * Priority: explicit cwd arg → CLAUDE_PROJECT_DIR env → HERMIT_PROJECT_CWD env → process.cwd().
+ * This lets CodeGraph auto-target the user's active workspace without requiring cwd on every call.
+ */
+function resolveProjectCwd(cwd) {
+  if (cwd) return resolve(cwd);
+  const envCwd = process.env.CLAUDE_PROJECT_DIR || process.env.HERMIT_PROJECT_CWD;
+  return resolve(envCwd || process.cwd());
+}
+
 function resolveDataDir(cwd) {
-  const absCwd = cwd ? resolve(cwd) : process.cwd();
-  const local = join(absCwd, 'data');
-  if (existsSync(local) || existsSync(join(absCwd, 'package.json'))) return local;
-  return join(process.cwd(), 'data');
+  return join(resolveProjectCwd(cwd), 'data');
 }
 
 // ── Auto-index: ensure graph is loaded, index if needed ──
@@ -26,16 +34,16 @@ function resolveDataDir(cwd) {
 const _indexingPromises = new Map();
 
 async function ensureIndex(cwd, log) {
-  const dataDir = resolveDataDir(cwd);
+  const projectCwd = resolveProjectCwd(cwd);
+  const dataDir = join(projectCwd, 'data');
   const graph = codeIntel.readCodeGraph(dataDir);
   if (graph.meta.commit && graph.symbols.size > 0) return dataDir;
-  // Deduplicate concurrent index requests for same dataDir
   if (_indexingPromises.has(dataDir)) {
     await _indexingPromises.get(dataDir);
     return dataDir;
   }
-  log(`codegraph: auto-indexing ${cwd || process.cwd()}...`);
-  const p = codeIntel.index(cwd || process.cwd(), dataDir)
+  log(`codegraph: auto-indexing ${projectCwd}...`);
+  const p = codeIntel.index(projectCwd, dataDir)
     .finally(() => _indexingPromises.delete(dataDir));
   _indexingPromises.set(dataDir, p);
   await p;
@@ -105,21 +113,23 @@ export function register(server, ctx) {
     cwd: z.string().optional(),
   }, RO, async ({ cwd }) => {
     try {
-      const dataDir = resolveDataDir(cwd);
-      const result = codeIntel.changes(cwd || process.cwd(), dataDir);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = join(projectCwd, 'data');
+      const result = codeIntel.changes(projectCwd, dataDir);
       return ok(formatChanges(result));
     } catch (e) { return fail(e.message); }
   });
 
   // ── T5: Index (analyze project) ──
   server.tool('hermit_index', 'Index or re-index a project for code intelligence (runs ast-grep analyze)', {
-    cwd: z.string().describe('Project root directory to index'),
+    cwd: z.string().optional().describe('Project root directory to index (defaults to CLAUDE_PROJECT_DIR env or process.cwd())'),
   }, IDEM, async ({ cwd }) => {
     try {
-      const dataDir = resolveDataDir(cwd);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = join(projectCwd, 'data');
       codeIntel.clearCodeGraph(dataDir);
-      const result = await codeIntel.fullIndex(cwd, dataDir);
-      return ok(formatIndex(result.stats, cwd));
+      const result = await codeIntel.fullIndex(projectCwd, dataDir);
+      return ok(formatIndex(result.stats, projectCwd));
     } catch (e) { return fail(e.message); }
   });
 
