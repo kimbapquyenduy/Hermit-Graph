@@ -65,12 +65,13 @@ export function register(server, ctx) {
   // ── T1: Query (concept search) ──
   server.tool('hermit_query', 'Find code by concept — semantic code search via CodeGraph', {
     query: z.string().min(1).max(500).describe('Concept to search for in code'),
-    cwd: z.string().optional().describe('Working directory (git repo root). Defaults to process.cwd()'),
+    cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
     try {
-      const dataDir = await ensureIndex(cwd, log);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.query(query, dataDir);
-      return ok(formatQuery(result, query));
+      return ok(`_Project: ${projectCwd}_\n\n${formatQuery(result, query)}`);
     } catch (e) { return fail(e.message); }
   });
 
@@ -80,9 +81,10 @@ export function register(server, ctx) {
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
     try {
-      const dataDir = await ensureIndex(cwd, log);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.context(name, dataDir);
-      return ok(formatContext(result, name));
+      return ok(`_Project: ${projectCwd}_\n\n${formatContext(result, name)}`);
     } catch (e) { return fail(e.message); }
   });
 
@@ -93,7 +95,8 @@ export function register(server, ctx) {
     cwd: z.string().optional(),
   }, RO, async ({ target, direction, cwd }) => {
     try {
-      const dataDir = await ensureIndex(cwd, log);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.impact(target, direction, dataDir);
       let bizSection = '';
       if (ctx.brainPath) {
@@ -104,7 +107,7 @@ export function register(server, ctx) {
           log(`biz-linker: ${e.message}`);
         }
       }
-      return ok((result.summary || `Symbol not found: ${target}`) + bizSection);
+      return ok(`_Project: ${projectCwd}_\n\n${result.summary || `Symbol not found: ${target}`}${bizSection}`);
     } catch (e) { return fail(e.message); }
   });
 

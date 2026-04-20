@@ -70,6 +70,9 @@ async function main() {
 
   log(`Hermit Graph MCP Server v${pkg.version} running (stdio)`);
   log(`Brain: ${context.brainPath}`);
+  log(`CWD: ${process.cwd()}`);
+  log(`CLAUDE_PROJECT_DIR: ${process.env.CLAUDE_PROJECT_DIR || '(unset)'}`);
+  log(`HERMIT_PROJECT_CWD: ${process.env.HERMIT_PROJECT_CWD || '(unset)'}`);
 }
 
 main().catch((err) => {
