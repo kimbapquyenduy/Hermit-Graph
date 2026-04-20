@@ -4,6 +4,18 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.6] — 2026-04-20
+
+### Fixed
+- **CodeGraph auto-scopes to current project** — tools now honor `CLAUDE_PROJECT_DIR` (set by Claude Code) and `HERMIT_PROJECT_CWD` env vars as the default target, eliminating the need to pass `cwd` on every call. Previously, globally-registered MCP servers stayed pinned to their launch cwd (usually hermit-graph's own folder), causing queries to return results from the wrong project
+- **Index path consistency** — `hermit_detect_changes` and `hermit_index` now use the resolved project cwd instead of `process.cwd()`, so the index always lives at `<active-project>/data/code-symbols.jsonl`
+- **`hermit_index` cwd is optional** — was required, now falls back to env/process cwd like the other CodeGraph tools
+
+### Changed
+- **`searchCode` in unified-search** — no longer silently returns empty when `cwd` is omitted; honors the env fallback chain
+
+---
+
 ## [6.3.5] — 2026-04-19
 
 ### Fixed

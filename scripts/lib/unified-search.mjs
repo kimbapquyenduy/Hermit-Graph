@@ -5,7 +5,6 @@
 
 import { z } from 'zod';
 import { basename, join } from 'path';
-import { existsSync } from 'fs';
 import { search } from './semantic-search.mjs';
 import * as codeIntel from './code-intel/index.mjs';
 import {
@@ -84,17 +83,18 @@ async function searchKG(query, limit) {
   }));
 }
 
+function resolveProjectCwd(cwd) {
+  if (cwd) return cwd;
+  return process.env.CLAUDE_PROJECT_DIR || process.env.HERMIT_PROJECT_CWD || process.cwd();
+}
+
 function resolveDataDir(cwd) {
-  if (cwd) {
-    const local = join(cwd, 'data');
-    if (existsSync(local) || existsSync(join(cwd, 'package.json'))) return local;
-  }
-  return join(process.cwd(), 'data');
+  return join(resolveProjectCwd(cwd), 'data');
 }
 
 async function searchCode(query, limit, cwd) {
-  if (!cwd) return [];
-  const dataDir = resolveDataDir(cwd);
+  const projectCwd = resolveProjectCwd(cwd);
+  const dataDir = resolveDataDir(projectCwd);
   const result = codeIntel.query(query, dataDir);
   return result.symbols.slice(0, limit).map((s, i, arr) => ({
     name: s.name,
