@@ -79,6 +79,11 @@ const COMMANDS = {
     usage: 'hermit view [--code] [path]',
     run: runView,
   },
+  'check-edit': {
+    desc: 'Pre-edit impact check for source file(s)',
+    usage: 'hermit check-edit <file>... [--verbose] [--format=json] [--cwd=PATH]',
+    run: () => runScript('check-edit-cli.mjs', args),
+  },
   help: {
     desc: 'Show this help',
     usage: 'hermit help',
@@ -125,7 +130,10 @@ function runView() {
 
 function runScript(name, extraArgs = []) {
   const script = join(__dirname, name);
-  const child = fork(script, extraArgs, { cwd: ROOT, stdio: 'inherit' });
+  // Preserve user's original cwd via env — some scripts (check-edit) need to
+  // resolve against the caller's directory, not hermit-graph's install root.
+  const env = { ...process.env, HERMIT_USER_CWD: process.cwd() };
+  const child = fork(script, extraArgs, { cwd: ROOT, stdio: 'inherit', env });
   child.on('exit', (code) => process.exit(code || 0));
 }
 

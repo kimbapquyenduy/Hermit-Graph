@@ -37,17 +37,43 @@ async function ensureIndex(cwd, log) {
   const projectCwd = resolveProjectCwd(cwd);
   const dataDir = join(projectCwd, 'data');
   const graph = codeIntel.readCodeGraph(dataDir);
-  if (graph.meta.commit && graph.symbols.size > 0) return dataDir;
+  // Detect populated index by symbol count, not meta.commit — non-git projects have null commit
+  // but are still validly indexed. Using commit as the gate caused full reindex on every query
+  // for non-git projects (symptom: 20-30s latency per tool call).
+  const hasIndex = graph.symbols && graph.symbols.size > 0;
+
   if (_indexingPromises.has(dataDir)) {
     await _indexingPromises.get(dataDir);
     return dataDir;
   }
-  log(`codegraph: auto-indexing ${projectCwd}...`);
-  const p = codeIntel.index(projectCwd, dataDir)
-    .finally(() => _indexingPromises.delete(dataDir));
-  _indexingPromises.set(dataDir, p);
-  await p;
-  log(`codegraph: auto-index complete`);
+
+  // Case 1: empty index → full index
+  if (!hasIndex) {
+    log(`codegraph: first-time indexing ${projectCwd}...`);
+    const p = codeIntel.index(projectCwd, dataDir)
+      .finally(() => _indexingPromises.delete(dataDir));
+    _indexingPromises.set(dataDir, p);
+    await p;
+    log(`codegraph: index complete`);
+    return dataDir;
+  }
+
+  // Case 2: index exists → incremental reindex ONLY for git projects with actual file changes.
+  // Non-git projects always report stale=true but changed=[] — skip the reindex attempt entirely.
+  try {
+    const { stale, changed, lastCommit } = codeIntel.changes(projectCwd, dataDir);
+    const isGitProject = Boolean(lastCommit);
+    if (isGitProject && stale && Array.isArray(changed) && changed.length > 0) {
+      log(`codegraph: ${changed.length} file(s) changed, incremental reindex...`);
+      const p = codeIntel.incrementalIndex(projectCwd, dataDir)
+        .finally(() => _indexingPromises.delete(dataDir));
+      _indexingPromises.set(dataDir, p);
+      await p;
+      log(`codegraph: incremental reindex complete`);
+    }
+  } catch (e) {
+    log(`codegraph: stale-check skipped (${e.message})`);
+  }
   return dataDir;
 }
 
@@ -62,38 +88,57 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 export function register(server, ctx) {
   const { log } = ctx;
 
-  // ── T1: Query (concept search) ──
-  server.tool('hermit_query', 'Find code by concept — semantic code search via CodeGraph', {
-    query: z.string().min(1).max(500).describe('Concept to search for in code'),
-    cwd: z.string().optional().describe('Working directory (git repo root). Defaults to process.cwd()'),
+  // ── T1: Query (semantic concept search) ──
+  server.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. Exported symbols include inline [d=1:N] tag showing direct-caller count for refactor-risk awareness. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter.', {
+    query: z.string().min(1).max(500).describe('Concept to search for in code (natural language OK)'),
+    cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
     try {
-      const dataDir = await ensureIndex(cwd, log);
-      const result = codeIntel.query(query, dataDir);
-      return ok(formatQuery(result, query));
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = await ensureIndex(projectCwd, log);
+      const result = await codeIntel.semanticQuery(query, dataDir);
+      // Annotate symbols with direct-caller count for refactor awareness (Phase 1 of v6.5.0).
+      // Include methods (parent-class members) and top-level exports, not just `exported=true` symbols.
+      const graph = codeIntel.readCodeGraph(dataDir);
+      for (const s of result.symbols) {
+        if (s.id && (s.exported || s.parent)) {
+          const counts = codeIntel.impactCounts(graph, s.id, 'upstream');
+          s._d1 = counts.d1;
+        }
+      }
+      return ok(`_Project: ${projectCwd}_\n\n${formatQuery(result, query)}`);
     } catch (e) { return fail(e.message); }
   });
 
   // ── T2: Context (360-degree symbol view) ──
-  server.tool('hermit_context', 'Get 360-degree view of a symbol — callers, callees, execution flows', {
+  server.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Includes inline Impact Preview (d=1/d=2/d=3 counts + risk) for exported symbols, so you see refactor risk during discovery without a second tool call. Use BEFORE refactoring to see the full neighborhood.', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
     try {
-      const dataDir = await ensureIndex(cwd, log);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.context(name, dataDir);
-      return ok(formatContext(result, name));
+      // Embed impact preview for any resolved symbol (Phase 1 of v6.5.0).
+      // formatImpactPreview internally filters out pure-leaf cases (d1=0, not framework-bound).
+      if (result.symbol && result.symbol.id) {
+        const graph = codeIntel.readCodeGraph(dataDir);
+        const counts = codeIntel.impactCounts(graph, result.symbol.id, 'upstream');
+        result.impactPreview = codeIntel.formatImpactPreview(result.symbol, counts);
+      }
+      return ok(`_Project: ${projectCwd}_\n\n${formatContext(result, name)}`);
     } catch (e) { return fail(e.message); }
   });
 
   // ── T3: Impact (blast radius + business rules) ──
-  server.tool('hermit_impact', 'Blast radius analysis — what breaks if you change a symbol', {
+  server.tool('hermit_impact', 'REQUIRED before editing any exported function/class/method. Returns TRANSITIVE callers (d=1 WILL_BREAK = direct callers, d=2 LIKELY_AFFECTED = indirect, d=3 MAY_NEED_TESTING). Grep cannot find transitive breakage — only AST call-graph analysis can. Also overlays business rules at risk.', {
     target: z.string().min(1).describe('Symbol name to analyze impact for'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().default('upstream'),
     cwd: z.string().optional(),
   }, RO, async ({ target, direction, cwd }) => {
     try {
-      const dataDir = await ensureIndex(cwd, log);
+      const projectCwd = resolveProjectCwd(cwd);
+      const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.impact(target, direction, dataDir);
       let bizSection = '';
       if (ctx.brainPath) {
@@ -104,12 +149,12 @@ export function register(server, ctx) {
           log(`biz-linker: ${e.message}`);
         }
       }
-      return ok((result.summary || `Symbol not found: ${target}`) + bizSection);
+      return ok(`_Project: ${projectCwd}_\n\n${result.summary || `Symbol not found: ${target}`}${bizSection}`);
     } catch (e) { return fail(e.message); }
   });
 
   // ── T4: Detect Changes (index status) ──
-  server.tool('hermit_detect_changes', 'Check index status and detect what changed since last index', {
+  server.tool('hermit_detect_changes', 'Check CodeGraph index freshness vs current git HEAD. Rarely needed — queries auto-reindex on stale. Use only for pre-commit scope verification ("does my change match the planned scope?").', {
     cwd: z.string().optional(),
   }, RO, async ({ cwd }) => {
     try {
@@ -121,7 +166,7 @@ export function register(server, ctx) {
   });
 
   // ── T5: Index (analyze project) ──
-  server.tool('hermit_index', 'Index or re-index a project for code intelligence (runs ast-grep analyze)', {
+  server.tool('hermit_index', 'Force a fresh CodeGraph full rebuild. Auto-runs on first query in a project, so rarely needed. Use only when repo structure changed drastically (branch switch, large rebase) and you want a guaranteed-clean baseline.', {
     cwd: z.string().optional().describe('Project root directory to index (defaults to CLAUDE_PROJECT_DIR env or process.cwd())'),
   }, IDEM, async ({ cwd }) => {
     try {
@@ -143,7 +188,12 @@ function formatQuery(result, q) {
   if (result.symbols.length) {
     lines.push(`### Symbols (${result.symbols.length})`);
     for (const s of result.symbols) {
-      lines.push(`- **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${s.exported ? ' [exported]' : ''}`);
+      const score = typeof s.score === 'number' ? ` \`${s.score.toFixed(3)}\`` : '';
+      const tags = [];
+      if (s.exported) tags.push('exported');
+      if (typeof s._d1 === 'number') tags.push(`d=1:${s._d1}`);
+      const tagStr = tags.length ? ` [${tags.join(', ')}]` : '';
+      lines.push(`-${score} **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${tagStr}`);
     }
   }
   if (result.processes.length) {
@@ -159,9 +209,22 @@ function formatQuery(result, q) {
 }
 
 function formatContext(result, name) {
+  if (result.ambiguous) {
+    const lines = [
+      `## Context: ${name}`,
+      '',
+      `Name is ambiguous — ${result.candidates.length} symbols match. Disambiguate by calling again with \`ClassName.methodName\` or full ID:`,
+      '',
+      ...result.candidates.map(c => {
+        const scope = c.parent ? `${c.parent}.` : '';
+        return `- \`${scope}${c.name}\` (${c.kind}) — \`${c.file}:${c.line[0]}\``;
+      }),
+    ];
+    return lines.join('\n');
+  }
   if (!result.symbol) return `## Context: ${name}\n\nSymbol not found.`;
   const s = result.symbol;
-  return [
+  const lines = [
     `## Context: ${s.name} (${s.kind})`,
     `**File:** \`${s.file}:${s.line[0]}-${s.line[1]}\``,
     `**Exported:** ${s.exported} | **Params:** ${s.params} | **Lang:** ${s.lang}`,
@@ -169,7 +232,12 @@ function formatContext(result, name) {
     ...result.callers.map(c => `- ${c.name} (\`${c.file}:${c.line[0]}\`)`),
     '', `### Callees (${result.callees.length})`,
     ...result.callees.map(c => `- ${c.name} (\`${c.file}:${c.line[0]}\`)`),
-  ].join('\n');
+  ];
+  const hint = codeIntel.detectFrameworkBindingHint(s, result.callers.length);
+  if (hint) lines.push(hint);
+  // Impact preview: surface d=1/d=2/d=3 counts so AI sees risk in discovery flow
+  if (result.impactPreview) lines.push(result.impactPreview);
+  return lines.join('\n');
 }
 
 function formatChanges(result) {

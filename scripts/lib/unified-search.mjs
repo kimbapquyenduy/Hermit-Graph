@@ -27,7 +27,7 @@ export function register(server, ctx) {
   const { brainPath, log } = ctx;
 
   // ── T1: Unified Search (KG + Code in parallel) ──
-  server.tool('hermit_unified_search', 'Search knowledge graph entities AND code symbols together, ranked by relevance', {
+  server.tool('hermit_unified_search', 'ONE-SHOT first-step recall: searches both saved knowledge (past decisions, patterns, bugs) AND current code symbols in parallel, ranked by relevance. Use as the FIRST action when exploring any unfamiliar task area — a single call replaces 3-5 Grep queries.', {
     query: z.string().min(1).max(500).describe('Search query'),
     limit: zNumber().int().min(1).max(50).optional().default(20),
     cwd: z.string().optional().describe('Working directory for code search'),
@@ -52,7 +52,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Health Check ──
-  server.tool('hermit_health', 'Brain health check — 5 automated quality checks, score 0-100, recommendations', {}, RO, async () => {
+  server.tool('hermit_health', 'Audit the knowledge graph quality — 5 checks (stale observations, duplicates, orphans, low-confidence, missing relations) with 0-100 score and fix recommendations. Run periodically or when recall returns noisy results.', {}, RO, async () => {
     try {
       const { entities, relations } = loadBrain(brainPath);
       const checks = [
@@ -95,6 +95,19 @@ function resolveDataDir(cwd) {
 async function searchCode(query, limit, cwd) {
   const projectCwd = resolveProjectCwd(cwd);
   const dataDir = resolveDataDir(projectCwd);
+  // Prefer semantic query for unified search too — produces better-ranked results
+  try {
+    const result = await codeIntel.semanticQuery(query, dataDir, { topK: limit });
+    return result.symbols.slice(0, limit).map((s) => ({
+      name: s.name,
+      type: 'code-symbol',
+      score: typeof s.score === 'number' ? s.score : 0,
+      source: 'code',
+      detail: `${s.file}:${s.line[0]}`,
+    }));
+  } catch {
+    // Fall through to substring match
+  }
   const result = codeIntel.query(query, dataDir);
   return result.symbols.slice(0, limit).map((s, i, arr) => ({
     name: s.name,

@@ -318,28 +318,43 @@ Replace `<ABSOLUTE_PATH>` with your clone path. Use forward slashes on all platf
 
 ## Code Intelligence
 
-Hermit v6 includes built-in code analysis powered by [ast-grep](https://ast-grep.github.io/). No external tools, no subprocesses — just fast, in-process AST parsing.
+Hermit v6 includes built-in code analysis powered by [ast-grep](https://ast-grep.github.io/) + `all-MiniLM-L6-v2` embeddings. No external tools, no subprocesses — fast, in-process AST + vector search.
 
 ### How It Works
 
 ```
 Your Project  -->  ast-grep parser  -->  CodeGraph (symbols + relations)
-                                              |
-                                    data/code-symbols.jsonl
-                                              |
-                         query / context / impact / detect_changes
+                         |                       |
+                         v                       v
+               code-symbols.jsonl       code-embeddings.json (384-dim)
+                         |                       |
+                         v                       v
+       query (semantic) / context / impact / detect_changes / index
 ```
+
+### What It's Good At (And What It Isn't) — Honest Benchmark
+
+Hermit is a **targeted enhancement, not a Grep replacement.** Real benchmark on WebCash (420 files, 3909 symbols), same refactor-planning task:
+
+| Task shape | Winner | Why |
+|------------|--------|-----|
+| "Rename `ssoLogin` → `singleSignOnLogin`" (literal name known) | **Grep** (89s, 5 calls, 61k tokens) | Grep matches the literal string directly. Adding hermit = +69% time, +140% tool calls, +16% tokens for the same correct answer. |
+| "Find the authentication/payment/billing layer" (concept) | **Hermit** (`hermit_query`) | Semantic vector match surfaces `User.handle`, `verifyOTPToken`, `getSSOToken` ranked by relevance. Grep flounders in 1000+ noise matches. |
+| "What breaks if I change `verifyOTPToken`?" (transitive callers) | **Hermit** (`hermit_impact`) | AST call graph returns d=1/d=2/d=3 with decay-weighted risk. Grep can only find direct string matches, not transitive chains. |
+| "Which of the 5 `handle()` methods is the auth middleware?" (name collision) | **Hermit** (`hermit_context`) | Disambiguation returns `ClassName.methodName` candidates. Grep returns 100s of hits mixed with noise. |
+
+**Rule of thumb:** reach for hermit when you **don't know the name** or when **transitive breakage matters.** Grep when the name is literal.
 
 ### MCP Tools
 
-| Tool | What it does | Example |
-|------|-------------|---------|
-| `hermit_query` | Find code by concept | `hermit_query({query: "auth validation"})` |
-| `hermit_context` | 360-degree view of a symbol | `hermit_context({name: "validateUser"})` |
-| `hermit_impact` | Blast radius before editing | `hermit_impact({target: "connectDB", direction: "upstream"})` |
-| `hermit_detect_changes` | Check if index is stale | `hermit_detect_changes()` |
-| `hermit_index` | Full project reindex | `hermit_index({cwd: "/path/to/project"})` |
-| `hermit_unified_search` | Search KG + code together | `hermit_unified_search({query: "payment", cwd: "/project"})` |
+| Tool | Best for | Not great for |
+|------|----------|---------------|
+| `hermit_query({query, cwd})` | Concept-level discovery when name is unknown ("auth layer", "payment retry"). Hybrid vector + keyword, ~300ms after first-call index build. | Literal-name lookup — Grep is faster. |
+| `hermit_context({name, cwd})` | 360° view of ONE symbol: callers + callees in one shot. Auto-disambiguates common names (`handle`, `run`) with `ClassName.methodName` support. | Exploring many symbols at once. |
+| `hermit_impact({target, direction, cwd})` | **Before editing any exported function.** Returns d=1 WILL_BREAK, d=2 LIKELY_AFFECTED, d=3 MAY_NEED_TESTING with confidence decay + risk level. Hints when symbol is framework-bound (middleware, job, handler). | Quick "is this used?" checks — hermit_context is cheaper. |
+| `hermit_unified_search({query, cwd})` | One-shot search across saved knowledge (past decisions) AND code symbols. Useful at the start of an unfamiliar task. | Tight-loop queries — use hermit_query directly. |
+| `hermit_detect_changes({cwd})` | Pre-commit scope verification ("does my change match the planned scope?"). Queries auto-reindex on stale — this is rarely needed directly. | Routine checks. |
+| `hermit_index({cwd})` | Force fresh rebuild after drastic structure change (branch switch, large rebase). | Rarely needed — auto-index runs on first query. |
 
 ### Impact Risk Levels
 
@@ -349,20 +364,25 @@ Your Project  -->  ast-grep parser  -->  CodeGraph (symbols + relations)
 | d=2 | **LIKELY AFFECTED** — indirect deps | Should test |
 | d=3 | **MAY NEED TESTING** — transitive | Test if critical path |
 
+**Framework-binding hint:** when a symbol looks framework-dispatched (file in `/middleware`, `/commands`, `/jobs` + conventional name like `handle`, `run`, `execute`) and has 0 AST callers, hermit_impact adds a hint directing you to grep routes/config for string-based references. AST can't see `Route::post("url", "Controller.method")` string dispatch.
+
 ### Languages Supported
 
 - **JavaScript** (.js, .mjs, .cjs)
 - **TypeScript** (.ts, .tsx)
 - **Python** (.py) — via optional `@ast-grep/lang-python`
 
-### Performance
+### Performance (real numbers)
 
-| Operation | Time |
-|-----------|------|
-| Full index (85 files) | ~2s |
-| Query | <10ms |
-| Impact analysis | <20ms |
-| Process detection | ~50ms |
+| Operation | Time | Note |
+|-----------|------|------|
+| Full index (85 files) | ~2s | Small repo |
+| Full index (3909 symbols, WebCash) | ~44s | Medium repo, one-time |
+| Semantic embedding build (3909 symbols) | ~17s | One-time, cached to `data/code-embeddings.json` |
+| `hermit_query` (cached) | ~300ms | Vector + keyword hybrid |
+| `hermit_context` | <20ms | AST lookup |
+| `hermit_impact` | <30ms | BFS on pre-built graph |
+| Auto-reindex on stale | <100ms | Incremental, no-op when clean |
 
 ---
 
