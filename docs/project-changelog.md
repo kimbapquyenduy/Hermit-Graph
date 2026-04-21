@@ -4,6 +4,313 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.6.4] — 2026-04-21
+
+### Added — Global PreToolUse hook registration
+
+`hermit setup` now registers the `kg-pre-edit-impact` hook BOTH in project-local `.claude/settings.json` AND globally in `~/.claude/settings.json`. The global scope means the hook fires across all Claude Code sessions, closing the "subagent edits don't route through project-scoped hooks" gap observed in v6.6.3 testing.
+
+Key design:
+- **Absolute-path command** in global entry (`node "<hermit-graph-install>/catalog/hooks/kg-pre-edit-impact.cjs"`) so the hook resolves correctly regardless of the session's cwd
+- **Idempotent** — re-running setup does not duplicate
+- **Opt-out via `--skip-impact-guards`** (same flag as project-local registration)
+- **Graceful skip on projects without index** — hook's existing "no code-symbols.jsonl → silent allow" logic handles projects that aren't hermit-indexed, so global scope does not add noise to unrelated work
+
+### Coverage matrix (after v6.6.4 setup)
+
+| Context | Protection |
+|---|---|
+| Main session, discovery-led workflow | ✅ Embedded Impact Preview (MCP tool response) |
+| Main session, direct Edit/Write | ✅ PreToolUse hook (project-local registration) |
+| Main session in project without hermit setup | ✅ PreToolUse hook (global registration, silent skip if no index) |
+| Subagent, discovery-led workflow | ✅ Embedded Impact Preview (MCP tool response) |
+| Subagent, direct Edit/Write | ⚠️ Now covered by global hook IF Claude Code routes subagent Edit through global PreToolUse hooks (most setups do) |
+| User IDE-only edit, no AI involvement | ✅ `hermit check-edit <file>` CLI (manual) |
+
+### Verified
+- `hermit setup` on WebCash writes both project-local AND global hook entries
+- Global entry uses absolute path `d:/Project/Personal Project/claude-code-brain/catalog/hooks/kg-pre-edit-impact.cjs`
+- Re-run idempotency: `grep -c "kg-pre-edit-impact" ~/.claude/settings.json` returns 1 after multiple setup invocations
+- End-to-end stdin test: hook fires via absolute path, precision mode activates, d=1/d=2/d=3 counts + risk level all inline
+
+### Install flow (v6.6.4)
+
+```bash
+npm install -g hermit-graph
+cd your-project
+hermit setup
+# Done. All 4 enforcement layers live:
+# 1. MCP server → embedded Impact Preview
+# 2. code-guard skill installed
+# 3. PreToolUse hook registered LOCALLY + GLOBALLY
+# 4. `hermit check-edit <file>` CLI available
+```
+
+---
+
+## [6.6.3] — 2026-04-21
+
+### Added — Precision targeting + business-rule overlay in PreToolUse hook
+
+- **Precision targeting** — hook now parses `Edit`/`MultiEdit` payload's `old_string` (and `MultiEdit.edits[].old_string`), locates the affected line ranges in the target file, and **narrows the nudge to only symbols whose line range overlaps the changed lines**. For a typical Edit changing one function, nudge drops from "23 symbols in file" to "1 symbol contains the changed lines". Huge noise reduction
+- **Write fallback** — `Write` tool has no diff info, so hook falls back to reporting all public symbols in the file (flagged as "full file rewrite — all symbols at risk")
+- **Business-rule overlay** — hook now loads `brain.jsonl` and builds a file→rule index matching the biz-linker convention (`FILES: path` observations on `biz-rule` and `biz-flow` entities). When the target file or any d=1 caller file is referenced by a business rule, the nudge appends a "Business rules at risk" section listing the rules by name
+
+### Architecture notes
+- Biz-rule logic duplicated inline in the hook (cjs) rather than dynamic-importing biz-linker.mjs (esm). 50 LOC, deterministic match on the same `^FILES?:\s*<path>` convention as the main biz-linker module. No runtime dependency on esm loader
+- Precision filter has a safety fallback: if the `old_string` can't be located in the current file (stale edit text, etc.) OR changed lines don't overlap any symbol, hook falls back to full-file listing instead of emitting an empty nudge
+
+### Verified (WebCash)
+- Edit with `old_string: "async logIn"` on UserController.js (23 public symbols) → **precision mode narrows to 1 symbol** (UserController.logIn)
+- Write on same file → full 23-symbol listing (no diff info, correct fallback)
+- Biz-overlay mechanism tested — index built correctly (632 file entries from hermit-graph's 138 biz-rule/flow entities). Does NOT fire on hermit-graph's own files because the project's KG uses `MODULES:` / `RELATED:` prefixes rather than `FILES:`. Will fire automatically on any project that follows the `FILES: path/to/file` convention documented in biz-linker
+
+### Combined v6.6.0-v6.6.3 user-facing effect
+Before v6.6.0: AI had to manually call `hermit_impact` per symbol to see risk.
+Before v6.6.2: Hook said "here are 23 symbols, call hermit_impact".
+Before v6.6.3: Hook said "here are 23 symbols with d=1/d=2/d=3 counts".
+**v6.6.3:** Hook says "You're editing UserController.logIn — d=1:0, framework-bound. Related rules: RULE:WebCash:AuthFlow, FLOW:WebCash:SSOLogin."
+
+One Edit invocation = complete impact + rule overlay, zero follow-up MCP calls.
+
+---
+
+## [6.6.2] — 2026-04-21
+
+### Added
+- **PreToolUse hook now computes impact counts inline** — `kg-pre-edit-impact.cjs` used to just list symbols and say "call hermit_impact". Now it loads the relations from `code-symbols.jsonl`, runs a 3-hop upstream BFS per symbol, and embeds `d=1:N d=2:N d=3:N risk:LEVEL` directly in the stderr nudge. AI reads the risk numbers from the warning — no follow-up `hermit_impact` tool call needed for basic triage
+- **Symbols sorted by fan-in descending** in the nudge — highest-risk symbols surface first regardless of where they appear in the file
+- **Conditional drill-down tip** — when d1>0 on any symbol, tip says "call hermit_impact for full caller list"; when all d1=0, tip directs to framework-binding grep (for controllers, handlers, etc.)
+
+### Fixed
+- **Relation kind case-mismatch** — hook was filtering relations by `kind === 'calls'` but the indexer writes `kind: 'CALLS'` (uppercase). Every symbol reported 0 callers. Now matches case-insensitively
+
+### Verified (WebCash 420 files / Factory 4960 files)
+- WebCash `UserController.js` → `getUser d=1:317 risk:HIGH` (was 0 before the case fix)
+- WebCash `AES.js` → `AES.encrypt d=1:27 risk:HIGH`, `AES.createSHA256 d=1:5 d=2:280 d=3:91`
+- Factory `factory-com-proto/user.ts` → 4 symbols, all d=1:0 (expected — proto/gRPC framework dispatch outside AST)
+- Factory `auth.service.ts` → 3 NestJS service methods, d=1:0 (framework-invoked)
+
+### User-facing effect
+Before v6.6.2, the nudge was: *"12 symbols in this file. Call hermit_impact for details."*
+After v6.6.2, the nudge is: *"12 symbols. AES.encrypt d=1:27 HIGH. AES.createSHA256 d=1:5 d=2:280 d=3:91. AES.verify d=1:3 d=2:2 MEDIUM. ..."*
+
+AI sees the risk picture directly. For high-fan-in symbols it knows to be careful; for zero-caller ones it knows to grep route config. Zero extra MCP calls unless AI wants the specific caller file list.
+
+---
+
+## [6.6.1] — 2026-04-21
+
+### Added — zero-config auto-setup for pre-edit impact enforcement
+
+Previously, v6.6.0 shipped the PreToolUse hook + `code-guard` skill but users had to manually wire them in `.claude/settings.json`. v6.6.1 makes `hermit setup` auto-configure both, so a fresh install is ready to use without touching any config file.
+
+- **Auto-register `kg-pre-edit-impact` PreToolUse hook** — `hermit setup` now appends the hook entry to `.claude/settings.json` with matcher `Edit|Write|MultiEdit`. Idempotent: re-running setup doesn't create duplicates. Opt-out via `hermit setup --skip-impact-guards`
+- **Fallback settings.json creation** — previously if template `.claude-settings.json` was missing AND project had no `.claude/settings.json`, hook registration silently failed. Now creates a minimal `{ "mcpServers": {}, "hooks": {} }` file as baseline for hook registration
+- **`code-guard` skill included in default skill set** — already was by default since `resolveSkillSelection()` starts from `[...allSkills]`; this release verified end-to-end installation via `hermit skills add --all` equivalent flow
+- **`HERMIT_USER_CWD` env honored in `setup-project.mjs`** — previously setup's `projectRoot` defaulted to `process.cwd()`, which was forced to hermit-graph root by brain-cli's `fork({ cwd: ROOT })`. This meant setup targeted the wrong project. Now uses `HERMIT_USER_CWD` (set by brain-cli) for the caller's original cwd
+
+### Verified
+- Fresh test project `d:/tmp/hermit-test-project` → `hermit setup` creates `.claude/settings.json` with both hooks registered + `code-guard` skill copied + CLAUDE.md template
+- Idempotent: re-running setup finds 1 entry each (no duplicates)
+- Target cwd correct: setup output shows `Project: D:\tmp\hermit-test-project`, not hermit-graph
+
+### User-facing effect
+```bash
+# Before v6.6.1: multi-step manual config
+hermit setup
+# then edit ~/.claude/settings.json manually to add PreToolUse hook
+# then hermit skills add code-guard
+
+# After v6.6.1: one command
+hermit setup
+# Done. Hooks registered, skill installed, CLAUDE.md created.
+```
+
+---
+
+## [6.6.0] — 2026-04-21
+
+Pre-edit impact enforcement — remaining 3 phases from `plans/260421-1230-pre-edit-impact-enforcement/`. v6.5.0-v6.5.1 shipped Phase 1 (embedded Impact Preview). This release ships Phases 2, 3, 4 together after full e2e on WebCash.
+
+### Added — Phase 2: `code-guard` skill
+- New catalog skill `catalog/skills/code-guard/SKILL.md` — activates on edit/refactor/rename keywords (VI + EN). Prompts the AI to call `hermit_impact` before editing exported or framework-bound symbols. Distributed via `hermit skills add code-guard` to all 6 supported agents (Claude Code, Cursor, Gemini CLI, Codex, Cline, Windsurf). Mirrors proven `biz-guard` pattern.
+
+### Added — Phase 3: `kg-pre-edit-impact.cjs` PreToolUse hook
+- New hook `catalog/hooks/kg-pre-edit-impact.cjs` — soft nudge on Edit/Write/MultiEdit. Reads the target file's symbols from the CodeGraph index, emits stderr warning listing up to 5 exported/framework-bound/class-method symbols with file:line. Never blocks the edit.
+- **Soft-warn design** — exit code always 0. Claude Code surfaces stderr to the AI, so warning becomes context. No hard-block hostile UX.
+- **Env switches** — `HERMIT_PRE_EDIT_QUIET=1` to silence. Auto-skips non-source files, non-target tools, files outside project root, and projects without an index.
+- **Heuristic** — includes exported symbols, framework-bound (middleware/command/job/controller), and all class methods (CommonJS extractors often miss `module.exports = Class`).
+
+### Added — Phase 4: `hermit check-edit` CLI
+- New command `hermit check-edit <file>... [--verbose] [--format=json] [--cwd=PATH]` — terminal-based pre-edit impact check for IDE workflows that bypass the AI entirely. Lists every exported/framework-bound symbol in the target file with transitive caller counts sorted by d=1.
+- Pre-commit hook integration example: `git diff --cached --name-only | xargs hermit check-edit`
+- JSON output mode (`--format=json`) for CI pipelines.
+- Auto-indexes if `data/code-symbols.jsonl` missing.
+
+### Infra
+- `brain-cli.mjs` now exposes `HERMIT_USER_CWD` env to child scripts (preserves caller's cwd through fork)
+- `package.json` files whitelist now includes `scripts/check-edit-cli.mjs`
+- `catalog/` whitelist already covered the new hook + skill
+
+### Verified (WebCash via MCP stdio)
+- `hermit check-edit SHINWOO/gsf20/app/Controllers/Http/UserController.js` — 24 total symbols, 23 with refactor risk, `UserController.getUser` correctly flagged as HIGH (d=1:317)
+- `--format=json` produces valid jq-parseable output
+- PreToolUse hook — nudge fires on controller file edit, silent on README.md, silent in `HERMIT_PRE_EDIT_QUIET=1` mode, silent on Bash tool, silent on file outside project root
+- `code-guard` skill appears in `hermit skills` list, can be installed via `hermit skills add code-guard`
+
+### Complete story
+All 4 phases shipped. Covers:
+1. AI-discovery path (v6.5.0) — risk shown inline in `hermit_context`/`hermit_query`
+2. AI-activation path (v6.6.0 skill) — keyword-triggered reminder to call `hermit_impact`
+3. AI-fallthrough path (v6.6.0 hook) — soft nudge when AI goes straight to Edit
+4. IDE-bypass path (v6.6.0 CLI) — terminal check for direct-file-editing workflows
+
+---
+
+## [6.5.1] — 2026-04-21
+
+### Fixed
+- **Impact Preview drill-down prompt only fires when `d1 > 0`** — previously, the preview footer *"Call `hermit_impact(...)` for full caller list + business rules"* appeared even on symbols with 0 direct callers, where a follow-up hermit_impact call would return the identical zero-count result. Bug caught by v6.5.0 adoption subagent: *"When d1=0, that footer is redundant noise"*
+- Impact Preview still fires for framework-bound symbols with 0 callers (correct — the framework-binding hint directs user to grep config, not to call hermit_impact again)
+
+### Verified (WebCash)
+- `hermit_context("logIn")` (d1=0, framework-bound) → Preview YES, drill-down prompt NO ✓
+- `hermit_context("AES.verify")` (d1>0) → Preview YES, drill-down prompt YES ✓
+
+---
+
+## [6.5.0] — 2026-04-21
+
+### Added
+- **Embedded Impact Preview in `hermit_context` responses** — d=1/d=2/d=3 caller counts + risk level now appear inline in every context response (when signal exists: d1>0 OR framework-bound). AI sees refactor risk in the normal discovery flow without a second tool call
+- **Inline `[d=1:N]` tag in `hermit_query` results** — exported symbols and class methods now show their direct-caller count in the symbol list, nudging AI toward deeper investigation on high-fan-in symbols
+- **`impactCounts()` public API** — fast count-only BFS (<5ms typical) for embedding risk info in any tool response without the full caller/callee lists
+- **Extended framework-binding heuristic** — controller methods (class name ends with `Controller`, OR file path matches `/controllers?/`) now flagged as framework-invoked. Previously only middleware/command/job dirs. Catches Adonis/Laravel/Rails route dispatch patterns
+
+### Why this release
+Real benchmark on WebCash exposed the gap: `hermit_impact` is probabilistic — AI sometimes calls it before edits, sometimes not. When the decision to edit comes AFTER discovery, AI has moved on and doesn't remember. Fix: surface risk info DURING discovery, embedded in the response AI is already reading.
+
+### Verified (WebCash e2e via MCP stdio)
+- `hermit_context("logIn")` — controller method, 0 callers → Impact Preview fires (framework-bound path)
+- `hermit_context("b64_md5")` — internal helper → no preview (correct — noise reduction)
+- `hermit_query("authentication login")` — 4 results tagged with `[exported, d=1:N]`
+- `hermit_impact("verifyOTPToken")` — risk + d=1 regression intact
+- `hermit_impact("User.handle")` — v6.4.2 framework hint regression intact
+
+### Plan
+Ship Phase 1 only. Phases 2-4 (skill, pre-edit hook, `hermit check-edit` CLI) deferred to measure adoption signal before adding more enforcement layers. See `plans/260421-1230-pre-edit-impact-enforcement/`
+
+---
+
+## [6.4.2] — 2026-04-21
+
+### Added
+- **Framework-binding heuristic hint** — `hermit_context` and `hermit_impact` now detect likely framework-invoked symbols (middleware, commands, jobs, handlers, listeners) and append a hint line when AST reports 0 callers. Prevents misleadingly LOW risk scores on middleware `handle` methods that are actually string-bound by the framework (e.g. `.middleware("user")`, `Route::group`, `Bus::dispatch`). Heuristic requires ALL three signals:
+  - File path matches `/middleware|commands?|jobs?|handlers?|listeners?|tasks?|observers?|events?|hooks?|subscribers?/`
+  - Symbol name is a convention method (`handle`, `run`, `execute`, `process`, `dispatch`, `invoke`, `perform`, `fire`, `trigger`, `exec`, `call`, `__invoke`)
+  - 0 AST callers
+
+### Verified (WebCash)
+- `impact("User.handle")` — now emits hint (was LOW risk silent before) ✓
+- `impact("NuxtBuild.handle")` — command class, emits hint ✓
+- `impact("CallAPIProcedureNoAuthen")` — regular method with callees, NO hint (no false positive) ✓
+- 6 unit-test scenarios all pass
+
+---
+
+## [6.4.1] — 2026-04-21
+
+### Fixed
+- **`hermit_context` and `hermit_impact` no longer silently fail on common method names** — when a name is ambiguous (e.g. `handle` matches 3 classes), the tool now returns a disambiguation list showing `ClassName.methodName` + file:line for each candidate, instead of returning "Symbol not found"
+- **Supports `ClassName.methodName` resolution** — pass `hermit_context({name: "User.handle"})` to resolve scoped methods uniquely
+
+### Known limitations (deferred)
+- **No route→middleware→handler graph** (the "which routes are unprotected" question) — requires framework-specific parsers (AdonisJS Route.X, Express app.use, Next.js file-based routing). Design target: plugin architecture in v6.5.0
+- **No dotted-accessor caller query** (e.g. "who calls `auth.getUser()`?") — ast-grep extractor does not track object identity. Would require TypeScript LSP-level scope analysis. Workaround: use Grep for now
+
+---
+
+## [6.4.0] — 2026-04-21
+
+### Added
+- **Real semantic code search** — `hermit_query` now uses embedding-based retrieval, not just substring matching. Closes the long-standing gap where the description claimed "semantic" but the implementation was `Array.filter(name.includes(query))`
+- **New module `scripts/lib/code-intel/code-semantic.mjs`** — embeds each symbol as `<name> <kind> <file-stem> called-by:<callers> calls:<callees>` using the existing `all-MiniLM-L6-v2` model (384-dim). Cached to `<project>/data/code-embeddings.json`
+- **Hybrid rank** — combines vector similarity (0.7 weight) with tokenized keyword overlap (0.3 weight). Pure keyword fallback when the model is unavailable
+- **Lazy build** — first query in a project builds the index (~15-30s for 3-5k symbols), subsequent queries are ~300ms. Incremental: only re-embeds new symbols, keeps existing vectors
+- **`hermit_unified_search` also upgraded** — code side now uses semantic matching, producing better-ranked combined results
+
+### Changed
+- **`hermit_query` description now accurate** — no longer overclaims. Clear about the new capability: *"Semantic code search — finds symbols by CONCEPT, not literal substring. Hybrid vector + keyword rank. First call auto-builds embedding index (~30-60s for medium repo), cached thereafter."*
+- **New public API: `codeIntel.semanticQuery(query, dataDir, opts)`** — async, returns scored symbols. Old `codeIntel.query()` kept for backward compat
+
+### Verified (real project, WebCash — 3909 symbols)
+| Query | v6.3.x hits | v6.4.0 hits | First-call latency | Cached latency |
+|---|---|---|---|---|
+| "authentication middleware" | **0** | 5 (User, state, verify…) | 17.5s (index build) | 280ms |
+| "validate user token" | **0** | 5 (getSSOToken, checkToken, verify2FA…) | cached | 319ms |
+| "database connection" | — | 5 (DBService, MySQLService…) | cached | 279ms |
+| "error handling" | — | 5 (ErrorHandling@1.0, ConsoleLogError…) | cached | 295ms |
+
+Notes:
+- Pure-vector hits (keyword score 0.0) like `DBService` for "database connection" prove embeddings capture concept similarity beyond substring matching
+- 31MB cache for 3909 symbols (~8KB per vector as JSON). Binary format optimization deferred
+
+---
+
+## [6.3.10] — 2026-04-21
+
+### Fixed
+- **Auto-reindex triggered full reindex on every query for non-git projects** — v6.3.8 gated the "index exists" check on `graph.meta.commit`, which is `null` for projects without git history. Non-git projects therefore hit the "no index yet" branch on every call, causing 20-30s latency per `hermit_query`/`context`/`impact`. Fixed by gating on `symbols.size > 0` instead
+- **Stale-check now skips non-git projects entirely** — they always report `stale=true, changed=[]`, so running the check added noise with no benefit
+
+### Verified (real project, WebCash)
+| Tool | v6.3.8 latency | v6.3.10 latency | Speedup |
+|---|---|---|---|
+| `hermit_query` | 26,492ms | 55ms | **481x** |
+| `hermit_context` | 30,896ms | 18ms | **1716x** |
+| `hermit_impact` | 29,309ms | 26ms | **1127x** |
+| `hermit_detect_changes` | 3,871ms | 16ms | **241x** |
+
+---
+
+## [6.3.9] — 2026-04-21
+
+### Changed
+- **Tool descriptions rewritten for AI adoption** — LLMs pick tools by scanning descriptions. The prior passive phrasings ("Blast radius analysis", "Keyword search") produced low pickup vs Grep. Rewrote 12 tool descriptions with action verbs, uniqueness claims vs Grep, and usage triggers. Key changes:
+  - `hermit_impact` — now opens with "REQUIRED before editing any exported function/class/method" + explicit "Grep cannot find transitive breakage"
+  - `hermit_context` — emphasizes "ALL callers and callees in one shot" vs grepping by name
+  - `hermit_query` — positioned for "fuzzy/intent-based search when exact names unknown"
+  - `hermit_unified_search` — positioned as "FIRST action" for unfamiliar areas, replaces "3-5 Grep queries"
+  - `hermit_search_nodes` — prompts use "BEFORE asking clarifying questions — you may have answered this before"
+  - `hermit_create_entities` — closes with "THIS is how you remember things next session"
+  - `hermit_create_relations`, `hermit_add_observations`, `hermit_open_nodes`, `hermit_get_related`, `hermit_semantic_search`, `hermit_detect_changes`, `hermit_index`, `hermit_health` also strengthened
+- **Zero behavior change** — tool schemas, inputs, outputs all identical. Only the LLM-facing descriptions changed
+
+### Known limitation
+- Text descriptions alone don't force adoption — they shift probability. For hard enforcement, a future `kg-pre-edit-impact.cjs` PreToolUse hook would block Edit/Write without a prior `hermit_impact` call. Not in this release
+
+---
+
+## [6.3.8] — 2026-04-21
+
+### Added
+- **CodeGraph auto-reindex on stale** — every `hermit_query`/`hermit_context`/`hermit_impact` call now runs an incremental reindex if git HEAD has moved since last index. Incremental only re-parses changed files (<100ms when nothing changed). Projects with no git history safely skip the check. Previously, queries returned results from stale graphs until user manually ran `hermit_index`
+
+### Verified
+- Tested indexing on external WebCash project (420 files, 3909 symbols, 10354 relations) — full index ~44s, subsequent queries instant
+- Non-git projects handled correctly (stale-check safely skips auto-reindex when `changed=[]`)
+
+---
+
+## [6.3.7] — 2026-04-21
+
+### Fixed
+- **`hermit view` now uses current working directory** — previously hardcoded to the hermit-graph package root, so `hermit view --code` always showed hermit-graph's own CodeGraph regardless of where the user ran the command. Now resolves `data/code-symbols.jsonl` and `data/brain.jsonl` relative to `process.cwd()`
+- **Empty-state handling** — viewer opens with no data and a helpful message when the current project has no indexed CodeGraph or brain file, instead of erroring out. Users can still load a file via the UI
+
+---
+
 ## [6.3.6] — 2026-04-20
 
 ### Fixed
