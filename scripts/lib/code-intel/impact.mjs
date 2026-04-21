@@ -182,6 +182,37 @@ function resolveSymbol(graph, nameOrId) {
 
 function round(n) { return Math.round(n * 100) / 100; }
 
+/**
+ * Detect symbols that look framework-bound (middleware, commands, jobs, handlers).
+ * AST call graph is blind to string-based dispatch — these symbols typically show 0
+ * callers despite being heavily invoked. Return a hint line if the symbol matches
+ * the pattern, empty string otherwise.
+ *
+ * Heuristic signals (all required for a hint):
+ *  - File path contains a framework-convention directory
+ *  - Symbol name matches a framework-convention method name
+ *  - Caller count is 0
+ */
+const FRAMEWORK_DIRS = /\/(middleware|commands?|jobs?|handlers?|listeners?|tasks?|observers?|events?|hooks?|subscribers?)\//i;
+const FRAMEWORK_METHODS = new Set([
+  'handle', 'run', 'execute', 'process', 'dispatch', 'invoke',
+  'perform', 'fire', 'trigger', 'exec', 'call', '__invoke',
+]);
+
+export function detectFrameworkBindingHint(symbol, callerCount) {
+  if (!symbol || callerCount > 0) return '';
+  const file = symbol.file || '';
+  if (!FRAMEWORK_DIRS.test(file)) return '';
+  if (!FRAMEWORK_METHODS.has(symbol.name)) return '';
+  return [
+    '',
+    '> **Heuristic hint:** This symbol looks framework-bound (file path + conventional method name).',
+    '> AST sees 0 callers but framework dispatch is often string-based (e.g. `.middleware("user")`,',
+    '> `Route::group([...])`, `Bus::dispatch(Job::class)`). Grep for references to the class or method',
+    '> name in route / config / registration files to find real invocation sites.',
+  ].join('\n');
+}
+
 function formatSummary(target, d1, d2, d3, direction, riskLevel) {
   const lines = [
     `## Impact: ${target.name} (${target.kind})`,
@@ -197,5 +228,7 @@ function formatSummary(target, d1, d2, d3, direction, riskLevel) {
     `### d=3 MAY_NEED_TESTING (${d3.length})`,
     ...d3.map(s => `- ${s.name} (${s.file}:${s.line[0]}) conf:${s.confidence}`),
   ];
+  const hint = detectFrameworkBindingHint(target, d1.length);
+  if (hint) lines.push(hint);
   return lines.join('\n');
 }

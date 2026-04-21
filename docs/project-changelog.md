@@ -4,6 +4,22 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.4.2] — 2026-04-21
+
+### Added
+- **Framework-binding heuristic hint** — `hermit_context` and `hermit_impact` now detect likely framework-invoked symbols (middleware, commands, jobs, handlers, listeners) and append a hint line when AST reports 0 callers. Prevents misleadingly LOW risk scores on middleware `handle` methods that are actually string-bound by the framework (e.g. `.middleware("user")`, `Route::group`, `Bus::dispatch`). Heuristic requires ALL three signals:
+  - File path matches `/middleware|commands?|jobs?|handlers?|listeners?|tasks?|observers?|events?|hooks?|subscribers?/`
+  - Symbol name is a convention method (`handle`, `run`, `execute`, `process`, `dispatch`, `invoke`, `perform`, `fire`, `trigger`, `exec`, `call`, `__invoke`)
+  - 0 AST callers
+
+### Verified (WebCash)
+- `impact("User.handle")` — now emits hint (was LOW risk silent before) ✓
+- `impact("NuxtBuild.handle")` — command class, emits hint ✓
+- `impact("CallAPIProcedureNoAuthen")` — regular method with callees, NO hint (no false positive) ✓
+- 6 unit-test scenarios all pass
+
+---
+
 ## [6.4.1] — 2026-04-21
 
 ### Fixed

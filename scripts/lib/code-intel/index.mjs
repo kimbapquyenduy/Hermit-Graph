@@ -9,7 +9,7 @@ export { extractAll } from './extractor.mjs';
 export { CodeGraph } from './graph.mjs';
 export { readCodeGraph, writeCodeGraph, clearCodeGraph, codeGraphPath } from './code-io.mjs';
 export { fullIndex, incrementalIndex, detectChanges } from './indexer.mjs';
-export { blastRadius, symbolContext } from './impact.mjs';
+export { blastRadius, symbolContext, detectFrameworkBindingHint } from './impact.mjs';
 export { detectProcesses } from './process-detector.mjs';
 export { enrichImpact, buildFileRuleIndex } from './biz-linker.mjs';
 export {

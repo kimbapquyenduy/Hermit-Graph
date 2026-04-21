@@ -204,7 +204,7 @@ function formatContext(result, name) {
   }
   if (!result.symbol) return `## Context: ${name}\n\nSymbol not found.`;
   const s = result.symbol;
-  return [
+  const lines = [
     `## Context: ${s.name} (${s.kind})`,
     `**File:** \`${s.file}:${s.line[0]}-${s.line[1]}\``,
     `**Exported:** ${s.exported} | **Params:** ${s.params} | **Lang:** ${s.lang}`,
@@ -212,7 +212,10 @@ function formatContext(result, name) {
     ...result.callers.map(c => `- ${c.name} (\`${c.file}:${c.line[0]}\`)`),
     '', `### Callees (${result.callees.length})`,
     ...result.callees.map(c => `- ${c.name} (\`${c.file}:${c.line[0]}\`)`),
-  ].join('\n');
+  ];
+  const hint = codeIntel.detectFrameworkBindingHint(s, result.callers.length);
+  if (hint) lines.push(hint);
+  return lines.join('\n');
 }
 
 function formatChanges(result) {
