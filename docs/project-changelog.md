@@ -4,6 +4,50 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.6.4] — 2026-04-21
+
+### Added — Global PreToolUse hook registration
+
+`hermit setup` now registers the `kg-pre-edit-impact` hook BOTH in project-local `.claude/settings.json` AND globally in `~/.claude/settings.json`. The global scope means the hook fires across all Claude Code sessions, closing the "subagent edits don't route through project-scoped hooks" gap observed in v6.6.3 testing.
+
+Key design:
+- **Absolute-path command** in global entry (`node "<hermit-graph-install>/catalog/hooks/kg-pre-edit-impact.cjs"`) so the hook resolves correctly regardless of the session's cwd
+- **Idempotent** — re-running setup does not duplicate
+- **Opt-out via `--skip-impact-guards`** (same flag as project-local registration)
+- **Graceful skip on projects without index** — hook's existing "no code-symbols.jsonl → silent allow" logic handles projects that aren't hermit-indexed, so global scope does not add noise to unrelated work
+
+### Coverage matrix (after v6.6.4 setup)
+
+| Context | Protection |
+|---|---|
+| Main session, discovery-led workflow | ✅ Embedded Impact Preview (MCP tool response) |
+| Main session, direct Edit/Write | ✅ PreToolUse hook (project-local registration) |
+| Main session in project without hermit setup | ✅ PreToolUse hook (global registration, silent skip if no index) |
+| Subagent, discovery-led workflow | ✅ Embedded Impact Preview (MCP tool response) |
+| Subagent, direct Edit/Write | ⚠️ Now covered by global hook IF Claude Code routes subagent Edit through global PreToolUse hooks (most setups do) |
+| User IDE-only edit, no AI involvement | ✅ `hermit check-edit <file>` CLI (manual) |
+
+### Verified
+- `hermit setup` on WebCash writes both project-local AND global hook entries
+- Global entry uses absolute path `d:/Project/Personal Project/claude-code-brain/catalog/hooks/kg-pre-edit-impact.cjs`
+- Re-run idempotency: `grep -c "kg-pre-edit-impact" ~/.claude/settings.json` returns 1 after multiple setup invocations
+- End-to-end stdin test: hook fires via absolute path, precision mode activates, d=1/d=2/d=3 counts + risk level all inline
+
+### Install flow (v6.6.4)
+
+```bash
+npm install -g hermit-graph
+cd your-project
+hermit setup
+# Done. All 4 enforcement layers live:
+# 1. MCP server → embedded Impact Preview
+# 2. code-guard skill installed
+# 3. PreToolUse hook registered LOCALLY + GLOBALLY
+# 4. `hermit check-edit <file>` CLI available
+```
+
+---
+
 ## [6.6.3] — 2026-04-21
 
 ### Added — Precision targeting + business-rule overlay in PreToolUse hook

@@ -581,6 +581,30 @@ function configureGlobalMcp() {
       writeFileSync(globalSettingsPath, JSON.stringify(globalSettings, null, 2));
       console.log('  ~ Cleaned: ~/.claude/settings.json (removed deprecated conventions MCP)');
     }
+
+    // Register kg-pre-edit-impact PreToolUse hook GLOBALLY so it fires across all
+    // Claude Code sessions (not just project-local). This closes the subagent-edit
+    // gap where subagent Edit calls don't always route through project-scoped hooks.
+    // Opt out with --skip-impact-guards.
+    const skipImpactGuards = args.includes('--skip-impact-guards');
+    if (!skipImpactGuards) {
+      const settingsContent = JSON.stringify(globalSettings);
+      if (!settingsContent.includes('kg-pre-edit-impact')) {
+        if (!globalSettings.hooks) globalSettings.hooks = {};
+        if (!globalSettings.hooks.PreToolUse) globalSettings.hooks.PreToolUse = [];
+        // Use absolute path to hermit-graph install since hook is NOT per-project
+        const hookAbsPath = join(brainRoot, 'catalog', 'hooks', 'kg-pre-edit-impact.cjs').replace(/\\/g, '/');
+        globalSettings.hooks.PreToolUse.push({
+          matcher: 'Edit|Write|MultiEdit',
+          hooks: [{
+            type: 'command',
+            command: `node "${hookAbsPath}"`,
+          }],
+        });
+        writeFileSync(globalSettingsPath, JSON.stringify(globalSettings, null, 2));
+        console.log('  ~ Updated: ~/.claude/settings.json (registered kg-pre-edit-impact GLOBAL hook)');
+      }
+    }
   } catch {
     console.log('  ! Warning: Could not auto-configure ~/.claude/settings.json');
     console.log(`    Add MCP memory manually with MEMORY_FILE_PATH = ${brainJsonlPath}`);
