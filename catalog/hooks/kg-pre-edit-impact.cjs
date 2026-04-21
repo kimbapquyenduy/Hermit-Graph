@@ -75,8 +75,9 @@ function isSourceFile(filePath) {
 }
 
 /**
- * Load the CodeGraph index for the project. Returns null if missing
- * (no nudge possible without index — silent skip).
+ * Load the CodeGraph index for the project. Returns { symbols, callersMap }
+ * or null if missing (no nudge possible without index — silent skip).
+ * callersMap: targetId → Set<sourceId>  (reverse-call lookup for blast-radius BFS)
  */
 function loadGraph(projectCwd) {
   const indexPath = path.join(projectCwd, 'data', 'code-symbols.jsonl');
@@ -84,17 +85,48 @@ function loadGraph(projectCwd) {
   try {
     const content = fs.readFileSync(indexPath, 'utf-8');
     const symbols = [];
+    const callersMap = new Map();
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
-        if (obj._type === 'symbol') symbols.push(obj);
+        if (obj._type === 'symbol') {
+          symbols.push(obj);
+        } else if (obj._type === 'relation' && obj.from && obj.to && String(obj.kind || '').toUpperCase() === 'CALLS') {
+          if (!callersMap.has(obj.to)) callersMap.set(obj.to, new Set());
+          callersMap.get(obj.to).add(obj.from);
+        }
       } catch { /* skip bad lines */ }
     }
-    return symbols;
+    return { symbols, callersMap };
   } catch {
     return null;
   }
+}
+
+/**
+ * 3-hop upstream BFS — count callers at each depth. Runs per symbol (~1ms
+ * on pre-built map), caps at d=3. Returns { d1, d2, d3, risk }.
+ */
+function computeImpactCounts(callersMap, symbolId) {
+  let d1 = 0, d2 = 0, d3 = 0;
+  const visited = new Set([symbolId]);
+  const queue = [];
+  for (const c of (callersMap.get(symbolId) || [])) queue.push([c, 1]);
+  while (queue.length > 0) {
+    const [id, depth] = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    if (depth === 1) d1++;
+    else if (depth === 2) d2++;
+    else if (depth === 3) d3++;
+    if (depth >= 3) continue;
+    for (const next of (callersMap.get(id) || [])) {
+      if (!visited.has(next)) queue.push([next, depth + 1]);
+    }
+  }
+  const risk = d1 > 5 ? 'HIGH' : d1 > 0 ? 'MEDIUM' : 'LOW';
+  return { d1, d2, d3, risk };
 }
 
 function isLikelyFrameworkBound(symbol) {
@@ -136,28 +168,42 @@ function findPublicSymbols(symbols, relPath) {
 }
 
 /**
- * Emit soft warning to stderr. Claude Code surfaces stderr from PreToolUse
- * hooks back to the AI as context, so this becomes a visible nudge.
+ * Emit soft warning to stderr with inline impact counts per symbol.
+ * Claude Code surfaces stderr from PreToolUse hooks to the AI, so the AI
+ * gets d=1/d=2/d=3/risk directly — no follow-up hermit_impact call needed
+ * for basic triage.
  */
-function emitNudge(relPath, publicSymbols) {
+function emitNudge(relPath, publicSymbols, callersMap) {
+  // Compute impact per symbol, sort by d1 desc (highest risk first)
+  const enriched = publicSymbols.map(s => ({
+    s,
+    counts: computeImpactCounts(callersMap, s.id),
+    fb: isLikelyFrameworkBound(s),
+  })).sort((a, b) => b.counts.d1 - a.counts.d1);
+
   const lines = [];
   lines.push('');
   lines.push(`[hermit pre-edit-impact] Editing ${relPath}`);
-  lines.push(`  ${publicSymbols.length} exported/framework-bound symbol${publicSymbols.length === 1 ? '' : 's'} in this file:`);
+  lines.push(`  ${publicSymbols.length} exported/framework-bound symbol${publicSymbols.length === 1 ? '' : 's'} in this file (sorted by fan-in):`);
 
-  const top = publicSymbols.slice(0, MAX_SYMBOLS_REPORTED);
-  for (const s of top) {
+  const top = enriched.slice(0, MAX_SYMBOLS_REPORTED);
+  for (const { s, counts, fb } of top) {
     const scope = s.parent ? `${s.parent}.` : '';
-    const fb = isLikelyFrameworkBound(s) ? ' [framework-bound]' : '';
-    lines.push(`    - ${scope}${s.name} (${s.kind}) @ :${s.line[0]}${fb}`);
+    const fbTag = fb ? ' [framework-bound]' : '';
+    lines.push(`    - ${scope}${s.name} (${s.kind}) @ :${s.line[0]} — d=1:${counts.d1} d=2:${counts.d2} d=3:${counts.d3} risk:${counts.risk}${fbTag}`);
   }
   if (publicSymbols.length > MAX_SYMBOLS_REPORTED) {
     lines.push(`    ... ${publicSymbols.length - MAX_SYMBOLS_REPORTED} more`);
   }
 
-  lines.push('  Suggestion: before editing, call `hermit_impact({target: "<name>"})` to see');
-  lines.push('  transitive callers, or run `hermit check-edit ' + relPath + '` from terminal.');
-  lines.push('  (Silence this nudge: set HERMIT_PRE_EDIT_QUIET=1)');
+  // Only mention hermit_impact drill-down if any symbol has actual callers
+  const hasCallers = enriched.some(e => e.counts.d1 > 0);
+  if (hasCallers) {
+    lines.push('  Tip: call `hermit_impact({target: "ClassName.method"})` for full caller list + business rules.');
+  } else {
+    lines.push('  Tip: all symbols have 0 AST callers. Framework-bound methods may still be invoked via route/config strings — grep to confirm.');
+  }
+  lines.push('  (Silence: HERMIT_PRE_EDIT_QUIET=1)');
   lines.push('');
 
   process.stderr.write(lines.join('\n') + '\n');
@@ -190,13 +236,13 @@ function main() {
     // File outside project root — skip
     if (relPath.startsWith('..')) return allow();
 
-    const symbols = loadGraph(projectCwd);
-    if (!symbols) return allow(); // no index = no nudge
+    const graph = loadGraph(projectCwd);
+    if (!graph) return allow(); // no index = no nudge
 
-    const publicSymbols = findPublicSymbols(symbols, relPath);
+    const publicSymbols = findPublicSymbols(graph.symbols, relPath);
     if (publicSymbols.length === 0) return allow(); // purely internal edit
 
-    emitNudge(relPath, publicSymbols);
+    emitNudge(relPath, publicSymbols, graph.callersMap);
     allow();
   } catch (err) {
     // Defensive: never block an edit due to hook error. Log to stderr and allow.

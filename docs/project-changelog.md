@@ -4,6 +4,30 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.6.2] — 2026-04-21
+
+### Added
+- **PreToolUse hook now computes impact counts inline** — `kg-pre-edit-impact.cjs` used to just list symbols and say "call hermit_impact". Now it loads the relations from `code-symbols.jsonl`, runs a 3-hop upstream BFS per symbol, and embeds `d=1:N d=2:N d=3:N risk:LEVEL` directly in the stderr nudge. AI reads the risk numbers from the warning — no follow-up `hermit_impact` tool call needed for basic triage
+- **Symbols sorted by fan-in descending** in the nudge — highest-risk symbols surface first regardless of where they appear in the file
+- **Conditional drill-down tip** — when d1>0 on any symbol, tip says "call hermit_impact for full caller list"; when all d1=0, tip directs to framework-binding grep (for controllers, handlers, etc.)
+
+### Fixed
+- **Relation kind case-mismatch** — hook was filtering relations by `kind === 'calls'` but the indexer writes `kind: 'CALLS'` (uppercase). Every symbol reported 0 callers. Now matches case-insensitively
+
+### Verified (WebCash 420 files / Factory 4960 files)
+- WebCash `UserController.js` → `getUser d=1:317 risk:HIGH` (was 0 before the case fix)
+- WebCash `AES.js` → `AES.encrypt d=1:27 risk:HIGH`, `AES.createSHA256 d=1:5 d=2:280 d=3:91`
+- Factory `factory-com-proto/user.ts` → 4 symbols, all d=1:0 (expected — proto/gRPC framework dispatch outside AST)
+- Factory `auth.service.ts` → 3 NestJS service methods, d=1:0 (framework-invoked)
+
+### User-facing effect
+Before v6.6.2, the nudge was: *"12 symbols in this file. Call hermit_impact for details."*
+After v6.6.2, the nudge is: *"12 symbols. AES.encrypt d=1:27 HIGH. AES.createSHA256 d=1:5 d=2:280 d=3:91. AES.verify d=1:3 d=2:2 MEDIUM. ..."*
+
+AI sees the risk picture directly. For high-fan-in symbols it knows to be careful; for zero-caller ones it knows to grep route config. Zero extra MCP calls unless AI wants the specific caller file list.
+
+---
+
 ## [6.6.1] — 2026-04-21
 
 ### Added — zero-config auto-setup for pre-edit impact enforcement
