@@ -4,6 +4,33 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.4.0] — 2026-04-21
+
+### Added
+- **Real semantic code search** — `hermit_query` now uses embedding-based retrieval, not just substring matching. Closes the long-standing gap where the description claimed "semantic" but the implementation was `Array.filter(name.includes(query))`
+- **New module `scripts/lib/code-intel/code-semantic.mjs`** — embeds each symbol as `<name> <kind> <file-stem> called-by:<callers> calls:<callees>` using the existing `all-MiniLM-L6-v2` model (384-dim). Cached to `<project>/data/code-embeddings.json`
+- **Hybrid rank** — combines vector similarity (0.7 weight) with tokenized keyword overlap (0.3 weight). Pure keyword fallback when the model is unavailable
+- **Lazy build** — first query in a project builds the index (~15-30s for 3-5k symbols), subsequent queries are ~300ms. Incremental: only re-embeds new symbols, keeps existing vectors
+- **`hermit_unified_search` also upgraded** — code side now uses semantic matching, producing better-ranked combined results
+
+### Changed
+- **`hermit_query` description now accurate** — no longer overclaims. Clear about the new capability: *"Semantic code search — finds symbols by CONCEPT, not literal substring. Hybrid vector + keyword rank. First call auto-builds embedding index (~30-60s for medium repo), cached thereafter."*
+- **New public API: `codeIntel.semanticQuery(query, dataDir, opts)`** — async, returns scored symbols. Old `codeIntel.query()` kept for backward compat
+
+### Verified (real project, WebCash — 3909 symbols)
+| Query | v6.3.x hits | v6.4.0 hits | First-call latency | Cached latency |
+|---|---|---|---|---|
+| "authentication middleware" | **0** | 5 (User, state, verify…) | 17.5s (index build) | 280ms |
+| "validate user token" | **0** | 5 (getSSOToken, checkToken, verify2FA…) | cached | 319ms |
+| "database connection" | — | 5 (DBService, MySQLService…) | cached | 279ms |
+| "error handling" | — | 5 (ErrorHandling@1.0, ConsoleLogError…) | cached | 295ms |
+
+Notes:
+- Pure-vector hits (keyword score 0.0) like `DBService` for "database connection" prove embeddings capture concept similarity beyond substring matching
+- 31MB cache for 3909 symbols (~8KB per vector as JSON). Binary format optimization deferred
+
+---
+
 ## [6.3.10] — 2026-04-21
 
 ### Fixed

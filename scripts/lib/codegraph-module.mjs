@@ -88,15 +88,15 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 export function register(server, ctx) {
   const { log } = ctx;
 
-  // ── T1: Query (concept search) ──
-  server.tool('hermit_query', 'Find code by concept (e.g. "auth validation", "payment retry"). Use when exact symbol names are unknown. Returns symbols + execution flows matching the concept. Beats Grep for fuzzy/intent-based search across a codebase.', {
-    query: z.string().min(1).max(500).describe('Concept to search for in code'),
+  // ── T1: Query (semantic concept search) ──
+  server.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter. Falls back to keyword-only if model unavailable.', {
+    query: z.string().min(1).max(500).describe('Concept to search for in code (natural language OK)'),
     cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
     try {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
-      const result = codeIntel.query(query, dataDir);
+      const result = await codeIntel.semanticQuery(query, dataDir);
       return ok(`_Project: ${projectCwd}_\n\n${formatQuery(result, query)}`);
     } catch (e) { return fail(e.message); }
   });
@@ -172,7 +172,8 @@ function formatQuery(result, q) {
   if (result.symbols.length) {
     lines.push(`### Symbols (${result.symbols.length})`);
     for (const s of result.symbols) {
-      lines.push(`- **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${s.exported ? ' [exported]' : ''}`);
+      const score = typeof s.score === 'number' ? ` \`${s.score.toFixed(3)}\`` : '';
+      lines.push(`-${score} **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${s.exported ? ' [exported]' : ''}`);
     }
   }
   if (result.processes.length) {

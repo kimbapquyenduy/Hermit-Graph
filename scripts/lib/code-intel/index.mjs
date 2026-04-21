@@ -12,11 +12,16 @@ export { fullIndex, incrementalIndex, detectChanges } from './indexer.mjs';
 export { blastRadius, symbolContext } from './impact.mjs';
 export { detectProcesses } from './process-detector.mjs';
 export { enrichImpact, buildFileRuleIndex } from './biz-linker.mjs';
+export {
+  searchCodeSemantic, buildCodeEmbeddings, loadCodeEmbeddings,
+  codeEmbeddingsPath, isStale as isEmbeddingStale,
+} from './code-semantic.mjs';
 
 import { readCodeGraph } from './code-io.mjs';
 import { fullIndex, incrementalIndex, detectChanges } from './indexer.mjs';
 import { blastRadius, symbolContext } from './impact.mjs';
 import { detectProcesses } from './process-detector.mjs';
+import { searchCodeSemantic } from './code-semantic.mjs';
 
 /**
  * High-level API matching the 5 MCP tool signatures.
@@ -37,6 +42,28 @@ export function query(queryStr, dataDir) {
     p.steps.some(s => s.name.toLowerCase().includes(queryStr.toLowerCase()))
   );
   return { symbols: symbols.slice(0, 20), processes: processes.slice(0, 10) };
+}
+
+/**
+ * Semantic query — hybrid vector + keyword search on code symbols.
+ * Auto-builds embedding index on first call per project, cached on disk after.
+ * Falls back to keyword-only if embedding model unavailable.
+ * @returns {Promise<{ symbols: object[], processes: object[] }>}
+ */
+export async function semanticQuery(queryStr, dataDir, opts = {}) {
+  const graph = readCodeGraph(dataDir);
+  const scored = await searchCodeSemantic(queryStr, dataDir, opts);
+  const symbols = scored.map(r => ({
+    ...r.symbol,
+    score: r.score,
+    vectorScore: r.vectorScore,
+    keywordScore: r.keywordScore,
+  }));
+  const processes = detectProcesses(graph).filter(p =>
+    p.label.toLowerCase().includes(queryStr.toLowerCase()) ||
+    p.steps.some(s => s.name.toLowerCase().includes(queryStr.toLowerCase()))
+  );
+  return { symbols: symbols.slice(0, opts.topK || 20), processes: processes.slice(0, 10) };
 }
 
 /**

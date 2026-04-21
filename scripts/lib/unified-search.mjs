@@ -95,6 +95,19 @@ function resolveDataDir(cwd) {
 async function searchCode(query, limit, cwd) {
   const projectCwd = resolveProjectCwd(cwd);
   const dataDir = resolveDataDir(projectCwd);
+  // Prefer semantic query for unified search too — produces better-ranked results
+  try {
+    const result = await codeIntel.semanticQuery(query, dataDir, { topK: limit });
+    return result.symbols.slice(0, limit).map((s) => ({
+      name: s.name,
+      type: 'code-symbol',
+      score: typeof s.score === 'number' ? s.score : 0,
+      source: 'code',
+      detail: `${s.file}:${s.line[0]}`,
+    }));
+  } catch {
+    // Fall through to substring match
+  }
   const result = codeIntel.query(query, dataDir);
   return result.symbols.slice(0, limit).map((s, i, arr) => ({
     name: s.name,
