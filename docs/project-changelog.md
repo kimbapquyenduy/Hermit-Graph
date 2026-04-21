@@ -4,6 +4,14 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.7] — 2026-04-21
+
+### Fixed
+- **`hermit view` now uses current working directory** — previously hardcoded to the hermit-graph package root, so `hermit view --code` always showed hermit-graph's own CodeGraph regardless of where the user ran the command. Now resolves `data/code-symbols.jsonl` and `data/brain.jsonl` relative to `process.cwd()`
+- **Empty-state handling** — viewer opens with no data and a helpful message when the current project has no indexed CodeGraph or brain file, instead of erroring out. Users can still load a file via the UI
+
+---
+
 ## [6.3.6] — 2026-04-20
 
 ### Fixed
