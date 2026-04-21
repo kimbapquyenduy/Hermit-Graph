@@ -4,6 +4,18 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.4.1] — 2026-04-21
+
+### Fixed
+- **`hermit_context` and `hermit_impact` no longer silently fail on common method names** — when a name is ambiguous (e.g. `handle` matches 3 classes), the tool now returns a disambiguation list showing `ClassName.methodName` + file:line for each candidate, instead of returning "Symbol not found"
+- **Supports `ClassName.methodName` resolution** — pass `hermit_context({name: "User.handle"})` to resolve scoped methods uniquely
+
+### Known limitations (deferred)
+- **No route→middleware→handler graph** (the "which routes are unprotected" question) — requires framework-specific parsers (AdonisJS Route.X, Express app.use, Next.js file-based routing). Design target: plugin architecture in v6.5.0
+- **No dotted-accessor caller query** (e.g. "who calls `auth.getUser()`?") — ast-grep extractor does not track object identity. Would require TypeScript LSP-level scope analysis. Workaround: use Grep for now
+
+---
+
 ## [6.4.0] — 2026-04-21
 
 ### Added

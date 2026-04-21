@@ -189,6 +189,19 @@ function formatQuery(result, q) {
 }
 
 function formatContext(result, name) {
+  if (result.ambiguous) {
+    const lines = [
+      `## Context: ${name}`,
+      '',
+      `Name is ambiguous — ${result.candidates.length} symbols match. Disambiguate by calling again with \`ClassName.methodName\` or full ID:`,
+      '',
+      ...result.candidates.map(c => {
+        const scope = c.parent ? `${c.parent}.` : '';
+        return `- \`${scope}${c.name}\` (${c.kind}) — \`${c.file}:${c.line[0]}\``;
+      }),
+    ];
+    return lines.join('\n');
+  }
   if (!result.symbol) return `## Context: ${name}\n\nSymbol not found.`;
   const s = result.symbol;
   return [

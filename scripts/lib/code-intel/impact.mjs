@@ -12,10 +12,32 @@
  * @returns {{ target: object, d1: object[], d2: object[], d3: object[], summary: string }}
  */
 export function blastRadius(graph, targetId, direction = 'upstream') {
-  const target = graph.getSymbol(targetId);
-  // If exact ID not found, try fuzzy match by name
-  const resolvedId = target ? targetId : resolveSymbolId(graph, targetId);
-  const resolvedTarget = graph.getSymbol(resolvedId);
+  // Direct ID hit
+  let resolvedId = graph.getSymbol(targetId) ? targetId : null;
+  let resolvedTarget = resolvedId ? graph.getSymbol(resolvedId) : null;
+
+  // Fuzzy resolution with ambiguity reporting
+  if (!resolvedTarget) {
+    const r = resolveSymbol(graph, targetId);
+    if (r.ambiguous) {
+      const lines = [
+        `## Impact: ${targetId}`,
+        '',
+        `Name is ambiguous — ${r.candidates.length} symbols match. Disambiguate by calling again with \`ClassName.methodName\` or full ID:`,
+        '',
+        ...r.candidates.map(c => {
+          const scope = c.parent ? `${c.parent}.` : '';
+          return `- \`${scope}${c.name}\` (${c.kind}) — \`${c.file}:${c.line[0]}\``;
+        }),
+      ];
+      return {
+        target: null, d1: [], d2: [], d3: [], riskLevel: 'UNKNOWN',
+        summary: lines.join('\n'), ambiguous: true, candidates: r.candidates,
+      };
+    }
+    resolvedId = r.id;
+    resolvedTarget = resolvedId ? graph.getSymbol(resolvedId) : null;
+  }
 
   if (!resolvedTarget) {
     return { target: null, d1: [], d2: [], d3: [], summary: `Symbol not found: ${targetId}` };
@@ -64,20 +86,39 @@ export function blastRadius(graph, targetId, direction = 'upstream') {
 
 /**
  * Get 360-degree context for a symbol.
+ * When the name is ambiguous (e.g. a common method name like `handle`), returns
+ * a list of candidates so the caller can disambiguate via ClassName.methodName
+ * or full ID, instead of silently failing.
+ *
  * @param {import('./graph.mjs').CodeGraph} graph
- * @param {string} targetId
- * @returns {{ symbol: object, callers: object[], callees: object[], relations: object[] }}
+ * @param {string} targetId - Name, ClassName.methodName, or full ID
+ * @returns {{ symbol, callers, callees, relations, ambiguous?: boolean, candidates?: object[] }}
  */
 export function symbolContext(graph, targetId) {
-  const resolvedId = graph.getSymbol(targetId) ? targetId : resolveSymbolId(graph, targetId);
-  const symbol = graph.getSymbol(resolvedId);
-  if (!symbol) return { symbol: null, callers: [], callees: [], relations: [] };
+  // Fast path: direct ID hit
+  if (graph.getSymbol(targetId)) {
+    return buildContext(graph, targetId);
+  }
 
+  const resolution = resolveSymbol(graph, targetId);
+  if (resolution.ambiguous) {
+    return {
+      symbol: null, callers: [], callees: [], relations: [],
+      ambiguous: true, candidates: resolution.candidates,
+    };
+  }
+  if (!resolution.id) {
+    return { symbol: null, callers: [], callees: [], relations: [] };
+  }
+  return buildContext(graph, resolution.id);
+}
+
+function buildContext(graph, id) {
   return {
-    symbol,
-    callers: graph.getCallers(resolvedId),
-    callees: graph.getCallees(resolvedId),
-    relations: graph.getRelationsFor(resolvedId),
+    symbol: graph.getSymbol(id),
+    callers: graph.getCallers(id),
+    callees: graph.getCallees(id),
+    relations: graph.getRelationsFor(id),
   };
 }
 
@@ -96,17 +137,47 @@ function getNeighbors(graph, symbolId, direction) {
 
 /** Try to find a symbol by name (not full ID). */
 function resolveSymbolId(graph, nameOrId) {
-  // Exact match first
-  if (graph.symbols.has(nameOrId)) return nameOrId;
-  // Search by name
-  const matches = [...graph.symbols.values()].filter(s => s.name === nameOrId);
-  if (matches.length === 1) return matches[0].id;
-  // Partial match (contains)
+  const r = resolveSymbol(graph, nameOrId);
+  return r.id || nameOrId;
+}
+
+/**
+ * Resolve a name / ClassName.methodName / full-ID to a symbol with ambiguity reporting.
+ * @returns {{ id: string|null, ambiguous: boolean, candidates: object[] }}
+ */
+function resolveSymbol(graph, nameOrId) {
+  // 1. Direct ID hit
+  if (graph.symbols.has(nameOrId)) {
+    return { id: nameOrId, ambiguous: false, candidates: [] };
+  }
+
+  // 2. ClassName.methodName — filter by parent
+  if (nameOrId.includes('.') && !nameOrId.includes('/')) {
+    const [parent, method] = nameOrId.split('.');
+    const scoped = [...graph.symbols.values()].filter(s =>
+      s.name === method && s.parent === parent
+    );
+    if (scoped.length === 1) return { id: scoped[0].id, ambiguous: false, candidates: [] };
+    if (scoped.length > 1) return { id: null, ambiguous: true, candidates: scoped.slice(0, 20) };
+  }
+
+  // 3. Exact name match
+  const byName = [...graph.symbols.values()].filter(s => s.name === nameOrId);
+  if (byName.length === 1) return { id: byName[0].id, ambiguous: false, candidates: [] };
+  if (byName.length > 1) {
+    return { id: null, ambiguous: true, candidates: byName.slice(0, 20) };
+  }
+
+  // 4. Substring on name or id (loose fallback)
   const partial = [...graph.symbols.values()].filter(s =>
     s.id.includes(nameOrId) || s.name.includes(nameOrId)
   );
-  if (partial.length === 1) return partial[0].id;
-  return nameOrId; // give up, return as-is
+  if (partial.length === 1) return { id: partial[0].id, ambiguous: false, candidates: [] };
+  if (partial.length > 1 && partial.length <= 20) {
+    return { id: null, ambiguous: true, candidates: partial };
+  }
+
+  return { id: null, ambiguous: false, candidates: [] };
 }
 
 function round(n) { return Math.round(n * 100) / 100; }
