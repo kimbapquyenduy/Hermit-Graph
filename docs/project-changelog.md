@@ -4,6 +4,24 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.9] — 2026-04-21
+
+### Changed
+- **Tool descriptions rewritten for AI adoption** — LLMs pick tools by scanning descriptions. The prior passive phrasings ("Blast radius analysis", "Keyword search") produced low pickup vs Grep. Rewrote 12 tool descriptions with action verbs, uniqueness claims vs Grep, and usage triggers. Key changes:
+  - `hermit_impact` — now opens with "REQUIRED before editing any exported function/class/method" + explicit "Grep cannot find transitive breakage"
+  - `hermit_context` — emphasizes "ALL callers and callees in one shot" vs grepping by name
+  - `hermit_query` — positioned for "fuzzy/intent-based search when exact names unknown"
+  - `hermit_unified_search` — positioned as "FIRST action" for unfamiliar areas, replaces "3-5 Grep queries"
+  - `hermit_search_nodes` — prompts use "BEFORE asking clarifying questions — you may have answered this before"
+  - `hermit_create_entities` — closes with "THIS is how you remember things next session"
+  - `hermit_create_relations`, `hermit_add_observations`, `hermit_open_nodes`, `hermit_get_related`, `hermit_semantic_search`, `hermit_detect_changes`, `hermit_index`, `hermit_health` also strengthened
+- **Zero behavior change** — tool schemas, inputs, outputs all identical. Only the LLM-facing descriptions changed
+
+### Known limitation
+- Text descriptions alone don't force adoption — they shift probability. For hard enforcement, a future `kg-pre-edit-impact.cjs` PreToolUse hook would block Edit/Write without a prior `hermit_impact` call. Not in this release
+
+---
+
 ## [6.3.8] — 2026-04-21
 
 ### Added

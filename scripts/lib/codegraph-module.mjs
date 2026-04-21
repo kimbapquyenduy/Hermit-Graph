@@ -85,7 +85,7 @@ export function register(server, ctx) {
   const { log } = ctx;
 
   // ── T1: Query (concept search) ──
-  server.tool('hermit_query', 'Find code by concept — semantic code search via CodeGraph', {
+  server.tool('hermit_query', 'Find code by concept (e.g. "auth validation", "payment retry"). Use when exact symbol names are unknown. Returns symbols + execution flows matching the concept. Beats Grep for fuzzy/intent-based search across a codebase.', {
     query: z.string().min(1).max(500).describe('Concept to search for in code'),
     cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
@@ -98,7 +98,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Context (360-degree symbol view) ──
-  server.tool('hermit_context', 'Get 360-degree view of a symbol — callers, callees, execution flows', {
+  server.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Use BEFORE refactoring to see the full neighborhood. Faster and more complete than grepping for a function name across files.', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
@@ -111,7 +111,7 @@ export function register(server, ctx) {
   });
 
   // ── T3: Impact (blast radius + business rules) ──
-  server.tool('hermit_impact', 'Blast radius analysis — what breaks if you change a symbol', {
+  server.tool('hermit_impact', 'REQUIRED before editing any exported function/class/method. Returns TRANSITIVE callers (d=1 WILL_BREAK = direct callers, d=2 LIKELY_AFFECTED = indirect, d=3 MAY_NEED_TESTING). Grep cannot find transitive breakage — only AST call-graph analysis can. Also overlays business rules at risk.', {
     target: z.string().min(1).describe('Symbol name to analyze impact for'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().default('upstream'),
     cwd: z.string().optional(),
@@ -134,7 +134,7 @@ export function register(server, ctx) {
   });
 
   // ── T4: Detect Changes (index status) ──
-  server.tool('hermit_detect_changes', 'Check index status and detect what changed since last index', {
+  server.tool('hermit_detect_changes', 'Check CodeGraph index freshness vs current git HEAD. Rarely needed — queries auto-reindex on stale. Use only for pre-commit scope verification ("does my change match the planned scope?").', {
     cwd: z.string().optional(),
   }, RO, async ({ cwd }) => {
     try {
@@ -146,7 +146,7 @@ export function register(server, ctx) {
   });
 
   // ── T5: Index (analyze project) ──
-  server.tool('hermit_index', 'Index or re-index a project for code intelligence (runs ast-grep analyze)', {
+  server.tool('hermit_index', 'Force a fresh CodeGraph full rebuild. Auto-runs on first query in a project, so rarely needed. Use only when repo structure changed drastically (branch switch, large rebase) and you want a guaranteed-clean baseline.', {
     cwd: z.string().optional().describe('Project root directory to index (defaults to CLAUDE_PROJECT_DIR env or process.cwd())'),
   }, IDEM, async ({ cwd }) => {
     try {

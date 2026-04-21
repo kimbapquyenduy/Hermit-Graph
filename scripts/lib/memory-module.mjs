@@ -146,7 +146,7 @@ export function register(server, ctx) {
   ctx.getRelations = () => readBrain(brainPath).relations;
 
   // ── T1: Create Entities ──
-  server.tool('hermit_create_entities', 'Create or merge entities in the knowledge graph. Deduplicates by name (case-insensitive)', {
+  server.tool('hermit_create_entities', 'Persist knowledge across sessions — save whenever you learn: a business rule, an architecture pattern, a bug+fix root-cause, or a tech decision. Naming: TIER:SCOPE:LABEL (e.g. RULE:Shop:DiscountMax50). Deduplicates by name. THIS is how you remember things next session.', {
     entities: zArray(z.object({
       name: z.string().min(1).describe('Entity name (TIER:SCOPE:LABEL format)'),
       entityType: z.string().min(1).describe('One of 13 entity types'),
@@ -188,7 +188,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Create Relations ──
-  server.tool('hermit_create_relations', 'Create relations between entities. Deduplicates by from+to+relationType', {
+  server.tool('hermit_create_relations', 'Link two saved entities (e.g. RULE:X depends_on PATTERN:Y, INCIDENT:Z caused_by TECH:W). Use after hermit_create_entities to encode the graph structure. Relations make recall vastly more useful — standalone entities are islands.', {
     relations: zArray(z.object({
       from: z.string().min(1),
       to: z.string().min(1),
@@ -217,7 +217,7 @@ export function register(server, ctx) {
   });
 
   // ── T3: Search Nodes (keyword) ──
-  server.tool('hermit_search_nodes', 'Keyword search across entity names, types, and observations', {
+  server.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
     include_archived: zBoolean().optional().default(false),
@@ -237,7 +237,7 @@ export function register(server, ctx) {
   });
 
   // ── T4: Semantic Search ──
-  server.tool('hermit_semantic_search', 'Hybrid vector + keyword search (falls back to keyword-only if no embeddings)', {
+  server.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
   }, RO, async ({ query, limit }) => {
@@ -253,7 +253,7 @@ export function register(server, ctx) {
   });
 
   // ── T5: Open Nodes ──
-  server.tool('hermit_open_nodes', 'Read full entity details by name(s)', {
+  server.tool('hermit_open_nodes', 'Read full entity details when you already know the name(s). Use after hermit_search_nodes surfaces a relevant entity and you want all its observations + relations expanded (search returns summaries only).', {
     names: zArray(z.string().min(1), { min: 1, max: 20 }),
   }, RO, async ({ names }) => {
     const { entities } = readBrain(brainPath);
@@ -269,7 +269,7 @@ export function register(server, ctx) {
   });
 
   // ── T6: Add Observations ──
-  server.tool('hermit_add_observations', 'Append observations to an existing entity', {
+  server.tool('hermit_add_observations', 'Extend an already-saved entity with new facts — use when the user gives more detail about something you previously saved, or you discover more context mid-session. Requires [confidence|YYYY-MM-DD] prefix per observation.', {
     entityName: z.string().min(1),
     observations: zArray(z.string(), { min: 1 }),
   }, async ({ entityName, observations: newObs }) => {
@@ -341,7 +341,7 @@ export function register(server, ctx) {
   });
 
   // ── T9: Get Related ──
-  server.tool('hermit_get_related', 'Traverse relations from an entity (BFS, 1-5 hops)', {
+  server.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity.', {
     name: z.string().min(1),
     depth: zNumber().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
