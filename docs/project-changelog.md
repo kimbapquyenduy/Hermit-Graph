@@ -4,6 +4,45 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.6.0] — 2026-04-21
+
+Pre-edit impact enforcement — remaining 3 phases from `plans/260421-1230-pre-edit-impact-enforcement/`. v6.5.0-v6.5.1 shipped Phase 1 (embedded Impact Preview). This release ships Phases 2, 3, 4 together after full e2e on WebCash.
+
+### Added — Phase 2: `code-guard` skill
+- New catalog skill `catalog/skills/code-guard/SKILL.md` — activates on edit/refactor/rename keywords (VI + EN). Prompts the AI to call `hermit_impact` before editing exported or framework-bound symbols. Distributed via `hermit skills add code-guard` to all 6 supported agents (Claude Code, Cursor, Gemini CLI, Codex, Cline, Windsurf). Mirrors proven `biz-guard` pattern.
+
+### Added — Phase 3: `kg-pre-edit-impact.cjs` PreToolUse hook
+- New hook `catalog/hooks/kg-pre-edit-impact.cjs` — soft nudge on Edit/Write/MultiEdit. Reads the target file's symbols from the CodeGraph index, emits stderr warning listing up to 5 exported/framework-bound/class-method symbols with file:line. Never blocks the edit.
+- **Soft-warn design** — exit code always 0. Claude Code surfaces stderr to the AI, so warning becomes context. No hard-block hostile UX.
+- **Env switches** — `HERMIT_PRE_EDIT_QUIET=1` to silence. Auto-skips non-source files, non-target tools, files outside project root, and projects without an index.
+- **Heuristic** — includes exported symbols, framework-bound (middleware/command/job/controller), and all class methods (CommonJS extractors often miss `module.exports = Class`).
+
+### Added — Phase 4: `hermit check-edit` CLI
+- New command `hermit check-edit <file>... [--verbose] [--format=json] [--cwd=PATH]` — terminal-based pre-edit impact check for IDE workflows that bypass the AI entirely. Lists every exported/framework-bound symbol in the target file with transitive caller counts sorted by d=1.
+- Pre-commit hook integration example: `git diff --cached --name-only | xargs hermit check-edit`
+- JSON output mode (`--format=json`) for CI pipelines.
+- Auto-indexes if `data/code-symbols.jsonl` missing.
+
+### Infra
+- `brain-cli.mjs` now exposes `HERMIT_USER_CWD` env to child scripts (preserves caller's cwd through fork)
+- `package.json` files whitelist now includes `scripts/check-edit-cli.mjs`
+- `catalog/` whitelist already covered the new hook + skill
+
+### Verified (WebCash via MCP stdio)
+- `hermit check-edit SHINWOO/gsf20/app/Controllers/Http/UserController.js` — 24 total symbols, 23 with refactor risk, `UserController.getUser` correctly flagged as HIGH (d=1:317)
+- `--format=json` produces valid jq-parseable output
+- PreToolUse hook — nudge fires on controller file edit, silent on README.md, silent in `HERMIT_PRE_EDIT_QUIET=1` mode, silent on Bash tool, silent on file outside project root
+- `code-guard` skill appears in `hermit skills` list, can be installed via `hermit skills add code-guard`
+
+### Complete story
+All 4 phases shipped. Covers:
+1. AI-discovery path (v6.5.0) — risk shown inline in `hermit_context`/`hermit_query`
+2. AI-activation path (v6.6.0 skill) — keyword-triggered reminder to call `hermit_impact`
+3. AI-fallthrough path (v6.6.0 hook) — soft nudge when AI goes straight to Edit
+4. IDE-bypass path (v6.6.0 CLI) — terminal check for direct-file-editing workflows
+
+---
+
 ## [6.5.1] — 2026-04-21
 
 ### Fixed
