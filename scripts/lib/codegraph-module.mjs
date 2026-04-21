@@ -37,17 +37,39 @@ async function ensureIndex(cwd, log) {
   const projectCwd = resolveProjectCwd(cwd);
   const dataDir = join(projectCwd, 'data');
   const graph = codeIntel.readCodeGraph(dataDir);
-  if (graph.meta.commit && graph.symbols.size > 0) return dataDir;
+  const hasIndex = graph.meta.commit && graph.symbols.size > 0;
+
+  // Dedup concurrent index work on the same dataDir
   if (_indexingPromises.has(dataDir)) {
     await _indexingPromises.get(dataDir);
     return dataDir;
   }
-  log(`codegraph: auto-indexing ${projectCwd}...`);
-  const p = codeIntel.index(projectCwd, dataDir)
-    .finally(() => _indexingPromises.delete(dataDir));
-  _indexingPromises.set(dataDir, p);
-  await p;
-  log(`codegraph: auto-index complete`);
+
+  // Case 1: no index → full index
+  if (!hasIndex) {
+    log(`codegraph: first-time indexing ${projectCwd}...`);
+    const p = codeIntel.index(projectCwd, dataDir)
+      .finally(() => _indexingPromises.delete(dataDir));
+    _indexingPromises.set(dataDir, p);
+    await p;
+    log(`codegraph: index complete`);
+    return dataDir;
+  }
+
+  // Case 2: index exists → incremental reindex if stale (cheap when nothing changed)
+  try {
+    const { stale, changed } = codeIntel.changes(projectCwd, dataDir);
+    if (stale && changed && changed.length > 0) {
+      log(`codegraph: ${changed.length} file(s) changed, incremental reindex...`);
+      const p = codeIntel.incrementalIndex(projectCwd, dataDir)
+        .finally(() => _indexingPromises.delete(dataDir));
+      _indexingPromises.set(dataDir, p);
+      await p;
+      log(`codegraph: incremental reindex complete`);
+    }
+  } catch (e) {
+    log(`codegraph: stale-check skipped (${e.message})`);
+  }
   return dataDir;
 }
 

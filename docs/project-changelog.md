@@ -4,6 +4,17 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.8] — 2026-04-21
+
+### Added
+- **CodeGraph auto-reindex on stale** — every `hermit_query`/`hermit_context`/`hermit_impact` call now runs an incremental reindex if git HEAD has moved since last index. Incremental only re-parses changed files (<100ms when nothing changed). Projects with no git history safely skip the check. Previously, queries returned results from stale graphs until user manually ran `hermit_index`
+
+### Verified
+- Tested indexing on external WebCash project (420 files, 3909 symbols, 10354 relations) — full index ~44s, subsequent queries instant
+- Non-git projects handled correctly (stale-check safely skips auto-reindex when `changed=[]`)
+
+---
+
 ## [6.3.7] — 2026-04-21
 
 ### Fixed
