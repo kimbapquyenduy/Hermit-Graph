@@ -31,7 +31,9 @@ import { writeBusinessMdIfMissing } from './lib/business-md-generator.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const brainRoot = getPackageRoot();
-const projectRoot = process.cwd();
+// HERMIT_USER_CWD is set by brain-cli when forking (preserves caller's cwd),
+// since brain-cli forks with cwd=ROOT for deterministic module resolution.
+const projectRoot = process.env.HERMIT_USER_CWD || process.cwd();
 const args = process.argv.slice(2);
 const userHome = process.env.USERPROFILE || process.env.HOME || '';
 
@@ -599,32 +601,60 @@ function configureClaudeProject() {
       writeFileSync(settingsPath, content);
       console.log('  + Created: .claude/settings.json (MCP memory + hooks configured)');
       installed++;
+    } else {
+      // Fallback: create a minimal settings.json so hook registration below can run
+      writeFileSync(settingsPath, JSON.stringify({ mcpServers: {}, hooks: {} }, null, 2));
+      console.log('  + Created: .claude/settings.json (minimal — hooks will be registered)');
+      installed++;
     }
-  } else {
-    // Register kg-auto-recall hook in existing settings.json if not already present
-    try {
-      const settingsContent = readFileSync(settingsPath, 'utf-8');
-      if (!settingsContent.includes('kg-auto-recall')) {
-        const settings = JSON.parse(settingsContent);
-        if (!settings.hooks) settings.hooks = {};
-        if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
-
-        let hookGroup = settings.hooks.UserPromptSubmit.find(g => g.hooks);
-        if (!hookGroup) {
-          hookGroup = { hooks: [] };
-          settings.hooks.UserPromptSubmit.push(hookGroup);
-        }
-
-        hookGroup.hooks.unshift({
-          type: 'command',
-          command: 'node .claude/hooks/kg-auto-recall.cjs'
-        });
-
-        writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-        console.log('  ~ Updated: .claude/settings.json (registered kg-auto-recall hook)');
-      }
-    } catch { /* skip if settings.json can't be parsed */ }
   }
+
+  // Register both hooks (kg-auto-recall + kg-pre-edit-impact) in settings.json.
+  // Runs whether the settings file was just created or already existed — idempotent.
+  try {
+    if (!existsSync(settingsPath)) return;
+    const settingsContent = readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(settingsContent);
+    let changed = false;
+
+    // kg-auto-recall → UserPromptSubmit
+    if (!settingsContent.includes('kg-auto-recall')) {
+      if (!settings.hooks) settings.hooks = {};
+      if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
+      let hookGroup = settings.hooks.UserPromptSubmit.find(g => g.hooks);
+      if (!hookGroup) {
+        hookGroup = { hooks: [] };
+        settings.hooks.UserPromptSubmit.push(hookGroup);
+      }
+      hookGroup.hooks.unshift({
+        type: 'command',
+        command: 'node .claude/hooks/kg-auto-recall.cjs',
+      });
+      changed = true;
+      console.log('  ~ Updated: .claude/settings.json (registered kg-auto-recall hook)');
+    }
+
+    // kg-pre-edit-impact → PreToolUse (Edit|Write|MultiEdit)
+    // Opt out with --skip-impact-guards
+    const skipImpactGuards = args.includes('--skip-impact-guards');
+    if (!skipImpactGuards && !settingsContent.includes('kg-pre-edit-impact')) {
+      if (!settings.hooks) settings.hooks = {};
+      if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
+      settings.hooks.PreToolUse.push({
+        matcher: 'Edit|Write|MultiEdit',
+        hooks: [{
+          type: 'command',
+          command: 'node .claude/hooks/kg-pre-edit-impact.cjs',
+        }],
+      });
+      changed = true;
+      console.log('  ~ Updated: .claude/settings.json (registered kg-pre-edit-impact PreToolUse hook)');
+    }
+
+    if (changed) {
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    }
+  } catch { /* skip if settings.json can't be parsed */ }
 }
 
 function installClaudeSkills(skills) {

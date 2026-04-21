@@ -4,6 +4,36 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.6.1] — 2026-04-21
+
+### Added — zero-config auto-setup for pre-edit impact enforcement
+
+Previously, v6.6.0 shipped the PreToolUse hook + `code-guard` skill but users had to manually wire them in `.claude/settings.json`. v6.6.1 makes `hermit setup` auto-configure both, so a fresh install is ready to use without touching any config file.
+
+- **Auto-register `kg-pre-edit-impact` PreToolUse hook** — `hermit setup` now appends the hook entry to `.claude/settings.json` with matcher `Edit|Write|MultiEdit`. Idempotent: re-running setup doesn't create duplicates. Opt-out via `hermit setup --skip-impact-guards`
+- **Fallback settings.json creation** — previously if template `.claude-settings.json` was missing AND project had no `.claude/settings.json`, hook registration silently failed. Now creates a minimal `{ "mcpServers": {}, "hooks": {} }` file as baseline for hook registration
+- **`code-guard` skill included in default skill set** — already was by default since `resolveSkillSelection()` starts from `[...allSkills]`; this release verified end-to-end installation via `hermit skills add --all` equivalent flow
+- **`HERMIT_USER_CWD` env honored in `setup-project.mjs`** — previously setup's `projectRoot` defaulted to `process.cwd()`, which was forced to hermit-graph root by brain-cli's `fork({ cwd: ROOT })`. This meant setup targeted the wrong project. Now uses `HERMIT_USER_CWD` (set by brain-cli) for the caller's original cwd
+
+### Verified
+- Fresh test project `d:/tmp/hermit-test-project` → `hermit setup` creates `.claude/settings.json` with both hooks registered + `code-guard` skill copied + CLAUDE.md template
+- Idempotent: re-running setup finds 1 entry each (no duplicates)
+- Target cwd correct: setup output shows `Project: D:\tmp\hermit-test-project`, not hermit-graph
+
+### User-facing effect
+```bash
+# Before v6.6.1: multi-step manual config
+hermit setup
+# then edit ~/.claude/settings.json manually to add PreToolUse hook
+# then hermit skills add code-guard
+
+# After v6.6.1: one command
+hermit setup
+# Done. Hooks registered, skill installed, CLAUDE.md created.
+```
+
+---
+
 ## [6.6.0] — 2026-04-21
 
 Pre-edit impact enforcement — remaining 3 phases from `plans/260421-1230-pre-edit-impact-enforcement/`. v6.5.0-v6.5.1 shipped Phase 1 (embedded Impact Preview). This release ships Phases 2, 3, 4 together after full e2e on WebCash.
