@@ -4,6 +4,33 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.6.3] — 2026-04-21
+
+### Added — Precision targeting + business-rule overlay in PreToolUse hook
+
+- **Precision targeting** — hook now parses `Edit`/`MultiEdit` payload's `old_string` (and `MultiEdit.edits[].old_string`), locates the affected line ranges in the target file, and **narrows the nudge to only symbols whose line range overlaps the changed lines**. For a typical Edit changing one function, nudge drops from "23 symbols in file" to "1 symbol contains the changed lines". Huge noise reduction
+- **Write fallback** — `Write` tool has no diff info, so hook falls back to reporting all public symbols in the file (flagged as "full file rewrite — all symbols at risk")
+- **Business-rule overlay** — hook now loads `brain.jsonl` and builds a file→rule index matching the biz-linker convention (`FILES: path` observations on `biz-rule` and `biz-flow` entities). When the target file or any d=1 caller file is referenced by a business rule, the nudge appends a "Business rules at risk" section listing the rules by name
+
+### Architecture notes
+- Biz-rule logic duplicated inline in the hook (cjs) rather than dynamic-importing biz-linker.mjs (esm). 50 LOC, deterministic match on the same `^FILES?:\s*<path>` convention as the main biz-linker module. No runtime dependency on esm loader
+- Precision filter has a safety fallback: if the `old_string` can't be located in the current file (stale edit text, etc.) OR changed lines don't overlap any symbol, hook falls back to full-file listing instead of emitting an empty nudge
+
+### Verified (WebCash)
+- Edit with `old_string: "async logIn"` on UserController.js (23 public symbols) → **precision mode narrows to 1 symbol** (UserController.logIn)
+- Write on same file → full 23-symbol listing (no diff info, correct fallback)
+- Biz-overlay mechanism tested — index built correctly (632 file entries from hermit-graph's 138 biz-rule/flow entities). Does NOT fire on hermit-graph's own files because the project's KG uses `MODULES:` / `RELATED:` prefixes rather than `FILES:`. Will fire automatically on any project that follows the `FILES: path/to/file` convention documented in biz-linker
+
+### Combined v6.6.0-v6.6.3 user-facing effect
+Before v6.6.0: AI had to manually call `hermit_impact` per symbol to see risk.
+Before v6.6.2: Hook said "here are 23 symbols, call hermit_impact".
+Before v6.6.3: Hook said "here are 23 symbols with d=1/d=2/d=3 counts".
+**v6.6.3:** Hook says "You're editing UserController.logIn — d=1:0, framework-bound. Related rules: RULE:WebCash:AuthFlow, FLOW:WebCash:SSOLogin."
+
+One Edit invocation = complete impact + rule overlay, zero follow-up MCP calls.
+
+---
+
 ## [6.6.2] — 2026-04-21
 
 ### Added

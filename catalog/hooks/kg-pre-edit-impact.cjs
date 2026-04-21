@@ -75,9 +75,10 @@ function isSourceFile(filePath) {
 }
 
 /**
- * Load the CodeGraph index for the project. Returns { symbols, callersMap }
+ * Load the CodeGraph index for the project. Returns { symbols, symbolsById, callersMap }
  * or null if missing (no nudge possible without index — silent skip).
  * callersMap: targetId → Set<sourceId>  (reverse-call lookup for blast-radius BFS)
+ * symbolsById: symbolId → symbol  (O(1) caller file resolution for biz-rule overlay)
  */
 function loadGraph(projectCwd) {
   const indexPath = path.join(projectCwd, 'data', 'code-symbols.jsonl');
@@ -85,6 +86,7 @@ function loadGraph(projectCwd) {
   try {
     const content = fs.readFileSync(indexPath, 'utf-8');
     const symbols = [];
+    const symbolsById = new Map();
     const callersMap = new Map();
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
@@ -92,13 +94,14 @@ function loadGraph(projectCwd) {
         const obj = JSON.parse(line);
         if (obj._type === 'symbol') {
           symbols.push(obj);
+          symbolsById.set(obj.id, obj);
         } else if (obj._type === 'relation' && obj.from && obj.to && String(obj.kind || '').toUpperCase() === 'CALLS') {
           if (!callersMap.has(obj.to)) callersMap.set(obj.to, new Set());
           callersMap.get(obj.to).add(obj.from);
         }
       } catch { /* skip bad lines */ }
     }
-    return { symbols, callersMap };
+    return { symbols, symbolsById, callersMap };
   } catch {
     return null;
   }
@@ -127,6 +130,126 @@ function computeImpactCounts(callersMap, symbolId) {
   }
   const risk = d1 > 5 ? 'HIGH' : d1 > 0 ? 'MEDIUM' : 'LOW';
   return { d1, d2, d3, risk };
+}
+
+/**
+ * Precision targeting — extract the set of line numbers being modified from
+ * Edit or MultiEdit payloads. Returns null for Write (full overwrite — no diff)
+ * or when the edits cannot be resolved (not a fatal condition, caller falls back
+ * to full-file reporting).
+ */
+function extractChangedLines(toolName, toolInput, absFilePath) {
+  const edits = toolName === 'MultiEdit'
+    ? (toolInput.edits || [])
+    : (toolName === 'Edit' ? [{ old_string: toolInput.old_string }] : []);
+  if (edits.length === 0) return null;
+  if (!fs.existsSync(absFilePath)) return null;
+
+  try {
+    const content = fs.readFileSync(absFilePath, 'utf-8');
+    const changed = new Set();
+    for (const edit of edits) {
+      const needle = edit.old_string;
+      if (!needle || typeof needle !== 'string') continue;
+      const idx = content.indexOf(needle);
+      if (idx < 0) continue; // needle not present — maybe stale edit
+      // Line 1-based: lines strictly before idx, +1 for first line of needle
+      const before = content.slice(0, idx);
+      const firstLine = (before.match(/\n/g) || []).length + 1;
+      const needleLines = (needle.match(/\n/g) || []).length + 1;
+      for (let i = 0; i < needleLines; i++) changed.add(firstLine + i);
+    }
+    return changed.size > 0 ? changed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keep only symbols whose declared line range overlaps any changed line.
+ * When changedLines is null (Write or diff-unavailable), returns input unchanged.
+ */
+function filterByChangedLines(symbols, changedLines) {
+  if (!changedLines) return symbols;
+  return symbols.filter(s => {
+    const [start, end] = s.line || [];
+    if (typeof start !== 'number' || typeof end !== 'number') return false;
+    for (let l = start; l <= end; l++) if (changedLines.has(l)) return true;
+    return false;
+  });
+}
+
+/**
+ * Load business-rule index from brain.jsonl. Returns a Map<normalizedFilePath, rule[]>.
+ * Minimal re-implementation of biz-linker.buildFileRuleIndex, inlined here because
+ * the hook is .cjs and biz-linker is .mjs. Returns empty map if brain missing or
+ * no matching rules/flows.
+ */
+function loadBizIndex(projectCwd) {
+  const brainPath = process.env.MEMORY_FILE_PATH
+    || path.join(projectCwd, 'data', 'brain.jsonl');
+  if (!fs.existsSync(brainPath)) return new Map();
+
+  const norm = (p) => (p || '').trim()
+    .replace(/:\d+(-\d+)?$/, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .toLowerCase();
+  const parseFiles = (text) => {
+    const m = (text || '').match(/^FILES?:\s*(.+)/i);
+    if (!m) return [];
+    return m[1].split(/[,\s]+/).map(s => s.trim()).filter(Boolean).map(norm);
+  };
+  const obsText = (o) => typeof o === 'string' ? o : (o && o.content) || '';
+
+  const index = new Map();
+  try {
+    const raw = fs.readFileSync(brainPath, 'utf-8');
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      let e;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e.type !== 'entity') continue;
+      if (e.entityType !== 'biz-rule' && e.entityType !== 'biz-flow') continue;
+      for (const obs of (e.observations || [])) {
+        const text = obsText(obs).replace(/^\[[\d.]+\|\d{4}-\d{2}-\d{2}\]\s*/, '');
+        for (const file of parseFiles(text)) {
+          if (!index.has(file)) index.set(file, []);
+          index.get(file).push({ name: e.name, entityType: e.entityType });
+        }
+      }
+    }
+  } catch { /* empty brain — fine */ }
+  return index;
+}
+
+/**
+ * Collect business rules that reference files in the blast-radius of the given
+ * public symbols (their own file + files of their d=1 callers).
+ * Returns a deduped array sorted by rule name.
+ */
+function findRulesAtRisk(publicSymbols, callersMap, symbolsById, bizIndex, targetRelPath) {
+  if (bizIndex.size === 0) return [];
+
+  const norm = (p) => (p || '').replace(/\\/g, '/').toLowerCase();
+  const affectedFiles = new Set([norm(targetRelPath)]);
+
+  for (const s of publicSymbols) {
+    for (const callerId of (callersMap.get(s.id) || [])) {
+      const caller = symbolsById.get(callerId);
+      if (caller && caller.file) affectedFiles.add(norm(caller.file));
+    }
+  }
+
+  const hits = new Map(); // rule name → entityType
+  for (const file of affectedFiles) {
+    const rules = bizIndex.get(file);
+    if (!rules) continue;
+    for (const r of rules) hits.set(r.name, r.entityType);
+  }
+
+  return [...hits].map(([name, entityType]) => ({ name, entityType }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function isLikelyFrameworkBound(symbol) {
@@ -173,7 +296,9 @@ function findPublicSymbols(symbols, relPath) {
  * gets d=1/d=2/d=3/risk directly — no follow-up hermit_impact call needed
  * for basic triage.
  */
-function emitNudge(relPath, publicSymbols, callersMap) {
+function emitNudge(relPath, publicSymbols, callersMap, opts) {
+  const { bizIndex = new Map(), symbolsById = new Map(), precision = false, totalInFile = publicSymbols.length } = opts || {};
+
   // Compute impact per symbol, sort by d1 desc (highest risk first)
   const enriched = publicSymbols.map(s => ({
     s,
@@ -184,7 +309,11 @@ function emitNudge(relPath, publicSymbols, callersMap) {
   const lines = [];
   lines.push('');
   lines.push(`[hermit pre-edit-impact] Editing ${relPath}`);
-  lines.push(`  ${publicSymbols.length} exported/framework-bound symbol${publicSymbols.length === 1 ? '' : 's'} in this file (sorted by fan-in):`);
+  if (precision) {
+    lines.push(`  Precision mode — ${publicSymbols.length} symbol${publicSymbols.length === 1 ? '' : 's'} contain the changed lines (of ${totalInFile} public in file):`);
+  } else {
+    lines.push(`  ${publicSymbols.length} exported/framework-bound symbol${publicSymbols.length === 1 ? '' : 's'} in this file (sorted by fan-in):`);
+  }
 
   const top = enriched.slice(0, MAX_SYMBOLS_REPORTED);
   for (const { s, counts, fb } of top) {
@@ -194,6 +323,20 @@ function emitNudge(relPath, publicSymbols, callersMap) {
   }
   if (publicSymbols.length > MAX_SYMBOLS_REPORTED) {
     lines.push(`    ... ${publicSymbols.length - MAX_SYMBOLS_REPORTED} more`);
+  }
+
+  // Business-rule overlay — surface rules whose FILES: references the target or d=1 caller files
+  const rulesAtRisk = findRulesAtRisk(publicSymbols, callersMap, symbolsById, bizIndex, relPath);
+  if (rulesAtRisk.length > 0) {
+    lines.push('');
+    lines.push(`  Business rules at risk (${rulesAtRisk.length}):`);
+    for (const r of rulesAtRisk.slice(0, MAX_SYMBOLS_REPORTED)) {
+      const kind = r.entityType === 'biz-flow' ? 'FLOW' : 'RULE';
+      lines.push(`    - ${kind} ${r.name}`);
+    }
+    if (rulesAtRisk.length > MAX_SYMBOLS_REPORTED) {
+      lines.push(`    ... ${rulesAtRisk.length - MAX_SYMBOLS_REPORTED} more`);
+    }
   }
 
   // Only mention hermit_impact drill-down if any symbol has actual callers
@@ -239,10 +382,26 @@ function main() {
     const graph = loadGraph(projectCwd);
     if (!graph) return allow(); // no index = no nudge
 
-    const publicSymbols = findPublicSymbols(graph.symbols, relPath);
-    if (publicSymbols.length === 0) return allow(); // purely internal edit
+    const allPublic = findPublicSymbols(graph.symbols, relPath);
+    if (allPublic.length === 0) return allow(); // purely internal edit
 
-    emitNudge(relPath, publicSymbols, graph.callersMap);
+    // Precision targeting — narrow to symbols whose line range overlaps the
+    // actual changed lines (Edit/MultiEdit). For Write, changedLines is null
+    // and we fall back to reporting all public symbols in the file.
+    const changedLines = extractChangedLines(toolName, hookData.tool_input || {}, absFile);
+    const targeted = filterByChangedLines(allPublic, changedLines);
+    // If diff resolution finds zero matches (stale edit text, etc.), fall back
+    // to full-file list so the user still gets signal.
+    const symbolsToShow = (changedLines && targeted.length > 0) ? targeted : allPublic;
+    const precision = changedLines !== null && targeted.length > 0;
+
+    const bizIndex = loadBizIndex(projectCwd);
+    emitNudge(relPath, symbolsToShow, graph.callersMap, {
+      bizIndex,
+      symbolsById: graph.symbolsById,
+      precision,
+      totalInFile: allPublic.length,
+    });
     allow();
   } catch (err) {
     // Defensive: never block an edit due to hook error. Log to stderr and allow.
