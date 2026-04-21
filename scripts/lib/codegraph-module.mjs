@@ -37,15 +37,17 @@ async function ensureIndex(cwd, log) {
   const projectCwd = resolveProjectCwd(cwd);
   const dataDir = join(projectCwd, 'data');
   const graph = codeIntel.readCodeGraph(dataDir);
-  const hasIndex = graph.meta.commit && graph.symbols.size > 0;
+  // Detect populated index by symbol count, not meta.commit — non-git projects have null commit
+  // but are still validly indexed. Using commit as the gate caused full reindex on every query
+  // for non-git projects (symptom: 20-30s latency per tool call).
+  const hasIndex = graph.symbols && graph.symbols.size > 0;
 
-  // Dedup concurrent index work on the same dataDir
   if (_indexingPromises.has(dataDir)) {
     await _indexingPromises.get(dataDir);
     return dataDir;
   }
 
-  // Case 1: no index → full index
+  // Case 1: empty index → full index
   if (!hasIndex) {
     log(`codegraph: first-time indexing ${projectCwd}...`);
     const p = codeIntel.index(projectCwd, dataDir)
@@ -56,10 +58,12 @@ async function ensureIndex(cwd, log) {
     return dataDir;
   }
 
-  // Case 2: index exists → incremental reindex if stale (cheap when nothing changed)
+  // Case 2: index exists → incremental reindex ONLY for git projects with actual file changes.
+  // Non-git projects always report stale=true but changed=[] — skip the reindex attempt entirely.
   try {
-    const { stale, changed } = codeIntel.changes(projectCwd, dataDir);
-    if (stale && changed && changed.length > 0) {
+    const { stale, changed, lastCommit } = codeIntel.changes(projectCwd, dataDir);
+    const isGitProject = Boolean(lastCommit);
+    if (isGitProject && stale && Array.isArray(changed) && changed.length > 0) {
       log(`codegraph: ${changed.length} file(s) changed, incremental reindex...`);
       const p = codeIntel.incrementalIndex(projectCwd, dataDir)
         .finally(() => _indexingPromises.delete(dataDir));

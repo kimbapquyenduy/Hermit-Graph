@@ -4,6 +4,22 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.3.10] — 2026-04-21
+
+### Fixed
+- **Auto-reindex triggered full reindex on every query for non-git projects** — v6.3.8 gated the "index exists" check on `graph.meta.commit`, which is `null` for projects without git history. Non-git projects therefore hit the "no index yet" branch on every call, causing 20-30s latency per `hermit_query`/`context`/`impact`. Fixed by gating on `symbols.size > 0` instead
+- **Stale-check now skips non-git projects entirely** — they always report `stale=true, changed=[]`, so running the check added noise with no benefit
+
+### Verified (real project, WebCash)
+| Tool | v6.3.8 latency | v6.3.10 latency | Speedup |
+|---|---|---|---|
+| `hermit_query` | 26,492ms | 55ms | **481x** |
+| `hermit_context` | 30,896ms | 18ms | **1716x** |
+| `hermit_impact` | 29,309ms | 26ms | **1127x** |
+| `hermit_detect_changes` | 3,871ms | 16ms | **241x** |
+
+---
+
 ## [6.3.9] — 2026-04-21
 
 ### Changed
