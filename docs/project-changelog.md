@@ -4,6 +4,18 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.5.1] — 2026-04-21
+
+### Fixed
+- **Impact Preview drill-down prompt only fires when `d1 > 0`** — previously, the preview footer *"Call `hermit_impact(...)` for full caller list + business rules"* appeared even on symbols with 0 direct callers, where a follow-up hermit_impact call would return the identical zero-count result. Bug caught by v6.5.0 adoption subagent: *"When d1=0, that footer is redundant noise"*
+- Impact Preview still fires for framework-bound symbols with 0 callers (correct — the framework-binding hint directs user to grep config, not to call hermit_impact again)
+
+### Verified (WebCash)
+- `hermit_context("logIn")` (d1=0, framework-bound) → Preview YES, drill-down prompt NO ✓
+- `hermit_context("AES.verify")` (d1>0) → Preview YES, drill-down prompt YES ✓
+
+---
+
 ## [6.5.0] — 2026-04-21
 
 ### Added

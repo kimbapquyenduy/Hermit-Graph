@@ -234,8 +234,14 @@ export function formatImpactPreview(symbol, counts) {
     `- d=1 WILL_BREAK: **${counts.d1}** caller${counts.d1 === 1 ? '' : 's'}`,
     `- d=2 LIKELY_AFFECTED: ${counts.d2}`,
     `- d=3 MAY_NEED_TESTING: ${counts.d3}`,
-    `- **Risk: ${counts.risk}** — call \`hermit_impact({target: "${symbol.parent ? symbol.parent + '.' : ''}${symbol.name}"})\` for full caller list + business rules`,
+    `- **Risk: ${counts.risk}**`,
   ];
+  // Only promote hermit_impact drill-down when callers actually exist.
+  // When d1=0, a follow-up hermit_impact would return the same zero — noise.
+  if (counts.d1 > 0) {
+    const target = symbol.parent ? `${symbol.parent}.${symbol.name}` : symbol.name;
+    lines.push(`- Call \`hermit_impact({target: "${target}"})\` for full caller list + business rules`);
+  }
   return lines.join('\n');
 }
 
