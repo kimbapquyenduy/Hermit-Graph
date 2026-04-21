@@ -89,7 +89,7 @@ export function register(server, ctx) {
   const { log } = ctx;
 
   // ── T1: Query (semantic concept search) ──
-  server.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter. Falls back to keyword-only if model unavailable.', {
+  server.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. Exported symbols include inline [d=1:N] tag showing direct-caller count for refactor-risk awareness. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter.', {
     query: z.string().min(1).max(500).describe('Concept to search for in code (natural language OK)'),
     cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
@@ -97,12 +97,21 @@ export function register(server, ctx) {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
       const result = await codeIntel.semanticQuery(query, dataDir);
+      // Annotate symbols with direct-caller count for refactor awareness (Phase 1 of v6.5.0).
+      // Include methods (parent-class members) and top-level exports, not just `exported=true` symbols.
+      const graph = codeIntel.readCodeGraph(dataDir);
+      for (const s of result.symbols) {
+        if (s.id && (s.exported || s.parent)) {
+          const counts = codeIntel.impactCounts(graph, s.id, 'upstream');
+          s._d1 = counts.d1;
+        }
+      }
       return ok(`_Project: ${projectCwd}_\n\n${formatQuery(result, query)}`);
     } catch (e) { return fail(e.message); }
   });
 
   // ── T2: Context (360-degree symbol view) ──
-  server.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Use BEFORE refactoring to see the full neighborhood. Faster and more complete than grepping for a function name across files.', {
+  server.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Includes inline Impact Preview (d=1/d=2/d=3 counts + risk) for exported symbols, so you see refactor risk during discovery without a second tool call. Use BEFORE refactoring to see the full neighborhood.', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
@@ -110,6 +119,13 @@ export function register(server, ctx) {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.context(name, dataDir);
+      // Embed impact preview for any resolved symbol (Phase 1 of v6.5.0).
+      // formatImpactPreview internally filters out pure-leaf cases (d1=0, not framework-bound).
+      if (result.symbol && result.symbol.id) {
+        const graph = codeIntel.readCodeGraph(dataDir);
+        const counts = codeIntel.impactCounts(graph, result.symbol.id, 'upstream');
+        result.impactPreview = codeIntel.formatImpactPreview(result.symbol, counts);
+      }
       return ok(`_Project: ${projectCwd}_\n\n${formatContext(result, name)}`);
     } catch (e) { return fail(e.message); }
   });
@@ -173,7 +189,11 @@ function formatQuery(result, q) {
     lines.push(`### Symbols (${result.symbols.length})`);
     for (const s of result.symbols) {
       const score = typeof s.score === 'number' ? ` \`${s.score.toFixed(3)}\`` : '';
-      lines.push(`-${score} **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${s.exported ? ' [exported]' : ''}`);
+      const tags = [];
+      if (s.exported) tags.push('exported');
+      if (typeof s._d1 === 'number') tags.push(`d=1:${s._d1}`);
+      const tagStr = tags.length ? ` [${tags.join(', ')}]` : '';
+      lines.push(`-${score} **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${tagStr}`);
     }
   }
   if (result.processes.length) {
@@ -215,6 +235,8 @@ function formatContext(result, name) {
   ];
   const hint = codeIntel.detectFrameworkBindingHint(s, result.callers.length);
   if (hint) lines.push(hint);
+  // Impact preview: surface d=1/d=2/d=3 counts so AI sees risk in discovery flow
+  if (result.impactPreview) lines.push(result.impactPreview);
   return lines.join('\n');
 }
 

@@ -183,6 +183,82 @@ function resolveSymbol(graph, nameOrId) {
 function round(n) { return Math.round(n * 100) / 100; }
 
 /**
+ * Fast count-only BFS for inline risk summaries. Skips the full symbol objects
+ * (no formatting, no entries) — returns counts at each depth only. Typical
+ * runtime < 5ms on pre-built graph.
+ *
+ * @param {import('./graph.mjs').CodeGraph} graph
+ * @param {string} symbolId - Must already be a valid ID (no fuzzy resolution)
+ * @param {'upstream'|'downstream'|'both'} direction
+ * @returns {{ d1: number, d2: number, d3: number, risk: 'LOW'|'MEDIUM'|'HIGH' }}
+ */
+export function impactCounts(graph, symbolId, direction = 'upstream') {
+  let d1 = 0, d2 = 0, d3 = 0;
+  const visited = new Set([symbolId]);
+  const queue = [];
+  for (const id of getNeighbors(graph, symbolId, direction)) queue.push([id, 1]);
+
+  while (queue.length > 0) {
+    const [id, depth] = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    if (depth === 1) d1++;
+    else if (depth === 2) d2++;
+    else if (depth === 3) d3++;
+    if (depth >= 3) continue;
+    for (const nextId of getNeighbors(graph, id, direction)) {
+      if (!visited.has(nextId)) queue.push([nextId, depth + 1]);
+    }
+  }
+
+  const risk = d1 > 5 ? 'HIGH' : d1 > 0 ? 'MEDIUM' : 'LOW';
+  return { d1, d2, d3, risk };
+}
+
+/**
+ * Format the Impact Preview section for embedding in hermit_context responses.
+ * Returns empty string when symbol is not exported OR has 0 direct callers — both
+ * cases add noise without signal. Framework-bound symbols (middleware etc.) still
+ * get the preview because their hint tells the user to grep config files.
+ */
+export function formatImpactPreview(symbol, counts) {
+  if (!symbol) return '';
+  // Emit when there's signal to share:
+  //   - 1+ direct callers (non-trivial refactor risk), OR
+  //   - framework-bound with 0 callers (misleading LOW without the hint)
+  // Skip otherwise — pure leaf helpers with no callers don't need a section.
+  if (counts.d1 === 0 && !isLikelyFrameworkBound(symbol)) return '';
+  const lines = [
+    '',
+    `### Impact Preview (upstream depth=3)`,
+    `- d=1 WILL_BREAK: **${counts.d1}** caller${counts.d1 === 1 ? '' : 's'}`,
+    `- d=2 LIKELY_AFFECTED: ${counts.d2}`,
+    `- d=3 MAY_NEED_TESTING: ${counts.d3}`,
+    `- **Risk: ${counts.risk}** — call \`hermit_impact({target: "${symbol.parent ? symbol.parent + '.' : ''}${symbol.name}"})\` for full caller list + business rules`,
+  ];
+  return lines.join('\n');
+}
+
+function isLikelyFrameworkBound(symbol) {
+  const file = symbol.file || '';
+  const parent = symbol.parent || '';
+
+  // Case 1: file lives in a framework-dispatch directory with a convention method name
+  const fwDir = /\/(middleware|commands?|jobs?|handlers?|listeners?|tasks?|observers?|events?|hooks?|subscribers?)\//i;
+  const fwMethod = new Set(['handle', 'run', 'execute', 'process', 'dispatch', 'invoke', 'perform', 'fire', 'trigger', 'exec', 'call', '__invoke']);
+  if (fwDir.test(file) && fwMethod.has(symbol.name)) return true;
+
+  // Case 2: controller method — any method on a class whose name ends with Controller
+  // (Adonis / Laravel / Rails pattern) invoked via route-string dispatch
+  if (symbol.kind === 'method' && /Controller$/.test(parent)) return true;
+
+  // Case 3: file lives in a Controllers/ directory (method kind) — fallback for anonymous class names
+  if (symbol.kind === 'method' && /\/controllers?\//i.test(file)) return true;
+
+  return false;
+}
+
+/**
  * Detect symbols that look framework-bound (middleware, commands, jobs, handlers).
  * AST call graph is blind to string-based dispatch — these symbols typically show 0
  * callers despite being heavily invoked. Return a hint line if the symbol matches
@@ -193,22 +269,14 @@ function round(n) { return Math.round(n * 100) / 100; }
  *  - Symbol name matches a framework-convention method name
  *  - Caller count is 0
  */
-const FRAMEWORK_DIRS = /\/(middleware|commands?|jobs?|handlers?|listeners?|tasks?|observers?|events?|hooks?|subscribers?)\//i;
-const FRAMEWORK_METHODS = new Set([
-  'handle', 'run', 'execute', 'process', 'dispatch', 'invoke',
-  'perform', 'fire', 'trigger', 'exec', 'call', '__invoke',
-]);
-
 export function detectFrameworkBindingHint(symbol, callerCount) {
   if (!symbol || callerCount > 0) return '';
-  const file = symbol.file || '';
-  if (!FRAMEWORK_DIRS.test(file)) return '';
-  if (!FRAMEWORK_METHODS.has(symbol.name)) return '';
+  if (!isLikelyFrameworkBound(symbol)) return '';
   return [
     '',
-    '> **Heuristic hint:** This symbol looks framework-bound (file path + conventional method name).',
-    '> AST sees 0 callers but framework dispatch is often string-based (e.g. `.middleware("user")`,',
-    '> `Route::group([...])`, `Bus::dispatch(Job::class)`). Grep for references to the class or method',
+    '> **Heuristic hint:** This symbol looks framework-bound (controller method OR convention method in middleware/command/job directory).',
+    '> AST sees 0 callers but framework dispatch is often string-based (e.g. `Route.post("path", "Controller.method")`,',
+    '> `.middleware("user")`, `Bus::dispatch(Job::class)`). Grep for references to the class or method',
     '> name in route / config / registration files to find real invocation sites.',
   ].join('\n');
 }

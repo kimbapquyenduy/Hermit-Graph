@@ -4,6 +4,29 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.5.0] — 2026-04-21
+
+### Added
+- **Embedded Impact Preview in `hermit_context` responses** — d=1/d=2/d=3 caller counts + risk level now appear inline in every context response (when signal exists: d1>0 OR framework-bound). AI sees refactor risk in the normal discovery flow without a second tool call
+- **Inline `[d=1:N]` tag in `hermit_query` results** — exported symbols and class methods now show their direct-caller count in the symbol list, nudging AI toward deeper investigation on high-fan-in symbols
+- **`impactCounts()` public API** — fast count-only BFS (<5ms typical) for embedding risk info in any tool response without the full caller/callee lists
+- **Extended framework-binding heuristic** — controller methods (class name ends with `Controller`, OR file path matches `/controllers?/`) now flagged as framework-invoked. Previously only middleware/command/job dirs. Catches Adonis/Laravel/Rails route dispatch patterns
+
+### Why this release
+Real benchmark on WebCash exposed the gap: `hermit_impact` is probabilistic — AI sometimes calls it before edits, sometimes not. When the decision to edit comes AFTER discovery, AI has moved on and doesn't remember. Fix: surface risk info DURING discovery, embedded in the response AI is already reading.
+
+### Verified (WebCash e2e via MCP stdio)
+- `hermit_context("logIn")` — controller method, 0 callers → Impact Preview fires (framework-bound path)
+- `hermit_context("b64_md5")` — internal helper → no preview (correct — noise reduction)
+- `hermit_query("authentication login")` — 4 results tagged with `[exported, d=1:N]`
+- `hermit_impact("verifyOTPToken")` — risk + d=1 regression intact
+- `hermit_impact("User.handle")` — v6.4.2 framework hint regression intact
+
+### Plan
+Ship Phase 1 only. Phases 2-4 (skill, pre-edit hook, `hermit check-edit` CLI) deferred to measure adoption signal before adding more enforcement layers. See `plans/260421-1230-pre-edit-impact-enforcement/`
+
+---
+
 ## [6.4.2] — 2026-04-21
 
 ### Added
