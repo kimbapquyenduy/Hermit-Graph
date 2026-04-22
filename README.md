@@ -368,9 +368,11 @@ Hermit is a **targeted enhancement, not a Grep replacement.** Real benchmark on 
 
 ### Languages Supported
 
-- **JavaScript** (.js, .mjs, .cjs)
+- **JavaScript** (.js, .mjs, .cjs, .jsx)
 - **TypeScript** (.ts, .tsx)
 - **Python** (.py) — via optional `@ast-grep/lang-python`
+- **Java** (.java) — via optional `@ast-grep/lang-java`, captures annotations (`@Service`, `@Controller`, `@Transactional`, etc.)
+- **MyBatis XML mappers** (.xml with `<mapper namespace=...>` schema) — `<select|insert|update|delete>` statements cross-linked to Java interface methods via `fast-xml-parser`. Editing a Java interface method surfaces its XML mapper as d=1 caller
 
 ### Performance (real numbers)
 
