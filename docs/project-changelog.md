@@ -4,6 +4,53 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [6.7.0] — 2026-04-22
+
+### Added — Java + MyBatis XML CodeGraph support
+
+CodeGraph now indexes Java source files and MyBatis XML mapper files, unifying them with JS/TS/Python in the same call-graph. Hermit's transitive blast-radius advantage extends to enterprise Java backends + Spring/MyBatis monorepos.
+
+**Java via `@ast-grep/lang-java`**
+- New optional dep `@ast-grep/lang-java@^0.0.7` (5.1MB prebuilt native binaries, ISC license, no Rust compile)
+- New extractor `scripts/lib/code-intel/extractor-java.mjs` — classes, interfaces, methods, constructors, fields, imports, annotations
+- Relations: CALLS, IMPORTS, EXTENDS, IMPLEMENTS, MEMBER_OF
+- Captures annotations (`@Service`, `@Controller`, `@Transactional`, etc.) on class + method symbols — feeds framework-bound detection
+- Generics erased for identity — `List<User>` stored as `List`, accepts overload ambiguity resolved via disambiguation list
+- Nested types (nested classes/interfaces/enums) scoped under outer class parent
+
+**MyBatis XML mapper integration**
+- New optional dep `fast-xml-parser@^5.7.1` (fastest Node XML parser, zero deps, small bundle)
+- New extractor `scripts/lib/code-intel/extractor-mybatis-xml.mjs`
+- Detector: file must contain `<mapper namespace="...">` AND at least one `<select|insert|update|delete|sql>` tag (prevents false positives on other XML schemas)
+- `<select id="X">` becomes a symbol with kind=`mybatis-statement`, linked MEMBER_OF to the Java interface class (cross-language edge)
+- `<include refid="...">` extracted as CALLS edges within the XML
+- Line numbers preserved via raw-text scan (fast-xml-parser's preserveOrder doesn't expose line info)
+- Security: XXE entity expansion disabled
+
+**Parser architecture**
+- Java uses dynamic-language registration path (`registerDynamicLanguage` + string key to `parse()`) — differs from JS/TS sync `parse(Lang.X, src)` but unified at the API surface via extension map
+- Race-condition fix in `loadPython`/`loadJava` — dedup concurrent callers with promise caching (previous boolean flag was set before async import resolved, causing second caller to see stale state)
+
+**Indexer**
+- Two-lane pipeline: ast-grep for JS/TS/Python/Java, single-pass XML for MyBatis mappers
+- Post-link resolution: XML MEMBER_OF edges pointing at short class names auto-rewritten to Java symbol IDs when the Java interface exists in the global symbol map
+- `.xml` extension added to `isSupported` allowlist and the PreToolUse hook's SOURCE_EXTS
+
+### Verified
+- Fixture: 3 Java files + 1 MyBatis XML → 18 symbols, 21 relations across 4 files
+- Cross-language MEMBER_OF: `UserMapper.findById` (XML) correctly links to `UserMapper` (Java interface)
+- Annotation capture: `@Service`, `@Transactional`, `@Override` surface on the symbol's `annotations` field
+- `hermit_impact("findById")` disambiguation lists 3 candidates (IUserService.findById, UserService.findById, UserMapper.findById) — ambiguity handling generalizes to Java
+- `<include refid="baseColumns">` produces CALLS edges (XML internal references)
+- 103 unit tests + 16 e2e tests all pass (no regressions on JS/TS/Python paths)
+
+### Deferred (documented in plans/260422-java-xml-codegraph/)
+- Spring XML bean definitions (applicationContext.xml) — legacy pattern, low new-development volume, ship only on user request
+- Kotlin — similar effort, deferred to v6.8.0 if demand emerges
+- MyBatis-Plus annotation magic — captured via Java AST (annotations already extracted); explicit modeling can come later
+
+---
+
 ## [6.6.4] — 2026-04-21
 
 ### Added — Global PreToolUse hook registration

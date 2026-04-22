@@ -6,10 +6,11 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative, extname } from 'path';
 import { execFileSync } from 'child_process';
-import { parseFile, isSupported, ensurePythonLoaded } from './parser.mjs';
+import { parseFile, isSupported, ensurePythonLoaded, ensureJavaLoaded } from './parser.mjs';
 import { extractAll } from './extractor.mjs';
 import { CodeGraph } from './graph.mjs';
 import { readCodeGraph, writeCodeGraph, invalidateCache } from './code-io.mjs';
+import { isMybatisMapper, extractMybatisMapper } from './extractor-mybatis-xml.mjs';
 
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', '.hermit', 'dist', 'build', 'coverage',
@@ -26,6 +27,7 @@ const IGNORE_DIRS = new Set([
  */
 export async function fullIndex(projectRoot, dataDir, opts = {}) {
   await ensurePythonLoaded();
+  await ensureJavaLoaded();
   const files = collectFiles(projectRoot);
   const graph = new CodeGraph();
 
@@ -33,10 +35,26 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   const globalSymbolMap = new Map();
   const fileResults = [];
 
+  // XML results held separately — XML extraction is single-pass (not AST-based)
+  const xmlResults = [];
+
   for (let i = 0; i < files.length; i++) {
     const absPath = join(projectRoot, files[i]);
     const source = safeRead(absPath);
     if (!source) continue;
+
+    // XML branch — currently only MyBatis mappers
+    if (files[i].toLowerCase().endsWith('.xml')) {
+      if (isMybatisMapper(source)) {
+        const { symbols, relations } = extractMybatisMapper(source, files[i]);
+        for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+        xmlResults.push({ symbols, relations });
+      }
+      opts.onProgress?.(files[i], i + 1, files.length);
+      continue;
+    }
+
+    // AST branch — JS/TS/Python/Java via ast-grep
     const parsed = parseFile(files[i], source);
     if (!parsed) continue;
     const { symbols } = extractAll(parsed.root, files[i], parsed.langStr);
@@ -49,6 +67,19 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   for (const { file, parsed, symbols } of fileResults) {
     const { relations } = extractAll(parsed.root, file, parsed.langStr, globalSymbolMap);
     graph.addSymbols(symbols);
+    graph.addRelations(relations);
+  }
+
+  // XML symbols + relations — cross-link MEMBER_OF target to Java class when available
+  for (const { symbols, relations } of xmlResults) {
+    graph.addSymbols(symbols);
+    // Rewrite MEMBER_OF.to from short class name → Java symbol id if resolvable
+    for (const rel of relations) {
+      if (rel.kind === 'MEMBER_OF' && typeof rel.to === 'string' && !rel.to.includes('::')) {
+        const resolved = globalSymbolMap.get(rel.to);
+        if (resolved) rel.to = resolved;
+      }
+    }
     graph.addRelations(relations);
   }
 
@@ -69,6 +100,7 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
  */
 export async function incrementalIndex(projectRoot, dataDir) {
   await ensurePythonLoaded();
+  await ensureJavaLoaded();
   invalidateCache(); // Force fresh read, prevent stale cache on write failure
   const graph = readCodeGraph(dataDir);
   const lastCommit = graph.meta.commit;

@@ -5,6 +5,7 @@
 
 import { extractSymbolsJS, extractRelationsJS } from './extractor-js.mjs';
 import { extractSymbolsPy, extractRelationsPy } from './extractor-py.mjs';
+import { extractSymbolsJava, extractRelationsJava } from './extractor-java.mjs';
 
 /**
  * Extract all symbols from a parsed AST root.
@@ -15,6 +16,7 @@ import { extractSymbolsPy, extractRelationsPy } from './extractor-py.mjs';
  */
 export function extractSymbols(root, file, lang) {
   if (lang === 'python') return extractSymbolsPy(root, file);
+  if (lang === 'java') return extractSymbolsJava(root, file);
   return extractSymbolsJS(root, file, lang);
 }
 
@@ -28,6 +30,7 @@ export function extractSymbols(root, file, lang) {
  */
 export function extractRelations(root, file, lang, symbolMap) {
   if (lang === 'python') return extractRelationsPy(root, file, symbolMap);
+  if (lang === 'java') return extractRelationsJava(root, file, symbolMap);
   return extractRelationsJS(root, file, lang, symbolMap);
 }
 

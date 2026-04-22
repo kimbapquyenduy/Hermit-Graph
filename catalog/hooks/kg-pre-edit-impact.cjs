@@ -37,7 +37,7 @@ const path = require('path');
 // ═══════════════════════════════════════════════════════════════════════════
 
 const TARGET_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
-const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
+const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.java', '.xml']);
 const MAX_SYMBOLS_REPORTED = 5;
 
 const FRAMEWORK_DIRS = /\/(middleware|commands?|jobs?|handlers?|listeners?|tasks?|observers?|events?|hooks?|subscribers?|controllers?)\//i;
