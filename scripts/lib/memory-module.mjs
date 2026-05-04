@@ -136,22 +136,31 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 /**
  * Register all 10 memory tools.
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
- * @param {object} ctx - Shared context { brainPath, log, memoryProvider? }
+ * @param {object} ctx - Shared context { brainPath, log, memoryProvider?, dualWriter? }
  */
 export function register(server, ctx) {
   const { brainPath, log } = ctx;
 
-  // Route through provider when available (Phase 00+); fall back to direct brain-io for legacy callers.
-  const _readBrain = ctx.memoryProvider
-    ? () => ctx.memoryProvider.readAll()  // returns same { entities, relations } shape — but sync callers below use readBrain directly
-    : null;
-
-  // NOTE: All 10 tools below call readBrain/writeBrain/withBrainLock synchronously inside
-  // lock callbacks. The provider's readAll() is async, but brain-io's readBrain() is sync
-  // and used inside sync lock callbacks. For Phase 00 we preserve the sync call pattern —
-  // the provider wraps the same brain-io underneath, so direct brain-io calls here remain
-  // correct and produce identical behavior. Phase 01b will migrate to full async provider calls.
-  // Callers outside this module (e.g. unified-search.mjs) can use ctx.memoryProvider directly.
+  /**
+   * Mirror a set of changed entities/relations to SQLite after a JSONL write.
+   * Called inside the existing withBrainLock callback — no new lock acquired.
+   * Non-fatal: SQLite errors are logged and swallowed via DualWriter stats.
+   *
+   * @param {object[]} changedEntities
+   * @param {object[]} changedRelations
+   */
+  async function mirrorToSqlite(changedEntities, changedRelations = []) {
+    if (!ctx.dualWriter?.getStats().enabled) return;
+    const sqlite = ctx.dualWriter._sqlite;
+    try {
+      for (const entity of changedEntities) await sqlite.writeEntity(entity);
+      for (const rel of changedRelations) await sqlite.writeRelation(rel);
+    } catch (err) {
+      ctx.dualWriter._lastSqliteError = err;
+      ctx.dualWriter._sqliteFailureCount++;
+      log(`memory-module: SQLite mirror failed (failure #${ctx.dualWriter._sqliteFailureCount}): ${err.message}`);
+    }
+  }
 
   // Expose brain readers for other modules (both direct and via provider)
   ctx.getEntities = () => readBrain(brainPath).entities;
@@ -171,9 +180,10 @@ export function register(server, ctx) {
       if (invalid.length > 0) return fail(obsValidationError(invalid));
     }
 
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       let created = 0, merged = 0, typeConflicts = 0, superseded = 0;
+      const changed = [];
       for (const item of input) {
         const existing = findEntity(entities, item.name);
         if (existing) {
@@ -186,12 +196,16 @@ export function register(server, ctx) {
           existing.observations = resolution.merged;
           superseded += resolution.superseded;
           merged++;
+          changed.push(existing);
         } else {
-          entities.set(item.name, { type: 'entity', name: item.name, entityType: item.entityType, observations: item.observations });
+          const newEntity = { type: 'entity', name: item.name, entityType: item.entityType, observations: item.observations };
+          entities.set(item.name, newEntity);
           created++;
+          changed.push(newEntity);
         }
       }
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite(changed);
       return { created, merged, typeConflicts, superseded };
     });
     const conflictNote = result.typeConflicts > 0 ? ` (${result.typeConflicts} type conflicts — existing types preserved)` : '';
@@ -207,9 +221,10 @@ export function register(server, ctx) {
       relationType: z.string().min(1),
     }), { min: 1 }),
   }, async ({ relations: input }) => {
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       let created = 0, skipped = 0, missing = 0;
+      const newRels = [];
       for (const rel of input) {
         if (!findEntity(entities, rel.from) || !findEntity(entities, rel.to)) {
           log(`hermit_create_relations: skipping relation "${rel.from}" → "${rel.to}" — one or both entities not found`);
@@ -218,10 +233,13 @@ export function register(server, ctx) {
         }
         const exists = relations.some(r => r.from === rel.from && r.to === rel.to && r.relationType === rel.relationType);
         if (exists) { skipped++; continue; }
-        relations.push({ type: 'relation', ...rel });
+        const newRel = { type: 'relation', ...rel };
+        relations.push(newRel);
+        newRels.push(newRel);
         created++;
       }
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite([], newRels);
       return { created, skipped, missing };
     });
     const missingNote = result.missing > 0 ? ` (${result.missing} skipped — entity not found)` : '';
@@ -289,12 +307,13 @@ export function register(server, ctx) {
     const invalid = validateObservations(newObs);
     if (invalid.length > 0) return fail(obsValidationError(invalid));
 
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       const entity = findEntity(entities, entityName);
       if (!entity) return null;
       entity.observations = [...(entity.observations || []), ...newObs];
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite([entity]);
       return entity.observations.length;
     });
     if (result === null) return fail(`Entity "${entityName}" not found.`);
@@ -305,9 +324,10 @@ export function register(server, ctx) {
   server.tool('hermit_archive_entities', 'Soft-delete entities (set _archived=true)', {
     names: zArray(z.string().min(1), { min: 1 }),
   }, async ({ names }) => {
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       let archived = 0;
+      const changed = [];
       for (const name of names) {
         const entity = findEntity(entities, name);
         if (entity && !entity._archived) {
@@ -316,9 +336,11 @@ export function register(server, ctx) {
           entity.observations = (entity.observations || []).map(obs => archiveObservation(obs));
           entity._history = [...(entity._history || []), { action: 'archived', at: entity._archivedAt }];
           archived++;
+          changed.push(entity);
         }
       }
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite(changed);
       return archived;
     });
     return ok(`Archived ${result} entities.`);
@@ -329,7 +351,7 @@ export function register(server, ctx) {
     entityName: z.string().min(1),
     observations: zArray(z.string(), { min: 1 }).describe('Observation texts to archive (partial match)'),
   }, async ({ entityName, observations: targets }) => {
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       const entity = findEntity(entities, entityName);
       if (!entity) return null;
@@ -346,6 +368,7 @@ export function register(server, ctx) {
         return obs;
       });
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite([entity]);
       return count;
     });
     if (result === null) return fail(`Entity "${entityName}" not found.`);
