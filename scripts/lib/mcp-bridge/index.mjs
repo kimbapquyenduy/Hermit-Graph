@@ -128,7 +128,7 @@ function registerIntrospectionTools(server, pool, registry, breaker, ctx, log) {
     }
 
     // Re-register new tools only — _registeredTools set prevents double-registration
-    registerNamespacedTools(server, registry, pool, breaker, _registeredTools);
+    registerNamespacedTools(server, registry, pool, breaker, _registeredTools, ctx.traceBus ?? null);
 
     const summary = {
       added: toAdd.map(b => b.name),
@@ -181,8 +181,8 @@ export async function register(server, ctx) {
     return bootstrapBridge(cfg, pool, registry, log);
   }));
 
-  // Surface namespaced tools on the Brain server
-  const registered = registerNamespacedTools(server, registry, pool, breaker, _registeredTools);
+  // Surface namespaced tools on the Brain server (tap point 5 wired via traceBus)
+  const registered = registerNamespacedTools(server, registry, pool, breaker, _registeredTools, ctx.traceBus ?? null);
   if (registered.length > 0) {
     log(`Surfaced ${registered.length} bridged tool(s): ${registered.join(', ')}`);
   }

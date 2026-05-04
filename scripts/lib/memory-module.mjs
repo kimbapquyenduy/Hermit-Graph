@@ -134,6 +134,31 @@ function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
 /**
+ * Wrap a tool handler to emit tool:call + tool:result trace events.
+ * No-op (returns handler unchanged) when traceBus is null — zero overhead path.
+ *
+ * @param {string} toolName
+ * @param {Function} handler
+ * @param {object|null} traceBus
+ * @returns {Function}
+ */
+function withTrace(toolName, handler, traceBus) {
+  if (!traceBus) return handler;
+  return async (args) => {
+    traceBus.emit('tool:call', { tool: toolName, args });
+    const t0 = Date.now();
+    try {
+      const result = await handler(args);
+      traceBus.emit('tool:result', { tool: toolName, durationMs: Date.now() - t0, success: !result?.isError });
+      return result;
+    } catch (err) {
+      traceBus.emit('tool:result', { tool: toolName, durationMs: Date.now() - t0, success: false, error: err.message });
+      throw err;
+    }
+  };
+}
+
+/**
  * Read full graph via ctx.memoryProvider, falling back to ctx.fallbackProvider on error.
  * @param {object} ctx
  * @returns {Promise<{ entities: Map<string, object>, relations: object[] }>}
@@ -157,6 +182,25 @@ async function readGraph(ctx) {
  */
 export function register(server, ctx) {
   const { brainPath, log } = ctx;
+
+  // Tap point 1: memory tools — auto-wrap all server.tool() calls in this module
+  // with tool:call + tool:result trace events when traceBus is active.
+  // Uses a local proxy so other modules are unaffected.
+  const _origTool = server.tool.bind(server);
+  const tracedServer = ctx.traceBus
+    ? {
+        tool: (name, desc, schema, ...rest) => {
+          // rest is [optsOrHandler, handler?] — MCP SDK supports 3 or 4-arg overloads
+          if (rest.length === 1 && typeof rest[0] === 'function') {
+            return _origTool(name, desc, schema, withTrace(name, rest[0], ctx.traceBus));
+          }
+          if (rest.length === 2 && typeof rest[1] === 'function') {
+            return _origTool(name, desc, schema, rest[0], withTrace(name, rest[1], ctx.traceBus));
+          }
+          return _origTool(name, desc, schema, ...rest);
+        },
+      }
+    : server;
 
   /**
    * Mirror a set of changed entities/relations to SQLite after a JSONL write.
@@ -185,7 +229,7 @@ export function register(server, ctx) {
   ctx.getRelations = () => readBrain(brainPath).relations;
 
   // ── T1: Create Entities ──
-  server.tool('hermit_create_entities', 'Persist knowledge across sessions — save whenever you learn: a business rule, an architecture pattern, a bug+fix root-cause, or a tech decision. Naming: TIER:SCOPE:LABEL (e.g. RULE:Shop:DiscountMax50). Deduplicates by name. THIS is how you remember things next session.', {
+  tracedServer.tool('hermit_create_entities', 'Persist knowledge across sessions — save whenever you learn: a business rule, an architecture pattern, a bug+fix root-cause, or a tech decision. Naming: TIER:SCOPE:LABEL (e.g. RULE:Shop:DiscountMax50). Deduplicates by name. THIS is how you remember things next session.', {
     entities: zArray(z.object({
       name: z.string().min(1).describe('Entity name (TIER:SCOPE:LABEL format)'),
       entityType: z.string().min(1).describe('One of 13 entity types'),
@@ -232,7 +276,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Create Relations ──
-  server.tool('hermit_create_relations', 'Link two saved entities (e.g. RULE:X depends_on PATTERN:Y, INCIDENT:Z caused_by TECH:W). Use after hermit_create_entities to encode the graph structure. Relations make recall vastly more useful — standalone entities are islands.', {
+  tracedServer.tool('hermit_create_relations', 'Link two saved entities (e.g. RULE:X depends_on PATTERN:Y, INCIDENT:Z caused_by TECH:W). Use after hermit_create_entities to encode the graph structure. Relations make recall vastly more useful — standalone entities are islands.', {
     relations: zArray(z.object({
       from: z.string().min(1),
       to: z.string().min(1),
@@ -265,7 +309,7 @@ export function register(server, ctx) {
   });
 
   // ── T3: Search Nodes (keyword) ──
-  server.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations.', {
+  tracedServer.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
     include_archived: zBoolean().optional().default(false),
@@ -285,7 +329,7 @@ export function register(server, ctx) {
   });
 
   // ── T4: Semantic Search ──
-  server.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index.', {
+  tracedServer.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
   }, RO, async ({ query, limit }) => {
@@ -301,7 +345,7 @@ export function register(server, ctx) {
   });
 
   // ── T5: Open Nodes ──
-  server.tool('hermit_open_nodes', 'Read full entity details when you already know the name(s). Use after hermit_search_nodes surfaces a relevant entity and you want all its observations + relations expanded (search returns summaries only).', {
+  tracedServer.tool('hermit_open_nodes', 'Read full entity details when you already know the name(s). Use after hermit_search_nodes surfaces a relevant entity and you want all its observations + relations expanded (search returns summaries only).', {
     names: zArray(z.string().min(1), { min: 1, max: 20 }),
   }, RO, async ({ names }) => {
     const { entities } = await readGraph(ctx);
@@ -317,7 +361,7 @@ export function register(server, ctx) {
   });
 
   // ── T6: Add Observations ──
-  server.tool('hermit_add_observations', 'Extend an already-saved entity with new facts — use when the user gives more detail about something you previously saved, or you discover more context mid-session. Requires [confidence|YYYY-MM-DD] prefix per observation.', {
+  tracedServer.tool('hermit_add_observations', 'Extend an already-saved entity with new facts — use when the user gives more detail about something you previously saved, or you discover more context mid-session. Requires [confidence|YYYY-MM-DD] prefix per observation.', {
     entityName: z.string().min(1),
     observations: zArray(z.string(), { min: 1 }),
   }, async ({ entityName, observations: newObs }) => {
@@ -339,7 +383,7 @@ export function register(server, ctx) {
   });
 
   // ── T7: Archive Entities (with audit trail) ──
-  server.tool('hermit_archive_entities', 'Soft-delete entities (set _archived=true)', {
+  tracedServer.tool('hermit_archive_entities', 'Soft-delete entities (set _archived=true)', {
     names: zArray(z.string().min(1), { min: 1 }),
   }, async ({ names }) => {
     const result = await withBrainLock(brainPath, async () => {
@@ -365,7 +409,7 @@ export function register(server, ctx) {
   });
 
   // ── T8: Archive Observations (with audit trail) ──
-  server.tool('hermit_archive_observations', 'Soft-archive specific observations within an entity by content match', {
+  tracedServer.tool('hermit_archive_observations', 'Soft-archive specific observations within an entity by content match', {
     entityName: z.string().min(1),
     observations: zArray(z.string(), { min: 1 }).describe('Observation texts to archive (partial match)'),
   }, async ({ entityName, observations: targets }) => {
@@ -394,7 +438,7 @@ export function register(server, ctx) {
   });
 
   // ── T9: Get Related ──
-  server.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity.', {
+  tracedServer.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity.', {
     name: z.string().min(1),
     depth: zNumber().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
@@ -426,7 +470,7 @@ export function register(server, ctx) {
   });
 
   // ── T10: Read Graph ──
-  server.tool('hermit_read_graph', 'Read knowledge graph with filters', {
+  tracedServer.tool('hermit_read_graph', 'Read knowledge graph with filters', {
     detailLevel: z.enum(['minimal', 'detail', 'entity-list']).optional().default('minimal'),
     entityNames: zArray(z.string()).optional(),
     entityTypes: zArray(z.string()).optional(),

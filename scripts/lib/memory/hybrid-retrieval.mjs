@@ -81,6 +81,9 @@ function withTimeout(promise, ms) {
  *   _vectorFallback?: boolean,
  * }>>}
  */
+/**
+ * @param {object} ctx - Must include memoryProvider, vectorBackend, and optionally traceBus.
+ */
 export async function searchHybrid(query, ctx, opts = {}) {
   if (!query || !query.trim()) return [];
 
@@ -127,6 +130,17 @@ export async function searchHybrid(query, ctx, opts = {}) {
 
   // ── RRF fusion ───────────────────────────────────────────────────────────
   const fused = rrf([bm25Results, vectorResults], { k: vectorFallback ? bm25K : Math.round((bm25K + vectorK) / 2), topK });
+
+  // Tap point 4: search:fusion — emitted after RRF produces fused ranking
+  if (ctx.traceBus) {
+    ctx.traceBus.emit('search:fusion', {
+      rankings: [
+        bm25Results.map((r, i) => ({ name: r.name, rank: i + 1 })),
+        vectorResults.map((r, i) => ({ name: r.name, rank: i + 1 })),
+      ],
+      fused: fused.map(r => ({ name: r.name, score: r.score })),
+    });
+  }
 
   // ── Build score maps for secondary fields ────────────────────────────────
   const bm25ScoreMap = new Map(bm25Results.map((r, i) => [r.name, 1 - i / Math.max(bm25Results.length, 1)]));
