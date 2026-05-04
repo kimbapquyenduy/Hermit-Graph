@@ -31,11 +31,11 @@
   },
   "phase01b": {
     "date": "2026-05-04",
-    "jsonlOnlyMs": 17400,
-    "dualWriteMs": 17397,
-    "overheadPct": 0,
+    "jsonlOnlyMs": 17398,
+    "dualWriteMs": 16502,
+    "overheadPct": -5.2,
     "throughputJsonlPerSec": 57,
-    "throughputDualPerSec": 57,
+    "throughputDualPerSec": 61,
     "entities": 1000,
     "note": "Phase 01b dual-write latency benchmark"
   },
@@ -59,6 +59,25 @@
       "criterion": "all top-3 results contain query term in name"
     },
     "note": "Phase 01c FTS5 BM25 read path. Content FTS5 table (non-contentless). Prefix matching via quoted-token* syntax."
+  },
+  "phase03b": {
+    "date": "2026-05-04",
+    "model": "Xenova/all-MiniLM-L6-v2",
+    "dim": 384,
+    "backend": "sqlite-vec (vec0 virtual table)",
+    "eagerWrite": {
+      "entities10Ms": 1232,
+      "throughput10PerSec": 8.1,
+      "entities100Ms": 3845,
+      "throughput100PerSec": 26.0,
+      "note": "Embedding model dominates latency (~120ms/entity). vec upsert itself is <1ms."
+    },
+    "backfill": {
+      "entities": 618,
+      "vecRows": 618,
+      "parity": "PASS"
+    },
+    "note": "Phase 03b write-only embed pipeline. Eager mode default. DELETE+INSERT upsert (vec0 does not support INSERT OR REPLACE)."
   },
   "phase02": {
     "date": "2026-05-04",

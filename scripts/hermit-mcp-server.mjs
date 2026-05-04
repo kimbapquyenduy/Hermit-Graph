@@ -14,6 +14,7 @@ import { resolveBrainPath, getPackageRoot } from './lib/resolve-brain-path.mjs';
 import { JsonlProvider } from './lib/memory/jsonl-provider.mjs';
 import { SqliteProvider } from './lib/memory/sqlite-backend.mjs';
 import { DualWriter } from './lib/memory/dual-writer.mjs';
+import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -32,10 +33,26 @@ const _jsonlProvider = new JsonlProvider({ brainPath: _brainPath });
 const _dbPath = _brainPath.replace(/\.jsonl$/, '.db');
 const _sqliteProvider = new SqliteProvider({ dbPath: _dbPath });
 const _dualWriteEnabled = process.env.HERMIT_DUAL_WRITE !== '0';
+
+// Phase 03b: vector backend — shares same DB connection as SqliteProvider.
+// Graceful degrade: if extension load failed or table create fails, vectorBackend = null.
+let _vectorBackend = null;
+if (_sqliteProvider.vectorEnabled) {
+  try {
+    _vectorBackend = new SqliteVecBackend({ db: _sqliteProvider.getDb() });
+    log(`Vector backend ready (sqlite-vec, dim=384, mode=${process.env.HERMIT_EMBED_MODE || 'eager'})`);
+  } catch (err) {
+    log(`Warning: Vector backend failed to init: ${err.message} — writes proceed without vectors`);
+  }
+} else {
+  log('Warning: sqlite-vec not loaded — vector backend disabled');
+}
+
 const _dualWriter = new DualWriter({
   jsonlProvider: _jsonlProvider,
   sqliteProvider: _sqliteProvider,
   enabled: _dualWriteEnabled,
+  vectorBackend: _vectorBackend,
 });
 
 // Phase 01c: opt-in read primary via HERMIT_PRIMARY_READ=sqlite (default: jsonl)
@@ -54,6 +71,8 @@ const context = {
   fallbackProvider: _fallbackProvider,
   // Phase 01b: dual-writer — fans writes to JSONL + SQLite under one lock.
   dualWriter: _dualWriter,
+  // Phase 03b: vector backend (null if sqlite-vec unavailable).
+  vectorBackend: _vectorBackend,
   // Populated by memory module after registration
   getEntities: null,
   getRelations: null,
