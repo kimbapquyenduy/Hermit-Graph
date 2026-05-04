@@ -6,6 +6,7 @@
   "bin": {
     "hermit": "./scripts/brain-cli.mjs",
     "hermit-migrate": "./scripts/migrate-jsonl-to-sqlite.mjs",
+    "hermit-migrate-vec": "./scripts/migrate-embeddings-to-vec.mjs",
     "hermit-verify": "./scripts/verify-parity.mjs",
     "hermit-export-jsonl": "./scripts/export-sqlite-to-jsonl.mjs"
   },
@@ -18,6 +19,7 @@
     "scripts/export-db-to-jsonl.mjs",
     "scripts/export-sqlite-to-jsonl.mjs",
     "scripts/migrate-jsonl-to-sqlite.mjs",
+    "scripts/migrate-embeddings-to-vec.mjs",
     "scripts/verify-parity.mjs",
     "scripts/hermit-mcp-server.mjs",
     "scripts/merge-brain-jsonl.mjs",

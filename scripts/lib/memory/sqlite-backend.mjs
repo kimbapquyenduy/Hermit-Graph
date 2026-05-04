@@ -11,6 +11,7 @@ import { createRequire } from 'module';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import * as sqliteVec from 'sqlite-vec';
 import { MemoryProvider } from './provider-interface.mjs';
 import {
   prepareStatements,
@@ -44,6 +45,15 @@ export class SqliteProvider extends MemoryProvider {
     this._db = Database(this._dbPath);
     this._db.pragma('journal_mode = WAL');
     this._db.pragma('foreign_keys = ON');
+
+    // Phase 03b: load sqlite-vec extension for vector storage. Non-fatal if unavailable.
+    this.vectorEnabled = false;
+    try {
+      sqliteVec.load(this._db);
+      this.vectorEnabled = true;
+    } catch (err) {
+      process.stderr.write(`[hermit:sqlite] sqlite-vec extension failed to load: ${err.message}\n`);
+    }
 
     // Boot: apply schema (idempotent CREATE IF NOT EXISTS)
     const schema = readFileSync(SCHEMA_PATH, 'utf8');
@@ -89,10 +99,20 @@ export class SqliteProvider extends MemoryProvider {
 
   /**
    * Feature flags. BM25 search available via FTS5.
+   * vector flag reflects whether sqlite-vec loaded successfully.
    * @returns {{ keyword: string, vector: boolean, fts5: boolean, transactional: boolean }}
    */
   capabilities() {
-    return { keyword: 'bm25', vector: false, fts5: true, transactional: true };
+    return { keyword: 'bm25', vector: this.vectorEnabled, fts5: true, transactional: true };
+  }
+
+  /**
+   * Expose the raw better-sqlite3 Database instance for the vec backend to share.
+   * Only SqliteVecBackend should call this — keep internal coupling minimal.
+   * @returns {import('better-sqlite3').Database}
+   */
+  getDb() {
+    return this._db;
   }
 
   // ── Write methods ─────────────────────────────────────────────────────────
