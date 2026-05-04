@@ -1,0 +1,22 @@
+{
+  "date": "2026-05-04T10:59:15.698Z",
+  "version": "7.0.0-alpha.0",
+  "fixtures": {
+    "size": 500,
+    "seed": 42
+  },
+  "keyword": {
+    "p50": 0.53,
+    "p95": 1.01,
+    "avg": 0.59,
+    "count": 50
+  },
+  "readAll": {
+    "ms": 14.85
+  },
+  "write": {
+    "totalMs": 1925,
+    "count": 100,
+    "throughputPerSec": 52
+  }
+}
