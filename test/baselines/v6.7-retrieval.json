@@ -1,0 +1,29 @@
+{
+  "date": "2026-05-04T14:58:01.104Z",
+  "version": "6.7",
+  "ndcg10": 0.6881,
+  "mrr10": 0.8579,
+  "queryCount": 30,
+  "perTier": {
+    "TECH": {
+      "ndcg10": 0.7499,
+      "mrr10": 0.8889,
+      "count": 9
+    },
+    "PATTERN": {
+      "ndcg10": 0.5012,
+      "mrr10": 0.7321,
+      "count": 7
+    },
+    "INCIDENT": {
+      "ndcg10": 0.5988,
+      "mrr10": 0.7222,
+      "count": 5
+    },
+    "BIZ": {
+      "ndcg10": 0.8211,
+      "mrr10": 1,
+      "count": 9
+    }
+  }
+}
