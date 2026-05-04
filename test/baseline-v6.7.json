@@ -28,5 +28,15 @@
       "throughputPerSec": 100000
     },
     "note": "Bulk transaction write via better-sqlite3 sync API"
+  },
+  "phase01b": {
+    "date": "2026-05-04",
+    "jsonlOnlyMs": 17347,
+    "dualWriteMs": 16636,
+    "overheadPct": -4.1,
+    "throughputJsonlPerSec": 58,
+    "throughputDualPerSec": 60,
+    "entities": 1000,
+    "note": "Phase 01b dual-write latency benchmark"
   }
 }

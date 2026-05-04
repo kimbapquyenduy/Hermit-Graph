@@ -12,6 +12,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBrainPath, getPackageRoot } from './lib/resolve-brain-path.mjs';
 import { JsonlProvider } from './lib/memory/jsonl-provider.mjs';
+import { SqliteProvider } from './lib/memory/sqlite-backend.mjs';
+import { DualWriter } from './lib/memory/dual-writer.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -25,14 +27,26 @@ function log(msg) {
 
 const _brainPath = resolveBrainPath();
 
+// Phase 01b: dual-write providers
+const _jsonlProvider = new JsonlProvider({ brainPath: _brainPath });
+const _dbPath = _brainPath.replace(/\.jsonl$/, '.db');
+const _sqliteProvider = new SqliteProvider({ dbPath: _dbPath });
+const _dualWriteEnabled = process.env.HERMIT_DUAL_WRITE !== '0';
+const _dualWriter = new DualWriter({
+  jsonlProvider: _jsonlProvider,
+  sqliteProvider: _sqliteProvider,
+  enabled: _dualWriteEnabled,
+});
+
 /** Shared context passed to all modules. */
 const context = {
   brainPath: _brainPath,
   packageRoot,
   log,
-  // Phase 00: provider interface — all memory I/O goes through this.
-  // Modules may use ctx.memoryProvider if present; fall back to brain-io directly if absent.
-  memoryProvider: new JsonlProvider({ brainPath: _brainPath }),
+  // Phase 00+: JSONL provider (reads). Phase 01b+ writes route through dualWriter.
+  memoryProvider: _jsonlProvider,
+  // Phase 01b: dual-writer — fans writes to JSONL + SQLite under one lock.
+  dualWriter: _dualWriter,
   // Populated by memory module after registration
   getEntities: null,
   getRelations: null,
