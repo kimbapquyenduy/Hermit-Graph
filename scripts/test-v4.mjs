@@ -403,7 +403,7 @@ async function mcpIntegrationTests() {
     assert(init.result.serverInfo.version === pkg.version, `Expected ${pkg.version}, got ${init.result.serverInfo.version}`);
   });
 
-  await test('MCP: tools/list returns 33 tools', async () => {
+  await test('MCP: tools/list returns 34 tools', async () => {
     const responses = await sendMcp([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '0.1' } } },
       { jsonrpc: '2.0', method: 'notifications/initialized' },
@@ -411,8 +411,8 @@ async function mcpIntegrationTests() {
     ]);
     const list = responses.find(r => r.id === 2);
     assert(list, 'Should get tools/list response');
-    // 30 original + 3 bridge introspection tools (hermit_list_bridges, hermit_reload_bridges, hermit_enable_bridge)
-    assert(list.result.tools.length === 33, `Expected 33 tools, got ${list.result.tools.length}`);
+    // 30 original + 3 bridge introspection tools + 1 trace tap tool (hermit_tap_traces, Phase 07)
+    assert(list.result.tools.length === 34, `Expected 34 tools, got ${list.result.tools.length}`);
   });
 
   await test('MCP: hermit_search_nodes returns results', async () => {

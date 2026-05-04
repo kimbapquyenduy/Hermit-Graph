@@ -674,6 +674,57 @@ npm run sync
 
 ---
 
+## Trace Bus (opt-in skill-evolution wiring)
+
+> **PRIVACY NOTICE:** Trace events may contain query text, tool arguments, and file paths from your working directory. This feature is **opt-in only** and disabled by default. Do not enable in shared or CI environments without reviewing what is captured.
+
+Hermit v7 includes a frozen v1 event bus that records execution traces for future auto-tuning pipelines (DSPy/GEPA). The bus is **wiring only** — no mutation, training, or scoring logic is included.
+
+### How to enable
+
+```bash
+# In-memory ring buffer only (no disk write)
+HERMIT_TRACE_BUS=1 <your agent MCP config>
+
+# With file sink (append-only JSONL)
+HERMIT_TRACE_BUS=1 HERMIT_TRACE_SINK=/tmp/hermit-traces.jsonl <your agent MCP config>
+```
+
+### Inspect recent events
+
+```json
+{ "name": "hermit_tap_traces", "arguments": { "n": 50 } }
+```
+
+Returns the last N events from the in-memory ring buffer. Returns `[]` when trace bus is disabled.
+
+### Trace event types (frozen v1 schema)
+
+| Event | Emitted by | When |
+|-------|-----------|------|
+| `tool:call` | memory + codegraph modules | Before each tool handler runs |
+| `tool:result` | memory + codegraph modules | After each tool handler completes |
+| `search:query` | `hermit_unified_search` | After search results are merged |
+| `search:fusion` | hybrid retrieval | After RRF fuses BM25 + vector rankings |
+| `bridge:forward` | MCP bridge proxy | After each forwarded bridge call |
+
+Full schema: [`docs/skill-evolution-trace-schema.md`](docs/skill-evolution-trace-schema.md)
+
+### What is NOT included
+
+- No DSPy/GEPA integration
+- No prompt mutation or rewriting
+- No training loops or scoring
+- No redaction filters (future work)
+
+### File sink notes
+
+- Append-only JSONL; one event per line
+- `HERMIT_TRACE_SINK` must point to a writable path — never writes to a default location
+- No rotation policy — monitor disk usage manually
+
+---
+
 ## Project Structure
 
 <details>

@@ -48,9 +48,10 @@ function jsonSchemaToZod(inputSchema) {
  * @param {import('./mcp-client-pool.mjs').McpClientPool} pool
  * @param {import('./circuit-breaker.mjs').CircuitBreaker} breaker
  * @param {Set<string>} [alreadyRegistered] - Tracks names registered across calls
+ * @param {object|null} [traceBus] - Optional trace bus for tap point 5 (bridge:forward)
  * @returns {string[]} Newly registered namespaced tool names
  */
-export function registerNamespacedTools(server, registry, pool, breaker, alreadyRegistered = new Set()) {
+export function registerNamespacedTools(server, registry, pool, breaker, alreadyRegistered = new Set(), traceBus = null) {
   const registered = [];
   for (const entry of registry.list()) {
     const { namespacedName, bridge, originalToolName, schema } = entry;
@@ -71,12 +72,20 @@ export function registerNamespacedTools(server, registry, pool, breaker, already
           `call hermit_enable_bridge to recover`
         );
       }
+      // Tap point 5: bridge:forward
+      const t0 = Date.now();
       try {
         const result = await pool.callTool(bridge, originalToolName, args);
         breaker.record(bridge, true);
+        if (traceBus) {
+          traceBus.emit('bridge:forward', { bridge, tool: originalToolName, durationMs: Date.now() - t0, success: true });
+        }
         return result;
       } catch (err) {
         breaker.record(bridge, false);
+        if (traceBus) {
+          traceBus.emit('bridge:forward', { bridge, tool: originalToolName, durationMs: Date.now() - t0, success: false });
+        }
         throw err;
       }
     });

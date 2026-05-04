@@ -42,6 +42,15 @@ export function register(server, ctx) {
       const codeHits = codeResult.status === 'fulfilled' ? codeResult.value : [];
       const merged = mergeResults(kgHits, codeHits, limit);
 
+      // Tap point 3: search:query — emitted after results are known
+      if (ctx.traceBus) {
+        ctx.traceBus.emit('search:query', {
+          query,
+          mode: 'hybrid',
+          resultCount: merged.length,
+        });
+      }
+
       const sources = [];
       if (kgHits.length) sources.push(`${kgHits.length} KG`);
       if (codeHits.length) sources.push(`${codeHits.length} code`);

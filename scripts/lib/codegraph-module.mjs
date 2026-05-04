@@ -81,6 +81,31 @@ function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
 /**
+ * Wrap a tool handler to emit tool:call + tool:result trace events.
+ * Returns handler unchanged when traceBus is null — zero overhead path.
+ *
+ * @param {string} toolName
+ * @param {Function} handler
+ * @param {object|null} traceBus
+ * @returns {Function}
+ */
+function withTrace(toolName, handler, traceBus) {
+  if (!traceBus) return handler;
+  return async (args) => {
+    traceBus.emit('tool:call', { tool: toolName, args });
+    const t0 = Date.now();
+    try {
+      const result = await handler(args);
+      traceBus.emit('tool:result', { tool: toolName, durationMs: Date.now() - t0, success: !result?.isError });
+      return result;
+    } catch (err) {
+      traceBus.emit('tool:result', { tool: toolName, durationMs: Date.now() - t0, success: false, error: err.message });
+      throw err;
+    }
+  };
+}
+
+/**
  * Register 5 codegraph tools.
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
  * @param {object} ctx
@@ -88,8 +113,24 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 export function register(server, ctx) {
   const { log } = ctx;
 
+  // Tap point 2: codegraph tools — auto-wrap with trace events when traceBus active.
+  const _origTool = server.tool.bind(server);
+  const tracedServer = ctx.traceBus
+    ? {
+        tool: (name, desc, schema, ...rest) => {
+          if (rest.length === 1 && typeof rest[0] === 'function') {
+            return _origTool(name, desc, schema, withTrace(name, rest[0], ctx.traceBus));
+          }
+          if (rest.length === 2 && typeof rest[1] === 'function') {
+            return _origTool(name, desc, schema, rest[0], withTrace(name, rest[1], ctx.traceBus));
+          }
+          return _origTool(name, desc, schema, ...rest);
+        },
+      }
+    : server;
+
   // ── T1: Query (semantic concept search) ──
-  server.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. Exported symbols include inline [d=1:N] tag showing direct-caller count for refactor-risk awareness. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter.', {
+  tracedServer.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. Exported symbols include inline [d=1:N] tag showing direct-caller count for refactor-risk awareness. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter.', {
     query: z.string().min(1).max(500).describe('Concept to search for in code (natural language OK)'),
     cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
@@ -111,7 +152,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Context (360-degree symbol view) ──
-  server.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Includes inline Impact Preview (d=1/d=2/d=3 counts + risk) for exported symbols, so you see refactor risk during discovery without a second tool call. Use BEFORE refactoring to see the full neighborhood.', {
+  tracedServer.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Includes inline Impact Preview (d=1/d=2/d=3 counts + risk) for exported symbols, so you see refactor risk during discovery without a second tool call. Use BEFORE refactoring to see the full neighborhood.', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
@@ -131,7 +172,7 @@ export function register(server, ctx) {
   });
 
   // ── T3: Impact (blast radius + business rules) ──
-  server.tool('hermit_impact', 'REQUIRED before editing any exported function/class/method. Returns TRANSITIVE callers (d=1 WILL_BREAK = direct callers, d=2 LIKELY_AFFECTED = indirect, d=3 MAY_NEED_TESTING). Grep cannot find transitive breakage — only AST call-graph analysis can. Also overlays business rules at risk.', {
+  tracedServer.tool('hermit_impact', 'REQUIRED before editing any exported function/class/method. Returns TRANSITIVE callers (d=1 WILL_BREAK = direct callers, d=2 LIKELY_AFFECTED = indirect, d=3 MAY_NEED_TESTING). Grep cannot find transitive breakage — only AST call-graph analysis can. Also overlays business rules at risk.', {
     target: z.string().min(1).describe('Symbol name to analyze impact for'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().default('upstream'),
     cwd: z.string().optional(),
@@ -154,7 +195,7 @@ export function register(server, ctx) {
   });
 
   // ── T4: Detect Changes (index status) ──
-  server.tool('hermit_detect_changes', 'Check CodeGraph index freshness vs current git HEAD. Rarely needed — queries auto-reindex on stale. Use only for pre-commit scope verification ("does my change match the planned scope?").', {
+  tracedServer.tool('hermit_detect_changes', 'Check CodeGraph index freshness vs current git HEAD. Rarely needed — queries auto-reindex on stale. Use only for pre-commit scope verification ("does my change match the planned scope?").', {
     cwd: z.string().optional(),
   }, RO, async ({ cwd }) => {
     try {
@@ -166,7 +207,7 @@ export function register(server, ctx) {
   });
 
   // ── T5: Index (analyze project) ──
-  server.tool('hermit_index', 'Force a fresh CodeGraph full rebuild. Auto-runs on first query in a project, so rarely needed. Use only when repo structure changed drastically (branch switch, large rebase) and you want a guaranteed-clean baseline.', {
+  tracedServer.tool('hermit_index', 'Force a fresh CodeGraph full rebuild. Auto-runs on first query in a project, so rarely needed. Use only when repo structure changed drastically (branch switch, large rebase) and you want a guaranteed-clean baseline.', {
     cwd: z.string().optional().describe('Project root directory to index (defaults to CLAUDE_PROJECT_DIR env or process.cwd())'),
   }, IDEM, async ({ cwd }) => {
     try {

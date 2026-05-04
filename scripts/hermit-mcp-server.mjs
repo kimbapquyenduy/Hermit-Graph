@@ -10,7 +10,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { z } from 'zod';
 import { resolveBrainPath, getPackageRoot } from './lib/resolve-brain-path.mjs';
+import { TraceEmitter } from './lib/skill-evolution/trace-emitter.mjs';
 import { JsonlProvider } from './lib/memory/jsonl-provider.mjs';
 import { SqliteProvider } from './lib/memory/sqlite-backend.mjs';
 import { DualWriter } from './lib/memory/dual-writer.mjs';
@@ -87,6 +89,17 @@ const _readPrimary = process.env.HERMIT_PRIMARY_READ === 'sqlite' ? 'sqlite' : '
 const _readProvider = _readPrimary === 'sqlite' ? _sqliteProvider : _jsonlProvider;
 const _fallbackProvider = _readPrimary === 'sqlite' ? _jsonlProvider : null;
 
+// Phase 07: trace bus — opt-in via HERMIT_TRACE_BUS=1
+// Default OFF: ctx.traceBus = null → all tap-point guards are no-ops (zero overhead).
+const _traceBusEnabled = process.env.HERMIT_TRACE_BUS === '1';
+const _traceSinkPath = process.env.HERMIT_TRACE_SINK || null;
+const _traceBus = _traceBusEnabled
+  ? new TraceEmitter({ ringSize: 1000, sinkPath: _traceSinkPath })
+  : null;
+if (_traceBus) {
+  log(`Trace bus enabled (ring=1000${_traceSinkPath ? `, sink=${_traceSinkPath}` : ', no sink'})`);
+}
+
 // Phase 04b: hybrid retrieval flag
 // HERMIT_RETRIEVAL=hybrid|bm25|vector
 // Default: bm25 — quality gate missed (+10% NDCG@10 not achieved in Phase 04b).
@@ -111,6 +124,8 @@ const context = {
   dualWriter: _dualWriter,
   // Phase 03c: vector backend (sqlite-vec primary, brute-force fallback — never null after 03c).
   vectorBackend: _vectorBackend,
+  // Phase 07: trace bus — null when HERMIT_TRACE_BUS unset (zero overhead path).
+  traceBus: _traceBus,
   // Populated by memory module after registration
   getEntities: null,
   getRelations: null,
@@ -120,6 +135,23 @@ const server = new McpServer({
   name: 'hermit-graph',
   version: pkg.version,
 });
+
+/**
+ * Register hermit_tap_traces — introspection tool for the trace ring buffer.
+ * Returns [] if trace bus is disabled. N is capped at 1000.
+ */
+function registerTapTracesTool() {
+  server.tool('hermit_tap_traces', 'Inspect recent execution trace events from the in-memory ring buffer (last N events). Only populated when HERMIT_TRACE_BUS=1. Returns [] when trace bus is disabled. Tap points: tool:call, tool:result, search:query, search:fusion, bridge:forward. Use for observability and debugging.', {
+    n: z.number().int().min(1).max(1000).optional().default(50).describe('Number of recent events to return (default 50, max 1000)'),
+  }, { readOnlyHint: true }, async ({ n = 50 }) => {
+    if (!_traceBus) {
+      return { content: [{ type: 'text', text: '[]' }] };
+    }
+    const count = Math.min(Math.max(1, Math.floor(n)), 1000);
+    const events = _traceBus.getRecent(count);
+    return { content: [{ type: 'text', text: JSON.stringify(events, null, 2) }] };
+  });
+}
 
 /** Load and register all modules. Non-fatal per module. */
 async function loadModules() {
@@ -173,6 +205,7 @@ function checkStaleness() {
 async function main() {
   checkStaleness();
   await loadModules();
+  registerTapTracesTool();
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -183,8 +216,11 @@ async function main() {
   log(`CLAUDE_PROJECT_DIR: ${process.env.CLAUDE_PROJECT_DIR || '(unset)'}`);
   log(`HERMIT_PROJECT_CWD: ${process.env.HERMIT_PROJECT_CWD || '(unset)'}`);
 
-  // Graceful shutdown: close all bridge connections before exit.
+  // Graceful shutdown: flush trace sink + close bridge pool before exit.
   const shutdown = async () => {
+    if (context.traceBus) {
+      await context.traceBus.close().catch(() => {});
+    }
     if (context.bridgePool) {
       log('Shutting down bridge pool...');
       await context.bridgePool.shutdownAll().catch(() => {});
