@@ -133,6 +133,7 @@ async function loadModules() {
     './lib/skill-search-module.mjs',
     './lib/setup-module.mjs',
     './lib/deep-scan-module.mjs',
+    './lib/mcp-bridge/index.mjs',
   ];
 
   for (const mod of modules) {
@@ -181,6 +182,17 @@ async function main() {
   log(`CWD: ${process.cwd()}`);
   log(`CLAUDE_PROJECT_DIR: ${process.env.CLAUDE_PROJECT_DIR || '(unset)'}`);
   log(`HERMIT_PROJECT_CWD: ${process.env.HERMIT_PROJECT_CWD || '(unset)'}`);
+
+  // Graceful shutdown: close all bridge connections before exit.
+  const shutdown = async () => {
+    if (context.bridgePool) {
+      log('Shutting down bridge pool...');
+      await context.bridgePool.shutdownAll().catch(() => {});
+    }
+    process.exit(0);
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
 
 main().catch((err) => {
