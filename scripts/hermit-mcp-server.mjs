@@ -38,13 +38,20 @@ const _dualWriter = new DualWriter({
   enabled: _dualWriteEnabled,
 });
 
+// Phase 01c: opt-in read primary via HERMIT_PRIMARY_READ=sqlite (default: jsonl)
+const _readPrimary = process.env.HERMIT_PRIMARY_READ === 'sqlite' ? 'sqlite' : 'jsonl';
+const _readProvider = _readPrimary === 'sqlite' ? _sqliteProvider : _jsonlProvider;
+const _fallbackProvider = _readPrimary === 'sqlite' ? _jsonlProvider : null;
+
 /** Shared context passed to all modules. */
 const context = {
   brainPath: _brainPath,
   packageRoot,
   log,
-  // Phase 00+: JSONL provider (reads). Phase 01b+ writes route through dualWriter.
-  memoryProvider: _jsonlProvider,
+  // Phase 01c: memoryProvider is the active read primary (jsonl default, sqlite opt-in).
+  memoryProvider: _readProvider,
+  // Phase 01c: fallbackProvider used when memoryProvider read throws (sqlite mode only).
+  fallbackProvider: _fallbackProvider,
   // Phase 01b: dual-writer — fans writes to JSONL + SQLite under one lock.
   dualWriter: _dualWriter,
   // Populated by memory module after registration

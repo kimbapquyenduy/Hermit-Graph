@@ -1,6 +1,6 @@
 /**
  * sqlite-backend.mjs — SqliteProvider implements MemoryProvider over better-sqlite3.
- * Write path fully functional (Phase 01a). Read path stubbed for Phase 01c.
+ * Write path: Phase 01a. Read path + FTS5 BM25 search: Phase 01c.
  *
  * Usage:
  *   const provider = new SqliteProvider({ dbPath: '/path/to/brain.db' });
@@ -17,6 +17,11 @@ import {
   writeEntityInTx,
   readEntityFromDb,
 } from './sqlite-write-helpers.mjs';
+import {
+  prepareReadStatements,
+  readAllFromDb,
+  searchKeywordFts,
+} from './sqlite-read-helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +49,10 @@ export class SqliteProvider extends MemoryProvider {
     const schema = readFileSync(SCHEMA_PATH, 'utf8');
     this._db.exec(schema);
 
+    // Phase 01c migration: if entities_fts is old contentless table, recreate as content table.
+    // Detection: contentless tables have no stored data — SELECT name returns '' for all rows.
+    this._migrateFtsIfNeeded();
+
     // Seed schema_version row if not present
     this._db.prepare(
       `INSERT INTO meta(key, value) VALUES('schema_version', ?) ON CONFLICT(key) DO NOTHING`
@@ -51,14 +60,39 @@ export class SqliteProvider extends MemoryProvider {
 
     // Prepare hot-path statements
     this._stmts = prepareStatements(this._db);
+    this._readStmts = prepareReadStatements(this._db);
   }
 
   /**
-   * Feature flags. FTS5 present but read queries pending Phase 01c.
+   * Detect and migrate old contentless entities_fts to content-storing variant.
+   * Contentless FTS5 tables return empty strings for column values on SELECT.
+   * If the table exists but has rows with empty names, it's the old schema — drop and recreate.
+   * @private
+   */
+  _migrateFtsIfNeeded() {
+    // Check if FTS table exists and is the contentless variant by probing a SELECT
+    try {
+      const probe = this._db.prepare(
+        `SELECT name FROM entities_fts LIMIT 1`
+      ).get();
+      // If we have rows and the name is empty string, it's contentless
+      if (probe !== undefined && probe.name === '') {
+        this._db.exec(`DROP TABLE IF EXISTS entities_fts`);
+        this._db.exec(
+          `CREATE VIRTUAL TABLE entities_fts USING fts5(name, obs_text)`
+        );
+      }
+    } catch (_e) {
+      // Table may not exist yet — schema creation handles it
+    }
+  }
+
+  /**
+   * Feature flags. BM25 search available via FTS5.
    * @returns {{ keyword: string, vector: boolean, fts5: boolean, transactional: boolean }}
    */
   capabilities() {
-    return { keyword: 'fts5-pending', vector: false, fts5: true, transactional: true };
+    return { keyword: 'bm25', vector: false, fts5: true, transactional: true };
   }
 
   // ── Write methods ─────────────────────────────────────────────────────────
@@ -100,13 +134,16 @@ export class SqliteProvider extends MemoryProvider {
     const existing = this._stmts.selectEntityExact.get(name);
     if (!existing) return false;
     const tx = this._db.transaction(() => {
-      // ON DELETE CASCADE handles observations; manually clean relations
+      // ON DELETE CASCADE handles observations; manually clean relations + FTS5
       this._stmts.deleteRelationsFor.run(existing.name, existing.name);
+      this._stmts.deleteFts.run(existing.name);
       this._stmts.deleteEntity.run(name);
     });
     tx();
     return true;
   }
+
+  // ── Read methods (Phase 01c) ──────────────────────────────────────────────
 
   /**
    * Look up a single entity by exact name (case-insensitive). Lock-free.
@@ -118,23 +155,27 @@ export class SqliteProvider extends MemoryProvider {
     return readEntityFromDb(this._stmts, name);
   }
 
-  // ── Read stubs (Phase 01c) ────────────────────────────────────────────────
-
-  /** @returns {Promise<{ entities: Map<string, object>, relations: object[] }>} */
+  /**
+   * Read full graph — all entities + relations. Matches JsonlProvider shape exactly.
+   * @returns {Promise<{ entities: Map<string, object>, relations: object[] }>}
+   */
   async readAll() {
-    // TODO: phase 01c — full read path
-    return { entities: new Map(), relations: [] };
+    return readAllFromDb(this._readStmts);
   }
 
-  /** @returns {Promise<Array<{ name: string, entityType: string, score: number }>>} */
-  async searchKeyword(_query, _opts) {
-    // TODO: phase 01c — FTS5 BM25 search
-    return [];
+  /**
+   * BM25 keyword search via FTS5. Returns higher-is-better score.
+   * @param {string} query
+   * @param {{ topK?: number }} [opts]
+   * @returns {Promise<Array<{ name: string, entityType: string, score: number, observationCount: number }>>}
+   */
+  async searchKeyword(query, opts = {}) {
+    if (!query) return [];
+    return searchKeywordFts(this._readStmts, query, opts);
   }
 
-  /** @returns {Promise<Array>} */
+  /** Vector search — not implemented in SQLite backend (no embedding column). */
   async searchVector(_query, _opts) {
-    // TODO: phase 01c — vector search (requires embedding column)
     return [];
   }
 
@@ -142,7 +183,6 @@ export class SqliteProvider extends MemoryProvider {
 
   /**
    * For sync better-sqlite3, "lock" is a no-op wrapper — transactions handle atomicity.
-   * Wraps fn in a promise for interface compatibility.
    * @param {Function} fn
    * @returns {Promise<*>}
    */

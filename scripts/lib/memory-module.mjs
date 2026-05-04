@@ -134,9 +134,26 @@ function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
 /**
+ * Read full graph via ctx.memoryProvider, falling back to ctx.fallbackProvider on error.
+ * @param {object} ctx
+ * @returns {Promise<{ entities: Map<string, object>, relations: object[] }>}
+ */
+async function readGraph(ctx) {
+  try {
+    if (ctx.memoryProvider) return await ctx.memoryProvider.readAll();
+  } catch (err) {
+    ctx.log(`memory-module: primary read failed (${err.message}), falling back`);
+    if (ctx.fallbackProvider) return await ctx.fallbackProvider.readAll();
+    throw err;
+  }
+  // Default: direct brain-io read (jsonl flag unset or provider missing)
+  return readBrain(ctx.brainPath);
+}
+
+/**
  * Register all 10 memory tools.
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
- * @param {object} ctx - Shared context { brainPath, log, memoryProvider?, dualWriter? }
+ * @param {object} ctx - Shared context { brainPath, log, memoryProvider?, fallbackProvider?, dualWriter? }
  */
 export function register(server, ctx) {
   const { brainPath, log } = ctx;
@@ -163,6 +180,7 @@ export function register(server, ctx) {
   }
 
   // Expose brain readers for other modules (both direct and via provider)
+  // These stay as synchronous brain-io reads for backward compat with codegraph/unified-search
   ctx.getEntities = () => readBrain(brainPath).entities;
   ctx.getRelations = () => readBrain(brainPath).relations;
 
@@ -252,7 +270,7 @@ export function register(server, ctx) {
     limit: zNumber().int().min(1).max(50).optional().default(10),
     include_archived: zBoolean().optional().default(false),
   }, RO, async ({ query, limit, include_archived }) => {
-    const { entities } = readBrain(brainPath);
+    const { entities } = await readGraph(ctx);
     let results = [];
     for (const [, e] of entities) {
       if (!include_archived && e._archived) continue;
@@ -286,7 +304,7 @@ export function register(server, ctx) {
   server.tool('hermit_open_nodes', 'Read full entity details when you already know the name(s). Use after hermit_search_nodes surfaces a relevant entity and you want all its observations + relations expanded (search returns summaries only).', {
     names: zArray(z.string().min(1), { min: 1, max: 20 }),
   }, RO, async ({ names }) => {
-    const { entities } = readBrain(brainPath);
+    const { entities } = await readGraph(ctx);
     const found = [], missing = [];
     for (const name of names) {
       const e = findEntity(entities, name);
@@ -381,7 +399,7 @@ export function register(server, ctx) {
     depth: zNumber().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
   }, RO, async ({ name, depth, relationType }) => {
-    const { entities, relations } = readBrain(brainPath);
+    const { entities, relations } = await readGraph(ctx);
     if (!findEntity(entities, name)) return fail(`Entity "${name}" not found.`);
     const visited = new Set();
     const results = [];
@@ -414,7 +432,7 @@ export function register(server, ctx) {
     entityTypes: zArray(z.string()).optional(),
     include_archived: zBoolean().optional().default(false),
   }, RO, async ({ detailLevel, entityNames, entityTypes, include_archived }) => {
-    const { entities, relations } = readBrain(brainPath);
+    const { entities, relations } = await readGraph(ctx);
     let filtered = [...entities.values()];
     if (!include_archived) filtered = filtered.filter(e => !e._archived);
     if (entityNames?.length) {
