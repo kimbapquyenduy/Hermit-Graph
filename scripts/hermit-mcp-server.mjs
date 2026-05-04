@@ -16,7 +16,7 @@ import { SqliteProvider } from './lib/memory/sqlite-backend.mjs';
 import { DualWriter } from './lib/memory/dual-writer.mjs';
 import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
 import { BruteForceVectorBackend } from './lib/memory/brute-force-vector-fallback.mjs';
-import { setVectorBackend } from './lib/semantic-search.mjs';
+import { setVectorBackend, setHybridContext } from './lib/semantic-search.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -86,6 +86,17 @@ const _dualWriter = new DualWriter({
 const _readPrimary = process.env.HERMIT_PRIMARY_READ === 'sqlite' ? 'sqlite' : 'jsonl';
 const _readProvider = _readPrimary === 'sqlite' ? _sqliteProvider : _jsonlProvider;
 const _fallbackProvider = _readPrimary === 'sqlite' ? _jsonlProvider : null;
+
+// Phase 04b: hybrid retrieval flag
+// HERMIT_RETRIEVAL=hybrid|bm25|vector
+// Default: bm25 — quality gate missed (+10% NDCG@10 not achieved in Phase 04b).
+//   Opt-in: set HERMIT_RETRIEVAL=hybrid to enable RRF fusion.
+//   Re-evaluate after backfilling sqlite-vec embeddings (currently 0 stored).
+// HERMIT_RETRIEVAL_LOG=1  enables A/B logging per query
+const _retrievalMode = process.env.HERMIT_RETRIEVAL || 'bm25';
+const _retrievalLog  = process.env.HERMIT_RETRIEVAL_LOG === '1';
+log(`Retrieval mode: ${_retrievalMode}${_retrievalLog ? ' (logging enabled)' : ''}`);
+setHybridContext({ memoryProvider: _readProvider, vectorBackend: _vectorBackend, mode: _retrievalMode, log: _retrievalLog ? log : null });
 
 /** Shared context passed to all modules. */
 const context = {
