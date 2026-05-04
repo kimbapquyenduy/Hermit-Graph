@@ -1,0 +1,21 @@
+[
+  {
+    "_comment": "SECURITY WARNING: Bridge config executes arbitrary commands. Treat this file like your shell rc — only enable bridges from trusted sources. All bridges ship disabled by default.",
+    "name": "time",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "mcp-server-time"],
+    "env": {},
+    "enabled": false
+  },
+  {
+    "_comment": "Example HTTP bridge. Set enabled:true only after verifying the server URL is trusted.",
+    "name": "remote_api",
+    "transport": "http",
+    "url": "http://localhost:3001/mcp",
+    "headers": {
+      "Authorization": "Bearer YOUR_TOKEN_HERE"
+    },
+    "enabled": false
+  }
+]
