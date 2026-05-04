@@ -18,5 +18,15 @@
     "totalMs": 1925,
     "count": 100,
     "throughputPerSec": 52
+  },
+  "phase01a": {
+    "date": "2026-05-04",
+    "backend": "sqlite (better-sqlite3)",
+    "bench": {
+      "entities": 1000,
+      "elapsedMs": 10,
+      "throughputPerSec": 100000
+    },
+    "note": "Bulk transaction write via better-sqlite3 sync API"
   }
 }
