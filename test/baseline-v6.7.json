@@ -154,5 +154,33 @@
     "defaultMode": "bm25",
     "optIn": "HERMIT_RETRIEVAL=hybrid",
     "note": "Gate missed (-3.6%). BM25 FTS5 + brute-force vectors slightly below v6.7 weighted-sum. Opt-in only until vec_entities backfilled."
+  },
+  "phase05a": {
+    "date": "2026-05-04",
+    "transport": ["stdio (StdioClientTransport)", "http (StreamableHTTPClientTransport)"],
+    "pool": {
+      "restartPolicy": "3 retries: 1s/2s/4s backoff",
+      "stateModel": "connecting|ready|restarting|dead",
+      "toolCacheTtlMs": 60000
+    },
+    "tests": { "count": 10, "result": "PASS" },
+    "note": "Phase 05a MCP client pool. stdio transport used for all tests (local mock server). Crash→dead in ~7s (backoff sum). shutdownAll<2s verified."
+  },
+  "phase05b": {
+    "date": "2026-05-04",
+    "schema": "zod v4, superRefine cross-field (stdio requires command, http requires url)",
+    "registry": "O(1) Map, sanitize tool names (non-alphanumeric → _)",
+    "configPath": "~/.hermit/mcp-bridges.json (HERMIT_BRIDGES_PATH override)",
+    "tests": { "count": 19, "result": "PASS" },
+    "note": "Phase 05b discovery + namespace registry. All edges: malformed JSON, bad regex name, missing field, duplicates, empty array."
+  },
+  "phase05c": {
+    "date": "2026-05-04",
+    "circuitBreaker": { "threshold": 3, "autoRecoverMs": 300000 },
+    "forwardingOverheadMs": "<50 (stdio, measured on warm connection)",
+    "introspectionTools": ["hermit_list_bridges", "hermit_reload_bridges", "hermit_enable_bridge"],
+    "totalToolsOnBrainServer": 33,
+    "tests": { "count": 9, "result": "PASS" },
+    "note": "Phase 05c tool surfacing + circuit breaker + reload. Real server: mcp-server-time skipped (not installed); all tests use in-process mock. Security warning in README."
   }
 }

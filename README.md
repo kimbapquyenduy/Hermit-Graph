@@ -477,6 +477,63 @@ Every observation is tagged with confidence `[0.0-1.0]` and date. Stale entries 
 
 ---
 
+## Bridging External MCP Servers
+
+> **SECURITY WARNING:** The bridge config file (`~/.hermit/mcp-bridges.json`) **executes arbitrary commands** when a bridge is enabled. Treat it exactly like your shell rc file — **only enable bridges from sources you fully trust.** A malicious bridge config can run any command as your user. All bridges ship disabled by default.
+
+Brain can act as a transparent proxy to other MCP servers, surfacing their tools to agents under a namespaced prefix (`mcp_<bridge>_<tool>`). Agents see foreign tools as if they were native Brain tools.
+
+### Quick Start
+
+1. Edit `~/.hermit/mcp-bridges.json` (created by `hermit setup`):
+   ```json
+   [
+     {
+       "name": "time",
+       "transport": "stdio",
+       "command": "npx",
+       "args": ["-y", "mcp-server-time"],
+       "enabled": true
+     }
+   ]
+   ```
+2. Restart Brain (restart your IDE/agent MCP server).
+3. Agents now see `mcp_time_get_current_time` (and any other tools the server exposes).
+
+### Transport Types
+
+| Transport | Config fields required | Use case |
+|-----------|----------------------|----------|
+| `stdio`   | `command`, `args`    | Local servers (99% of cases) |
+| `http`    | `url`                | Remote/hosted MCP servers |
+
+### Bridge Name Rules
+
+- Lowercase alphanumeric + underscore only: `^[a-z][a-z0-9_]*$`
+- Max 32 characters
+- Tool names with special characters are sanitized (`-` → `_`, etc.)
+
+### Bridge Management Tools
+
+| Tool | Description |
+|------|-------------|
+| `hermit_list_bridges` | List all bridges: status, tool count, circuit breaker state |
+| `hermit_reload_bridges` | Re-read config and apply diff — no Brain restart needed |
+| `hermit_enable_bridge` | Reset circuit breaker for a bridge (also restarts dead bridges) |
+
+### Circuit Breaker
+
+Each bridge has an automatic circuit breaker. After **3 consecutive call failures**, the bridge is marked "circuit open" and all calls return a clear error. The breaker auto-recovers after **5 minutes**, or immediately via `hermit_enable_bridge({ name: "..." })`.
+
+### Resilience
+
+- Subprocess crash → automatic restart with exponential backoff (1s, 2s, 4s)
+- After 3 restarts → bridge marked `dead`; use `hermit_enable_bridge` to revive
+- One bridge crashing never affects other bridges
+- `shutdownAll()` on SIGINT/SIGTERM — all subprocesses exit within 2s
+
+---
+
 ## Optional Features
 
 <details>
