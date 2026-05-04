@@ -703,6 +703,56 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 
 ---
 
+## Migrating from v6 (JSONL) to v7 (SQLite)
+
+Hermit v7 introduces SQLite as the primary storage backend. Existing `brain.jsonl` vaults can be migrated with a single command.
+
+### Step 1 — Migrate
+
+```bash
+# Default: data/brain.jsonl → data/brain.db
+hermit-migrate
+
+# Custom paths
+hermit-migrate --from /path/to/brain.jsonl --to /path/to/brain.db
+
+# Dry-run: count entities without writing DB
+hermit-migrate --dry-run
+```
+
+### Step 2 — Verify parity
+
+```bash
+# Confirm JSONL and SQLite are semantically equivalent
+hermit-verify
+
+# Custom paths
+hermit-verify --jsonl /path/to/brain.jsonl --db /path/to/brain.db
+```
+
+Exit code `0` = parity confirmed. Exit code `1` = drift detected (re-run migration).
+
+### Step 3 — Enable SQLite reads (optional)
+
+```bash
+# In your MCP server config or .env:
+HERMIT_PRIMARY_READ=sqlite
+```
+
+### Disaster recovery — export SQLite back to JSONL
+
+```bash
+hermit-export-jsonl --db data/brain.db --to data/brain.jsonl.recovered
+```
+
+### Notes
+
+- Migration is **idempotent** — safe to run multiple times. Existing data is UPSERTed, no duplicates.
+- Source `brain.jsonl` is **never modified** — it stays as a portable backup.
+- The MCP server logs a warning at boot if `brain.jsonl` is more than 5 minutes newer than `brain.db`.
+
+---
+
 ## Changelog
 
 ### v6.3.2 — Public Release Readiness
