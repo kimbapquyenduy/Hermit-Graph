@@ -7,7 +7,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBrainPath, getPackageRoot } from './lib/resolve-brain-path.mjs';
@@ -89,7 +89,31 @@ async function loadModules() {
   }
 }
 
+/**
+ * Boot-time staleness check — warns if brain.jsonl is newer than brain.db.
+ * Non-blocking: logs to stderr only, never throws.
+ */
+function checkStaleness() {
+  try {
+    const jsonlExists = existsSync(_brainPath);
+    const dbExists    = existsSync(_dbPath);
+    if (jsonlExists && dbExists) {
+      const jsonlMtime = statSync(_brainPath).mtimeMs;
+      const dbMtime    = statSync(_dbPath).mtimeMs;
+      const diffMs     = jsonlMtime - dbMtime;
+      if (diffMs > 5 * 60 * 1000) {
+        log(`WARNING: brain.jsonl is newer than brain.db by ${Math.round(diffMs / 60000)}min — run 'hermit-migrate' to sync`);
+      }
+    } else if (jsonlExists && !dbExists && _readPrimary === 'sqlite') {
+      log(`WARNING: HERMIT_PRIMARY_READ=sqlite but brain.db does not exist — run 'hermit-migrate' to create it`);
+    }
+  } catch (_e) {
+    // stat errors are non-fatal
+  }
+}
+
 async function main() {
+  checkStaleness();
   await loadModules();
 
   const transport = new StdioServerTransport();

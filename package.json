@@ -4,7 +4,10 @@
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode.",
   "type": "module",
   "bin": {
-    "hermit": "./scripts/brain-cli.mjs"
+    "hermit": "./scripts/brain-cli.mjs",
+    "hermit-migrate": "./scripts/migrate-jsonl-to-sqlite.mjs",
+    "hermit-verify": "./scripts/verify-parity.mjs",
+    "hermit-export-jsonl": "./scripts/export-sqlite-to-jsonl.mjs"
   },
   "files": [
     "scripts/lib/",
@@ -13,6 +16,9 @@
     "scripts/build-embedding-index.mjs",
     "scripts/clean-skills.mjs",
     "scripts/export-db-to-jsonl.mjs",
+    "scripts/export-sqlite-to-jsonl.mjs",
+    "scripts/migrate-jsonl-to-sqlite.mjs",
+    "scripts/verify-parity.mjs",
     "scripts/hermit-mcp-server.mjs",
     "scripts/merge-brain-jsonl.mjs",
     "scripts/migrate-v3-to-v4.mjs",
