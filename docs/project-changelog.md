@@ -4,6 +4,28 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [7.0.0-alpha.0] — 2026-05-04 (in development)
+
+### Added — Multi-Tier Memory + MCP-Native Tool Bridging (Hermes Pattern Adoption)
+
+This release adopts three architectural patterns from `NousResearch/hermes-agent`: tiered memory storage (files + SQLite + FTS5 + sqlite-vec), MCP-native external tool registration with namespace prefixing, and a stub for skill-evolution event traces.
+
+**Core delta vs 6.7.0:**
+- `MemoryProvider` interface — pluggable backends behind one shape (Phase 00)
+- SQLite + FTS5 keyword layer alongside `brain.jsonl` dual-write (Phases 01a/b/c)
+- Migration tool with parity verifier — `brain.jsonl` retained as portable export (Phase 02)
+- `sqlite-vec` ANN backend with brute-force fallback (Phases 03a/b/c)
+- Hybrid retrieval via Reciprocal Rank Fusion (Phases 04a/b)
+- MCP client subsystem — Brain consumes external MCP servers and re-surfaces tools with `mcp_<bridge>_<tool>` namespace (Phases 05a/b/c, optional 05d)
+- Plugin loader for third-party memory backends (P2 — Phases 06a/b)
+- Skill-evolution trace emitter (stub — Phase 07)
+
+**Backward compatibility:** v6 vaults open without migration. `brain.jsonl` remains as continuous export and disaster-recovery format. All existing MCP tool signatures preserved.
+
+**Plan:** see `plans/260504-1648-hermes-pattern-adoption/plan.md`.
+
+---
+
 ## [6.7.0] — 2026-04-22
 
 ### Added — Java + MyBatis XML CodeGraph support
