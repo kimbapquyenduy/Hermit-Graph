@@ -32,12 +32,12 @@ CREATE TABLE IF NOT EXISTS relations (
   UNIQUE(from_name, to_name, relation_type)
 );
 
--- FTS5 virtual table — contentless, populated via triggers or explicit inserts
--- indexes entity names + observation text for BM25 search (phase 01c)
+-- FTS5 virtual table — stores name + obs_text for BM25 search (phase 01c)
+-- Not contentless: we store data here explicitly so SELECT name works on MATCH results.
+-- Populated via explicit INSERT/DELETE in writeEntityInTx (never via triggers).
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
   name,
-  obs_text,
-  content=''
+  obs_text
 );
 
 -- Schema metadata: version flags, future migration markers

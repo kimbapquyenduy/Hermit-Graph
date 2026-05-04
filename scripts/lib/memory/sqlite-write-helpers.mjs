@@ -23,6 +23,10 @@ function extractCategory(text) {
  */
 export function prepareStatements(db) {
   return {
+    // FTS5 population: delete + reinsert on every entity write (contentless table)
+    deleteFts: db.prepare(`DELETE FROM entities_fts WHERE name = ?`),
+    insertFts: db.prepare(`INSERT INTO entities_fts(name, obs_text) VALUES(?, ?)`),
+
     upsertEntity: db.prepare(`
       INSERT INTO entities(name, entity_type, created_at, updated_at)
       VALUES(@name, @entityType, @now, @now)
@@ -85,6 +89,7 @@ export function writeEntityInTx(stmts, entity) {
   stmts.deleteObservations.run(entity.name);
 
   const observations = entity.observations || [];
+  const obsTexts = [];
   for (let ord = 0; ord < observations.length; ord++) {
     const raw = observations[ord];
     const rawText = typeof raw === 'string' ? raw : (raw?.content || '');
@@ -97,7 +102,12 @@ export function writeEntityInTx(stmts, entity) {
       category: extractCategory(parsed.text),
       ord,
     });
+    obsTexts.push(parsed.text || rawText);
   }
+
+  // Repopulate FTS5 (contentless): delete old row, insert fresh
+  stmts.deleteFts.run(entity.name);
+  stmts.insertFts.run(entity.name, obsTexts.join(' '));
 }
 
 /**

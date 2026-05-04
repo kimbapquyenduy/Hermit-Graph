@@ -31,12 +31,33 @@
   },
   "phase01b": {
     "date": "2026-05-04",
-    "jsonlOnlyMs": 17347,
-    "dualWriteMs": 16636,
-    "overheadPct": -4.1,
-    "throughputJsonlPerSec": 58,
+    "jsonlOnlyMs": 18942,
+    "dualWriteMs": 16648,
+    "overheadPct": -12.1,
+    "throughputJsonlPerSec": 53,
     "throughputDualPerSec": 60,
     "entities": 1000,
     "note": "Phase 01b dual-write latency benchmark"
+  },
+  "phase01c": {
+    "date": "2026-05-04",
+    "backend": "sqlite fts5 bm25",
+    "fixture": {
+      "entities": 5000,
+      "seed": 42
+    },
+    "bm25Search": {
+      "p50Ms": 0.23,
+      "p95Ms": 2,
+      "avgMs": 0.35,
+      "queryCount": 55,
+      "target": "p95 ≤ 50ms"
+    },
+    "spotCheck": {
+      "passed": 10,
+      "total": 10,
+      "criterion": "all top-3 results contain query term in name"
+    },
+    "note": "Phase 01c FTS5 BM25 read path. Content FTS5 table (non-contentless). Prefix matching via quoted-token* syntax."
   }
 }
