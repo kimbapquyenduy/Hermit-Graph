@@ -11,6 +11,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBrainPath, getPackageRoot } from './lib/resolve-brain-path.mjs';
+import { JsonlProvider } from './lib/memory/jsonl-provider.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -22,11 +23,16 @@ function log(msg) {
   process.stderr.write(`[hermit] ${msg}\n`);
 }
 
+const _brainPath = resolveBrainPath();
+
 /** Shared context passed to all modules. */
 const context = {
-  brainPath: resolveBrainPath(),
+  brainPath: _brainPath,
   packageRoot,
   log,
+  // Phase 00: provider interface — all memory I/O goes through this.
+  // Modules may use ctx.memoryProvider if present; fall back to brain-io directly if absent.
+  memoryProvider: new JsonlProvider({ brainPath: _brainPath }),
   // Populated by memory module after registration
   getEntities: null,
   getRelations: null,

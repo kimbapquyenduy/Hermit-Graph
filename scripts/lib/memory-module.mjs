@@ -136,12 +136,24 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 /**
  * Register all 10 memory tools.
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
- * @param {object} ctx - Shared context { brainPath, log }
+ * @param {object} ctx - Shared context { brainPath, log, memoryProvider? }
  */
 export function register(server, ctx) {
   const { brainPath, log } = ctx;
 
-  // Expose brain readers for other modules
+  // Route through provider when available (Phase 00+); fall back to direct brain-io for legacy callers.
+  const _readBrain = ctx.memoryProvider
+    ? () => ctx.memoryProvider.readAll()  // returns same { entities, relations } shape — but sync callers below use readBrain directly
+    : null;
+
+  // NOTE: All 10 tools below call readBrain/writeBrain/withBrainLock synchronously inside
+  // lock callbacks. The provider's readAll() is async, but brain-io's readBrain() is sync
+  // and used inside sync lock callbacks. For Phase 00 we preserve the sync call pattern —
+  // the provider wraps the same brain-io underneath, so direct brain-io calls here remain
+  // correct and produce identical behavior. Phase 01b will migrate to full async provider calls.
+  // Callers outside this module (e.g. unified-search.mjs) can use ctx.memoryProvider directly.
+
+  // Expose brain readers for other modules (both direct and via provider)
   ctx.getEntities = () => readBrain(brainPath).entities;
   ctx.getRelations = () => readBrain(brainPath).relations;
 
