@@ -15,6 +15,19 @@ import { fileURLToPath } from 'url';
 import { embed, cosineSimilarity } from './embedding-service.mjs';
 import { obsText } from './parse-observation.mjs';
 
+// Phase 04b: hybrid retrieval context (injected by hermit-mcp-server at boot)
+/** @type {{ memoryProvider: object, vectorBackend: object, mode: string, log: Function|null }|null} */
+let _hybridCtx = null;
+
+/**
+ * Inject hybrid retrieval context for delegating search() to hybrid path.
+ * mode: 'hybrid' | 'bm25' | 'vector'
+ * @param {{ memoryProvider: object, vectorBackend: object, mode: string, log: Function|null }} ctx
+ */
+export function setHybridContext(ctx) {
+  _hybridCtx = ctx;
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const INDEX_PATH = join(PROJECT_ROOT, 'data', 'brain-embeddings.json');
@@ -255,6 +268,21 @@ export async function search(query, options = {}) {
 
   if (!query || !query.trim()) return [];
 
+  // Phase 04b: delegate to hybrid path when mode=hybrid
+  if (_hybridCtx && _hybridCtx.mode === 'hybrid') {
+    try {
+      const { searchHybrid } = await import('./memory/hybrid-retrieval.mjs');
+      if (_hybridCtx.log) {
+        _hybridCtx.log(`[retrieval] mode=hybrid query="${query.slice(0, 60)}"`);
+      }
+      const results = await searchHybrid(query, _hybridCtx, { topK });
+      if (results && results.length > 0) return results;
+      // Fall through to legacy on empty result (e.g. no BM25 index yet)
+    } catch (_err) {
+      // Fall through to legacy path on any hybrid error
+    }
+  }
+
   const entities = loadEntities();
   if (entities.size === 0) return [];
 
@@ -286,6 +314,7 @@ export function searchStatus() {
     indexEntityCount: index ? Object.keys(index.entities).length : 0,
     indexModel: index?.meta?.model || null,
     indexBuiltAt: index?.meta?.builtAt || null,
+    retrievalMode: _hybridCtx?.mode || 'bm25',
   };
   if (_vectorBackend) {
     status.backendType = _vectorBackend.capabilities().vector;

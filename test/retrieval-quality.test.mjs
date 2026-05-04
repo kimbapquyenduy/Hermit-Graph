@@ -169,10 +169,8 @@ async function makeHybridSearchFn(ctx) {
 
 const golden = JSON.parse(readFileSync(GOLDEN_PATH, 'utf-8'));
 
-// Standalone mode: skip Jest suite block
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-
-if (!isMain) describe('Retrieval Quality Harness', () => {
+// Only register Jest suite when running under Jest (describe is globally available)
+if (typeof describe === 'function') describe('Retrieval Quality Harness', () => {
   test('golden-queries.json: 30 queries, each has name + expectedTop3 + tier', () => {
     expect(golden.length).toBe(30);
     for (const item of golden) {
@@ -328,7 +326,8 @@ if (!isMain) describe('Retrieval Quality Harness', () => {
 
 // ── Standalone script mode ───────────────────────────────────────────────────
 // Run directly: node test/retrieval-quality.test.mjs
-if (isMain) {
+const _isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (_isMain) {
   (async () => {
     console.log('=== Retrieval Quality Evaluator (standalone) ===');
     console.log(`Golden queries: ${golden.length}`);

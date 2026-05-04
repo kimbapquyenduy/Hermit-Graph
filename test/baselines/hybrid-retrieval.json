@@ -1,0 +1,52 @@
+{
+  "date": "2026-05-04T15:36:28.280Z",
+  "version": "hybrid-04b",
+  "ndcg10": 0.6635,
+  "mrr10": 0.8,
+  "queryCount": 30,
+  "perTier": {
+    "TECH": {
+      "ndcg10": 0.7148,
+      "mrr10": 0.8704,
+      "count": 9
+    },
+    "PATTERN": {
+      "ndcg10": 0.456,
+      "mrr10": 0.6905,
+      "count": 7
+    },
+    "INCIDENT": {
+      "ndcg10": 0.5713,
+      "mrr10": 0.6,
+      "count": 5
+    },
+    "BIZ": {
+      "ndcg10": 0.8248,
+      "mrr10": 0.9259,
+      "count": 9
+    }
+  },
+  "deltaVsV67": -0.0246,
+  "deltaPct": -3.57,
+  "gatePass": false,
+  "kSwept": [
+    20,
+    30,
+    45,
+    60,
+    80,
+    100,
+    120
+  ],
+  "kChosen": 60,
+  "defaultMode": "bm25",
+  "optIn": "HERMIT_RETRIEVAL=hybrid",
+  "latency": {
+    "p50Ms": 4.5,
+    "p95Ms": 10.7,
+    "avgMs": 5.1,
+    "target": "p95 ≤ 150ms",
+    "result": "PASS"
+  },
+  "notes": "Gate missed by -3.6%. k-sweep shows identical results across all k — gap is from BM25 FTS5 term-matching vs v6.7 substring matching, and 0 sqlite-vec embeddings (using brute-force JSON index). Backfilling vec_entities will improve future runs."
+}

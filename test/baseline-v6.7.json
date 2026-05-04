@@ -89,7 +89,7 @@
     },
     "recall": {
       "atK": 10,
-      "avgRecall": 1.0,
+      "avgRecall": 1,
       "target": ">=0.9",
       "result": "PASS"
     },
@@ -101,7 +101,7 @@
         "result": "PASS"
       },
       "bruteForce": {
-        "p50Ms": 3.40,
+        "p50Ms": 3.4,
         "p95Ms": 4.26,
         "note": "informational only, no assertion"
       }
@@ -125,5 +125,34 @@
     "parityResult": "PARITY OK",
     "roundTripEquivalent": true,
     "note": "Phase 02 migration tooling. 618-entity real vault. readline stream + 200-row batched transactions. FTS5 rebuild post-migration."
+  },
+  "phase04a": {
+    "date": "2026-05-04",
+    "rrfFusion": "scripts/lib/memory/rrf-fusion.mjs",
+    "goldenQueries": {
+      "count": 30,
+      "tiers": [
+        "BIZ",
+        "PATTERN",
+        "TECH",
+        "INCIDENT"
+      ],
+      "entityTypes": 13
+    },
+    "baselineNdcg10": 0.6881,
+    "baselineMrr10": 0.8579,
+    "note": "Phase 04a RRF fusion + quality harness. NDCG@10=0.6881 (in expected [0.4,0.7] range)."
+  },
+  "phase04b": {
+    "date": "2026-05-04",
+    "hybridNdcg10": 0.6635,
+    "hybridMrr10": 0.8,
+    "deltaVsV67Pct": -3.57,
+    "gatePass": false,
+    "kChosen": 60,
+    "latencyP95Ms": 10.7,
+    "defaultMode": "bm25",
+    "optIn": "HERMIT_RETRIEVAL=hybrid",
+    "note": "Gate missed (-3.6%). BM25 FTS5 + brute-force vectors slightly below v6.7 weighted-sum. Opt-in only until vec_entities backfilled."
   }
 }
