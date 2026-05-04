@@ -88,7 +88,8 @@
     "prepublishOnly": "node scripts/publish-preflight.mjs",
     "test:e2e": "node scripts/test-e2e-code-intel.mjs",
     "test:all": "node scripts/test-v4.mjs && node scripts/test-e2e-code-intel.mjs",
-    "publish:dry": "npm pack --dry-run"
+    "publish:dry": "npm pack --dry-run",
+    "smoke:vec": "node scripts/smoke-sqlite-vec.mjs"
   },
   "dependencies": {
     "@ast-grep/napi": "^0.42.1",
@@ -96,6 +97,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.9.0",
     "dotenv": "^16.4.0",
+    "sqlite-vec": "^0.1.9",
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
