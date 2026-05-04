@@ -70,11 +70,13 @@ export class SqliteVecBackend extends VectorBackend {
     this._stmtCount = this._db.prepare(
       `SELECT COUNT(*) AS n FROM vec_entities`
     );
+    // search — prepared lazily on first call (avoids error if vec0 not fully ready at ctor time)
+    this._stmtSearch = null;
   }
 
   /** @returns {{ vector: string, dim: number, searchAvailable: boolean }} */
   capabilities() {
-    return { vector: 'sqlite-vec', dim: EMBEDDING_DIM, searchAvailable: false };
+    return { vector: 'sqlite-vec', dim: EMBEDDING_DIM, searchAvailable: true };
   }
 
   /**
@@ -146,10 +148,35 @@ export class SqliteVecBackend extends VectorBackend {
   }
 
   /**
-   * kNN search — not implemented in Phase 03b (write-only).
-   * @throws {Error} Always — implemented in Phase 03c.
+   * kNN search via vec_distance_cosine — O(n) scan with sqlite-vec acceleration.
+   * Returns [{name, distance}] sorted ascending by distance (lower = closer).
+   * Does NOT hydrate entityType/observationCount — that's the caller's responsibility.
+   *
+   * @param {Float32Array} queryVec - 384-dim query vector
+   * @param {number} topK - Nearest neighbours to return (capped at 100)
+   * @returns {Promise<Array<{name: string, distance: number}>>}
    */
-  async search(_queryVec, _topK) {
-    throw new Error('SqliteVecBackend.search() not yet implemented — Phase 03c');
+  async search(queryVec, topK = 10) {
+    if (!(queryVec instanceof Float32Array)) {
+      throw new Error(`SqliteVecBackend.search: queryVec must be Float32Array, got ${typeof queryVec}`);
+    }
+    if (queryVec.length !== EMBEDDING_DIM) {
+      throw new Error(`SqliteVecBackend.search: expected ${EMBEDDING_DIM}-dim vector, got ${queryVec.length}`);
+    }
+    const k = Math.min(Math.max(1, topK), 100);
+
+    // Lazy-prepare on first search call
+    if (!this._stmtSearch) {
+      this._stmtSearch = this._db.prepare(
+        `SELECT name, vec_distance_cosine(embedding, ?) AS distance
+         FROM vec_entities
+         ORDER BY distance
+         LIMIT ?`
+      );
+    }
+
+    const blob = vecToBlob(queryVec);
+    const rows = this._stmtSearch.all(blob, k);
+    return rows.map(r => ({ name: r.name, distance: r.distance }));
   }
 }

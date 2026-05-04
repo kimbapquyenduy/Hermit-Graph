@@ -31,11 +31,11 @@
   },
   "phase01b": {
     "date": "2026-05-04",
-    "jsonlOnlyMs": 17398,
-    "dualWriteMs": 16502,
-    "overheadPct": -5.2,
+    "jsonlOnlyMs": 17534,
+    "dualWriteMs": 16568,
+    "overheadPct": -5.5,
     "throughputJsonlPerSec": 57,
-    "throughputDualPerSec": 61,
+    "throughputDualPerSec": 60,
     "entities": 1000,
     "note": "Phase 01b dual-write latency benchmark"
   },
@@ -69,7 +69,7 @@
       "entities10Ms": 1232,
       "throughput10PerSec": 8.1,
       "entities100Ms": 3845,
-      "throughput100PerSec": 26.0,
+      "throughput100PerSec": 26,
       "note": "Embedding model dominates latency (~120ms/entity). vec upsert itself is <1ms."
     },
     "backfill": {
@@ -78,6 +78,39 @@
       "parity": "PASS"
     },
     "note": "Phase 03b write-only embed pipeline. Eager mode default. DELETE+INSERT upsert (vec0 does not support INSERT OR REPLACE)."
+  },
+  "phase03c": {
+    "date": "2026-05-04",
+    "fixture": {
+      "entities": 5000,
+      "queryCount": 100,
+      "dim": 384,
+      "vectorType": "deterministic normalized (mulberry32)"
+    },
+    "recall": {
+      "atK": 10,
+      "avgRecall": 1.0,
+      "target": ">=0.9",
+      "result": "PASS"
+    },
+    "latency": {
+      "sqliteVec": {
+        "p50Ms": 29.28,
+        "p95Ms": 35.28,
+        "target": "p95 <=100ms",
+        "result": "PASS"
+      },
+      "bruteForce": {
+        "p50Ms": 3.40,
+        "p95Ms": 4.26,
+        "note": "informational only, no assertion"
+      }
+    },
+    "backends": {
+      "primary": "SqliteVecBackend (sqlite-vec vec_distance_cosine)",
+      "fallback": "BruteForceVectorBackend (in-memory linear scan)"
+    },
+    "note": "Phase 03c kNN read path. 100% recall@10 (sqlite-vec == brute-force for normalized vectors). Lazy embed-on-miss via setImmediate."
   },
   "phase02": {
     "date": "2026-05-04",
