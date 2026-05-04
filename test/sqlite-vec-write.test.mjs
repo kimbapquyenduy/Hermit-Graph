@@ -226,21 +226,48 @@ await test('upsertBatch empty array → no-op', async () => {
   db.close();
 });
 
-// ── Suite: search throws (phase 03c) ────────────────────────────────────────
+// ── Suite: search (phase 03c — now implemented) ──────────────────────────────
 
-console.log('\nsearch-stub');
+console.log('\nsearch');
 
-await test('search() throws "Phase 03c" error', async () => {
-  const db = openDb('search-stub.db');
+await test('search() returns [{name, distance}] sorted ascending', async () => {
+  const db = openDb('search-basic.db');
   const backend = new SqliteVecBackend({ db });
+
+  // Insert 10 vectors
+  for (let i = 0; i < 10; i++) {
+    await backend.upsert(`TECH:Entity${i}`, makeVec(i));
+  }
+
+  const results = await backend.search(makeVec(0), 5);
+  assert(Array.isArray(results), 'must return array');
+  assert(results.length > 0, 'must return at least 1 result');
+  assert(results.length <= 5, `topK=5 must return ≤5, got ${results.length}`);
+
+  // First result should be self (distance ≈ 0)
+  assert(results[0].name === 'TECH:Entity0', `nearest to vec(0) should be Entity0, got ${results[0].name}`);
+  assert(results[0].distance < 0.01, `self-distance should be ~0, got ${results[0].distance}`);
+
+  // Sorted ascending
+  for (let i = 1; i < results.length; i++) {
+    assert(results[i].distance >= results[i - 1].distance,
+      `results must be sorted ascending at index ${i}`);
+  }
+  db.close();
+});
+
+await test('search() throws on wrong dim queryVec', async () => {
+  const db = openDb('search-bad-dim.db');
+  const backend = new SqliteVecBackend({ db });
+  await backend.upsert('TECH:EntityA', makeVec(1));
   let threw = false;
   try {
-    await backend.search(makeVec(1), 5);
+    await backend.search(new Float32Array(10), 5);
   } catch (e) {
     threw = true;
-    assert(e.message.includes('03c'), `Error should mention 03c, got: ${e.message}`);
+    assert(e.message.includes('384'), `Error should mention 384, got: ${e.message}`);
   }
-  assert(threw, 'search() should throw until 03c');
+  assert(threw, 'should throw on wrong dim');
   db.close();
 });
 
@@ -268,7 +295,8 @@ await test('capabilities() returns expected shape', async () => {
   const caps = backend.capabilities();
   assert(caps.vector === 'sqlite-vec', `vector should be 'sqlite-vec', got: ${caps.vector}`);
   assert(caps.dim === 384, `dim should be 384, got: ${caps.dim}`);
-  assert(caps.searchAvailable === false, 'searchAvailable should be false in 03b');
+  // Phase 03c: searchAvailable is now true (search implemented)
+  assert(caps.searchAvailable === true, 'searchAvailable should be true after 03c');
   db.close();
 });
 

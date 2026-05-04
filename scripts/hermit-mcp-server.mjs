@@ -15,6 +15,8 @@ import { JsonlProvider } from './lib/memory/jsonl-provider.mjs';
 import { SqliteProvider } from './lib/memory/sqlite-backend.mjs';
 import { DualWriter } from './lib/memory/dual-writer.mjs';
 import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
+import { BruteForceVectorBackend } from './lib/memory/brute-force-vector-fallback.mjs';
+import { setVectorBackend } from './lib/semantic-search.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -34,19 +36,44 @@ const _dbPath = _brainPath.replace(/\.jsonl$/, '.db');
 const _sqliteProvider = new SqliteProvider({ dbPath: _dbPath });
 const _dualWriteEnabled = process.env.HERMIT_DUAL_WRITE !== '0';
 
-// Phase 03b: vector backend — shares same DB connection as SqliteProvider.
-// Graceful degrade: if extension load failed or table create fails, vectorBackend = null.
+// Phase 03c: vector backend — try sqlite-vec first, fall back to in-memory brute-force.
+// BruteForceVectorBackend is populated from JSON embedding index if present.
 let _vectorBackend = null;
+
+function _loadBruteForceFromIndex() {
+  const indexPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'brain-embeddings.json');
+  if (!existsSync(indexPath)) return new BruteForceVectorBackend();
+  try {
+    const idx = JSON.parse(readFileSync(indexPath, 'utf-8'));
+    const entries = Object.entries(idx.entities || {}).map(([name, e]) => ({
+      name,
+      vec: new Float32Array(e.vector),
+    }));
+    const backend = new BruteForceVectorBackend(entries);
+    log(`Brute-force fallback loaded ${entries.length} vectors from brain-embeddings.json`);
+    return backend;
+  } catch (err) {
+    log(`Warning: Failed to load brute-force index: ${err.message}`);
+    return new BruteForceVectorBackend();
+  }
+}
+
 if (_sqliteProvider.vectorEnabled) {
   try {
     _vectorBackend = new SqliteVecBackend({ db: _sqliteProvider.getDb() });
     log(`Vector backend ready (sqlite-vec, dim=384, mode=${process.env.HERMIT_EMBED_MODE || 'eager'})`);
   } catch (err) {
-    log(`Warning: Vector backend failed to init: ${err.message} — writes proceed without vectors`);
+    log(`WARNING: sqlite-vec backend failed to init: ${err.message}`);
+    log(`WARNING: Falling back to in-memory brute-force vector search — performance degraded for large vaults`);
+    _vectorBackend = _loadBruteForceFromIndex();
   }
 } else {
-  log('Warning: sqlite-vec not loaded — vector backend disabled');
+  log('WARNING: sqlite-vec not loaded — falling back to in-memory brute-force vector search');
+  _vectorBackend = _loadBruteForceFromIndex();
 }
+
+// Phase 03c: inject backend into semantic-search for kNN path
+setVectorBackend(_vectorBackend);
 
 const _dualWriter = new DualWriter({
   jsonlProvider: _jsonlProvider,
@@ -71,7 +98,7 @@ const context = {
   fallbackProvider: _fallbackProvider,
   // Phase 01b: dual-writer — fans writes to JSONL + SQLite under one lock.
   dualWriter: _dualWriter,
-  // Phase 03b: vector backend (null if sqlite-vec unavailable).
+  // Phase 03c: vector backend (sqlite-vec primary, brute-force fallback — never null after 03c).
   vectorBackend: _vectorBackend,
   // Populated by memory module after registration
   getEntities: null,
