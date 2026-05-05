@@ -7,7 +7,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
@@ -15,10 +15,12 @@ import { resolveBrainPath, getPackageRoot } from './lib/resolve-brain-path.mjs';
 import { TraceEmitter } from './lib/skill-evolution/trace-emitter.mjs';
 import { JsonlProvider } from './lib/memory/jsonl-provider.mjs';
 import { SqliteProvider } from './lib/memory/sqlite-backend.mjs';
+import { SqliteWriter } from './lib/memory/sqlite-writer.mjs';
 import { DualWriter } from './lib/memory/dual-writer.mjs';
 import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
 import { BruteForceVectorBackend } from './lib/memory/brute-force-vector-fallback.mjs';
 import { setVectorBackend, setHybridContext } from './lib/semantic-search.mjs';
+import { detectVaultState, autoMigrate } from './lib/memory/v6-detect-and-migrate.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -31,12 +33,29 @@ function log(msg) {
 }
 
 const _brainPath = resolveBrainPath();
-
-// Phase 01b: dual-write providers
-const _jsonlProvider = new JsonlProvider({ brainPath: _brainPath });
 const _dbPath = _brainPath.replace(/\.jsonl$/, '.db');
+
+// Phase 08: v6 vault auto-detection and migration (runs before providers init)
+// Silently skip in test/CI environments where brain path may be synthetic.
+const _vaultState = detectVaultState({ brainPath: _brainPath, dbPath: _dbPath });
+if (_vaultState === 'v6-needs-migrate') {
+  log(`Boot: v6 vault detected at ${_brainPath} — starting auto-migration...`);
+  const result = await autoMigrate({ brainPath: _brainPath, dbPath: _dbPath, log });
+  if (result.migrated) {
+    log(`Boot: v6 → v7 migration complete (${result.entityCount} entities). Backup: ${result.backupPath}`);
+  } else {
+    log('Boot: v6 migration skipped or failed — check logs above. Vault unchanged.');
+  }
+}
+
+// Phase 08: providers — SQLite is now authoritative
+const _jsonlProvider = new JsonlProvider({ brainPath: _brainPath });
 const _sqliteProvider = new SqliteProvider({ dbPath: _dbPath });
-const _dualWriteEnabled = process.env.HERMIT_DUAL_WRITE !== '0';
+
+// Phase 08: escape hatch — HERMIT_LEGACY_DUAL_WRITE=1 re-enables JSONL fan-out.
+// For users who want dual-write temporarily during transition.
+// Marked for removal in v8.0.
+const _legacyDualWrite = process.env.HERMIT_LEGACY_DUAL_WRITE === '1';
 
 // Phase 03c: vector backend — try sqlite-vec first, fall back to in-memory brute-force.
 // BruteForceVectorBackend is populated from JSON embedding index if present.
@@ -77,17 +96,26 @@ if (_sqliteProvider.vectorEnabled) {
 // Phase 03c: inject backend into semantic-search for kNN path
 setVectorBackend(_vectorBackend);
 
-const _dualWriter = new DualWriter({
-  jsonlProvider: _jsonlProvider,
-  sqliteProvider: _sqliteProvider,
-  enabled: _dualWriteEnabled,
-  vectorBackend: _vectorBackend,
-});
+// Phase 08: write path — SqliteWriter by default; DualWriter if escape hatch set.
+// HERMIT_LEGACY_DUAL_WRITE=1 → also write JSONL (marked for removal in v8.0).
+const _dualWriter = _legacyDualWrite
+  ? new DualWriter({
+      jsonlProvider: _jsonlProvider,
+      sqliteProvider: _sqliteProvider,
+      enabled: true,
+      vectorBackend: _vectorBackend,
+    })
+  : new SqliteWriter({
+      sqliteProvider: _sqliteProvider,
+      vectorBackend: _vectorBackend,
+    });
+if (_legacyDualWrite) log('WARNING: HERMIT_LEGACY_DUAL_WRITE=1 — dual-write mode active (v8.0 removal target)');
 
-// Phase 01c: opt-in read primary via HERMIT_PRIMARY_READ=sqlite (default: jsonl)
-const _readPrimary = process.env.HERMIT_PRIMARY_READ === 'sqlite' ? 'sqlite' : 'jsonl';
+// Phase 08: read primary is SQLite by default (was jsonl in Phase 01c).
+// JSONL fallback kept only for explicit HERMIT_PRIMARY_READ=jsonl override.
+const _readPrimary = process.env.HERMIT_PRIMARY_READ === 'jsonl' ? 'jsonl' : 'sqlite';
 const _readProvider = _readPrimary === 'sqlite' ? _sqliteProvider : _jsonlProvider;
-const _fallbackProvider = _readPrimary === 'sqlite' ? _jsonlProvider : null;
+const _fallbackProvider = _readPrimary === 'sqlite' ? null : null;
 
 // Phase 07: trace bus — opt-in via HERMIT_TRACE_BUS=1
 // Default OFF: ctx.traceBus = null → all tap-point guards are no-ops (zero overhead).
@@ -116,11 +144,12 @@ const context = {
   brainPath: _brainPath,
   packageRoot,
   log,
-  // Phase 01c: memoryProvider is the active read primary (jsonl default, sqlite opt-in).
+  // Phase 08: memoryProvider is SQLite by default (was jsonl in Phase 01c).
   memoryProvider: _readProvider,
-  // Phase 01c: fallbackProvider used when memoryProvider read throws (sqlite mode only).
+  // Phase 08: fallbackProvider null — SQLite is authoritative. Kept for interface compat.
   fallbackProvider: _fallbackProvider,
-  // Phase 01b: dual-writer — fans writes to JSONL + SQLite under one lock.
+  // Phase 08: sqliteWriter replaces dualWriter. Also aliased as dualWriter for module compat.
+  sqliteWriter: _dualWriter,
   dualWriter: _dualWriter,
   // Phase 03c: vector backend (sqlite-vec primary, brute-force fallback — never null after 03c).
   vectorBackend: _vectorBackend,
@@ -180,22 +209,15 @@ async function loadModules() {
 }
 
 /**
- * Boot-time staleness check — warns if brain.jsonl is newer than brain.db.
+ * Boot-time staleness check — v8 SQLite-only: warns if brain.db is missing.
  * Non-blocking: logs to stderr only, never throws.
  */
 function checkStaleness() {
   try {
-    const jsonlExists = existsSync(_brainPath);
-    const dbExists    = existsSync(_dbPath);
-    if (jsonlExists && dbExists) {
-      const jsonlMtime = statSync(_brainPath).mtimeMs;
-      const dbMtime    = statSync(_dbPath).mtimeMs;
-      const diffMs     = jsonlMtime - dbMtime;
-      if (diffMs > 5 * 60 * 1000) {
-        log(`WARNING: brain.jsonl is newer than brain.db by ${Math.round(diffMs / 60000)}min — run 'hermit-migrate' to sync`);
-      }
-    } else if (jsonlExists && !dbExists && _readPrimary === 'sqlite') {
-      log(`WARNING: HERMIT_PRIMARY_READ=sqlite but brain.db does not exist — run 'hermit-migrate' to create it`);
+    const dbExists = existsSync(_dbPath);
+    if (!dbExists) {
+      // Fresh install or v6 vault already handled by detectVaultState above
+      log('INFO: brain.db not found — will be created on first write');
     }
   } catch (_e) {
     // stat errors are non-fatal

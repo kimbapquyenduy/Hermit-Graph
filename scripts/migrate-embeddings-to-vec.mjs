@@ -109,6 +109,19 @@ async function main() {
   console.log(`  dry-run  : ${opts.dryRun}`);
   console.log(`  batch    : ${opts.batch}`);
 
+  // ── Dry-run fast path: count only, skip model load entirely ──
+  if (opts.dryRun) {
+    const jsonlSrc = opts.fromJsonl;
+    if (!existsSync(jsonlSrc)) {
+      console.error(`[migrate-vec] brain.jsonl not found for dry-run count: ${jsonlSrc}`);
+      process.exit(1);
+    }
+    let count = 0;
+    for await (const _entity of streamEntities(jsonlSrc)) count++;
+    console.log(`[migrate-vec] Dry-run: ${count} entities would be embedded. No writes performed.`);
+    return;
+  }
+
   if (!existsSync(opts.db)) {
     console.error(`[migrate-vec] brain.db not found: ${opts.db}`);
     process.exit(1);
@@ -124,7 +137,7 @@ async function main() {
   db.pragma('journal_mode = WAL');
   sqliteVec.load(db);
 
-  const backend = opts.dryRun ? null : new SqliteVecBackend({ db });
+  const backend = new SqliteVecBackend({ db });
 
   // Optionally load pre-computed cache.
   let cache = null;
@@ -145,7 +158,7 @@ async function main() {
   let batch = [];
 
   async function flushBatch() {
-    if (opts.dryRun || batch.length === 0) { batch = []; return; }
+    if (batch.length === 0) return;
     await backend.upsertBatch(batch);
     batch = [];
   }
@@ -173,10 +186,10 @@ async function main() {
   await flushBatch();
   process.stdout.write('\n');
 
-  const finalCount = opts.dryRun ? '(dry-run)' : (await backend.count());
+  const finalCount = await backend.count();
   console.log(`[migrate-vec] Done. Entities processed: ${processed}. vec_entities rows: ${finalCount}`);
 
-  if (!opts.dryRun && typeof finalCount === 'number' && finalCount < processed) {
+  if (typeof finalCount === 'number' && finalCount < processed) {
     console.warn(`[migrate-vec] Warning: vec count (${finalCount}) < processed (${processed}). Some upserts may have failed.`);
   }
   db.close();
