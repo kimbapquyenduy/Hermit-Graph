@@ -4,23 +4,41 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
-## [7.0.0-alpha.0] — 2026-05-04 (in development)
+## [7.0.0] — 2026-05-05
 
-### Added — Multi-Tier Memory + MCP-Native Tool Bridging (Hermes Pattern Adoption)
+### Added — Multi-Tier Memory + MCP-Native Tool Bridging + SQLite Single Source of Truth
 
-This release adopts three architectural patterns from `NousResearch/hermes-agent`: tiered memory storage (files + SQLite + FTS5 + sqlite-vec), MCP-native external tool registration with namespace prefixing, and a stub for skill-evolution event traces.
+This release adopts three architectural patterns from `NousResearch/hermes-agent` and consolidates to SQLite as the sole write target. JSONL becomes export-only.
 
 **Core delta vs 6.7.0:**
 - `MemoryProvider` interface — pluggable backends behind one shape (Phase 00)
-- SQLite + FTS5 keyword layer alongside `brain.jsonl` dual-write (Phases 01a/b/c)
-- Migration tool with parity verifier — `brain.jsonl` retained as portable export (Phase 02)
-- `sqlite-vec` ANN backend with brute-force fallback (Phases 03a/b/c)
+- SQLite + FTS5 keyword layer — now authoritative write target (Phases 01a/b/c, Phase 08)
+- `SqliteWriter` replaces `DualWriter` — single transactional write, no JSONL fan-out (Phase 08)
+- Migration tool — `hermit-migrate` backfills existing JSONL vaults (Phase 02)
+- v6 vault auto-detected at boot — auto-migrates transparently (Phase 08)
+- `sqlite-vec` ANN backend with brute-force fallback, `vec_entities` populated (Phases 03a/b/c)
 - Hybrid retrieval via Reciprocal Rank Fusion (Phases 04a/b)
 - MCP client subsystem — Brain consumes external MCP servers and re-surfaces tools with `mcp_<bridge>_<tool>` namespace (Phases 05a/b/c, optional 05d)
 - Plugin loader for third-party memory backends (P2 — Phases 06a/b)
 - Skill-evolution trace emitter (stub — Phase 07)
+- Universal `--help` / `-h` flag at CLI dispatcher level (Phase 08 / B2)
+- `hermit migrate` now requires confirmation or `--yes` flag before mutating data (Phase 08 / B1)
+- `hermit-migrate-vec --dry-run` no longer loads embedding model (Phase 08 / B8)
+- `HERMIT_LEGACY_DUAL_WRITE=1` escape hatch for users needing dual-write (marked for removal in v8.0)
 
-**Backward compatibility:** v6 vaults open without migration. `brain.jsonl` remains as continuous export and disaster-recovery format. All existing MCP tool signatures preserved.
+**Breaking changes:**
+- `brain.jsonl` is no longer auto-written. All writes go to `brain.db` only.
+- Export explicitly via `hermit export` or `hermit-export-jsonl`.
+- Default `HERMIT_PRIMARY_READ` changed from `jsonl` → `sqlite`.
+
+**Bug fixes (EduMVP audit):**
+- B1: `hermit migrate` now prompts for confirmation before mutating data
+- B2/B4/B5/B6: Universal `--help` / `-h` flag — every subcommand now prints usage instead of running
+- B3: `hermit export` no longer crashes — replaced broken libsql exporter with Phase 02 SQLite exporter
+- B7: Drift impossible — SQLite is now the only source of truth (by design)
+- B8: `hermit-migrate-vec --dry-run` completes in <1s (was >30s)
+
+**Backward compatibility:** v6 vaults auto-migrate on first boot. All existing MCP tool signatures preserved. `HERMIT_LEGACY_DUAL_WRITE=1` available if dual-write is needed temporarily.
 
 **Plan:** see `plans/260504-1648-hermes-pattern-adoption/plan.md`.
 

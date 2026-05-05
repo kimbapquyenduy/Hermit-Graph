@@ -1,6 +1,6 @@
 {
   "name": "hermit-graph",
-  "version": "7.0.0-alpha.0",
+  "version": "7.0.0",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode.",
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
     "hermit-migrate": "./scripts/migrate-jsonl-to-sqlite.mjs",
     "hermit-migrate-vec": "./scripts/migrate-embeddings-to-vec.mjs",
     "hermit-verify": "./scripts/verify-parity.mjs",
-    "hermit-export-jsonl": "./scripts/export-sqlite-to-jsonl.mjs"
+    "hermit-export-jsonl": "./scripts/export-sqlite-to-jsonl.mjs",
+    "hermit-export": "./scripts/export-sqlite-to-jsonl.mjs"
   },
   "files": [
     "scripts/lib/",
@@ -16,7 +17,6 @@
     "scripts/brain-health.mjs",
     "scripts/build-embedding-index.mjs",
     "scripts/clean-skills.mjs",
-    "scripts/export-db-to-jsonl.mjs",
     "scripts/export-sqlite-to-jsonl.mjs",
     "scripts/migrate-jsonl-to-sqlite.mjs",
     "scripts/migrate-embeddings-to-vec.mjs",
@@ -77,11 +77,11 @@
     "migrate": "node scripts/migrate-v3-to-v4.mjs",
     "backfill": "node scripts/backfill-confidence.mjs",
     "stale": "node scripts/stale-report.mjs",
-    "export": "node scripts/export-db-to-jsonl.mjs",
+    "export": "node scripts/export-sqlite-to-jsonl.mjs",
     "sync": "node scripts/sync-to-neo4j.mjs",
     "view": "node scripts/view-graph.mjs",
     "view:code": "node scripts/view-graph.mjs --code",
-    "view:live": "node scripts/export-db-to-jsonl.mjs && node scripts/view-graph.mjs",
+    "view:live": "node scripts/export-sqlite-to-jsonl.mjs && node scripts/view-graph.mjs",
     "setup:semantic": "node scripts/setup-semantic.mjs",
     "setup:conventions": "node scripts/setup-conventions.mjs",
     "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
