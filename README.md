@@ -861,6 +861,24 @@ HERMIT_LEGACY_DUAL_WRITE=1 hermit serve
 | `HERMIT_LEGACY_DUAL_WRITE` | unset | Set to `1` to re-enable JSONL fan-out (v8.0 removal target) |
 | `HERMIT_AUTO_MIGRATE` | unset | Set to `1` to skip v6 migration confirmation prompt |
 | `HERMIT_EMBED_MODE` | `eager` | Vector embed on write: `eager` or `lazy` |
+| `HERMIT_TOOL_PROFILE` | `core` | Tool surface: `core` (10 tools, ~1500 catalog tokens) or `full` (34 tools). Token-diet default. |
+| `HERMIT_AUTORECALL` | `smart` | Auto-recall gating: `smart` (gate on prompt content), `always` (fire every session), `off` (disable). Saves ~1500 tokens × ~50% of sessions when `smart`. |
+| `HERMIT_AUTORECALL_LOG` | unset | Set to `1` to log auto-recall skip decisions to stderr. Debug aid. |
+| `HERMIT_ID_MODE` | `legacy` | Symbol ID format: `legacy` (`file::name`) or `sha256` (collision-safe `kind:hash32`). v7 back-compat keeps legacy default. |
+
+### Token-conscious defaults
+
+Hermit ships with token-diet defaults that reduce session cost by ~58.6% vs the pre-diet baseline:
+
+- **Tool surface diet** (`HERMIT_TOOL_PROFILE=core`) — 10 core tools cover ~95% of agent flows. Advanced 24 tools require `HERMIT_TOOL_PROFILE=full`.
+- **Conditional auto-recall** (`HERMIT_AUTORECALL=smart`) — recall hook fires only when prompt has code/biz signal; trivial prompts skip the ~1500-token recall injection.
+- **Compact response format** — symbol rows use `- name (kind) file:line [tags]`; impact returns counts + d=1 names only by default (pass `verbose: true` for full d=2/d=3 lists).
+- **Container outline** — `hermit_context` on classes returns member outline (signatures + line numbers) instead of full body dumps.
+- **Universal output cap** — all tool responses capped at 15,000 chars with clean-newline truncation.
+- **Server instructions** — 60-line MCP playbook injected at init steers agents to the right tool by intent + avoids common anti-patterns ("don't grep first when looking up a symbol").
+- **Min-score query filter** — concept queries with no high-confidence matches return an honest "no matches" instead of misleading low-score dross.
+
+Set `HERMIT_TOOL_PROFILE=full` if you need any of the advanced tools (memory CRUD, skills export, MCP bridges, audit trail, …) and don't want to opt back in per-session.
 
 ## Migrating from v6 (JSONL) to v7 (SQLite)
 
