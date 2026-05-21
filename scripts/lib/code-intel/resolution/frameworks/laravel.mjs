@@ -67,6 +67,8 @@ export const laravelResolver = {
     const seen = new Set();
     const ctrlGlobal  = /\[\s*([A-Z][a-zA-Z]+Controller)\s*::\s*class\s*,\s*['"](\w+)['"]\s*\]/g;
     const modelGlobal = /\b([A-Z][a-zA-Z]+)::(\w+)\s*\(/g;
+    const routeHelperGlobal = /\broute\s*\(\s*['"]([\w.-]+)['"]/g;
+    const viewHelperGlobal  = /\bview\s*\(\s*['"]([\w.-]+)['"]/g;
 
     let m;
     while ((m = ctrlGlobal.exec(src)) !== null) {
@@ -100,6 +102,47 @@ export const laravelResolver = {
       if (!target) continue;
       rels.push({
         _v: 1, _type: 'relation', from: file, to: target.id, kind: 'CALLS', line,
+        _meta: { confidence: 0.85, resolvedBy: 'framework:laravel' },
+      });
+    }
+
+    // route('users.show') → search graph for a symbol named 'users.show' OR 'show'.
+    // Lower confidence (0.65) because route names are string-based and may
+    // not map cleanly to a single method.
+    while ((m = routeHelperGlobal.exec(src)) !== null) {
+      const routeName = m[1];
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `route:${routeName}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // Try last segment of dot-notation route name as method name.
+      const last = routeName.includes('.') ? routeName.split('.').pop() : routeName;
+      const candidates = graph.findByName(last).filter(s => s.kind === 'method' || s.kind === 'function');
+      if (!candidates.length) continue;
+      const target = candidates[0];
+      rels.push({
+        _v: 1, _type: 'relation', from: file, to: target.id, kind: 'CALLS', line,
+        _meta: { confidence: 0.65, resolvedBy: 'framework:laravel' },
+      });
+    }
+
+    // view('users.profile') → resolves to resources/views/users/profile.blade.php
+    // if a component with that file path is indexed.
+    while ((m = viewHelperGlobal.exec(src)) !== null) {
+      const viewPath = m[1].replace(/\./g, '/');
+      const expectedFile = `resources/views/${viewPath}.blade.php`;
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `view:${viewPath}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // Look up by file path match.
+      let target = null;
+      for (const s of graph.symbols.values()) {
+        if (s.file === expectedFile && s.kind === 'component') { target = s; break; }
+      }
+      if (!target) continue;
+      rels.push({
+        _v: 1, _type: 'relation', from: file, to: target.id, kind: 'RENDERS', line,
         _meta: { confidence: 0.85, resolvedBy: 'framework:laravel' },
       });
     }

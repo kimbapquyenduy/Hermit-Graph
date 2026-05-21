@@ -2009,6 +2009,111 @@ async function frameworkResolverPackTests() {
     assert(r, 'expected resolution');
     assert(r.targetId === 'cb');
   });
+
+  // ── Phase 04 round-2 patterns ──
+
+  await test('laravel scanSource: route(\'name\') resolves to method via last segment', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'show', name: 'show', kind: 'method', file: 'app/Http/Controllers/UsersController.php', line: [10, 20], lang: 'php', parent: 'UsersController' },
+    ]);
+    const src = "return redirect()->route('users.show', $user);";
+    const rels = laravelResolver.scanSource(src, 'app/Http/Controllers/Home.php', g);
+    const routeRel = rels.find(r => r._meta?.resolvedBy === 'framework:laravel' && r.to === 'show');
+    assert(routeRel, 'expected route() resolution');
+    assert(routeRel._meta.confidence === 0.65, `expected 0.65 (lower than ::class), got ${routeRel._meta.confidence}`);
+  });
+
+  await test('laravel scanSource: view(\'blade.path\') resolves to blade.php component', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'v', name: 'profile', kind: 'component', file: 'resources/views/users/profile.blade.php', line: [1, 30], lang: 'liquid' },
+    ]);
+    const src = "return view('users.profile');";
+    const rels = laravelResolver.scanSource(src, 'app/Http/Controllers/UserController.php', g);
+    const viewRel = rels.find(r => r.kind === 'RENDERS');
+    assert(viewRel, 'expected view() RENDERS edge');
+    assert(viewRel.to === 'v');
+  });
+
+  await test('rails scanSource: resources :products → ProductsController class', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'cls', name: 'ProductsController', kind: 'class', file: 'app/controllers/products_controller.rb', line: [1, 50], lang: 'ruby' },
+    ]);
+    const src = "Rails.application.routes.draw do\n  resources :products\nend";
+    const rels = railsResolver.scanSource(src, 'config/routes.rb', g);
+    const rel = rels.find(r => r.to === 'cls');
+    assert(rel, 'expected resources resolution');
+    assert(rel._meta.confidence === 0.85);
+  });
+
+  await test('rails scanSource: Model.find_by_X dynamic finder records class usage', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'um', name: 'User', kind: 'class', file: 'app/models/user.rb', line: [1, 30], lang: 'ruby' },
+      { id: 'enc', name: 'index', kind: 'method', file: 'app/controllers/users_controller.rb', line: [5, 15], lang: 'ruby', parent: 'UsersController' },
+    ]);
+    const src = "def index\n  @user = User.find_by_email(params[:email])\nend";
+    const rels = railsResolver.scanSource(src, 'app/controllers/users_controller.rb', g);
+    const rel = rels.find(r => r.to === 'um');
+    assert(rel, 'expected find_by_ resolution to User class');
+    assert(rel._meta.confidence === 0.7);
+  });
+
+  await test('django scanSource: Flask @app.route resolves handler function', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'h', name: 'login', kind: 'function', file: 'app/auth.py', line: [10, 20], lang: 'python', exported: true },
+    ]);
+    const src = "@app.route('/login', methods=['POST'])\ndef login():\n    pass";
+    const rels = djangoResolver.scanSource(src, 'app/auth.py', g);
+    assert(rels.length === 1, `expected 1 relation, got ${rels.length}`);
+    assert(rels[0].to === 'h');
+    assert(rels[0]._meta.confidence === 0.9);
+  });
+
+  await test('django scanSource: FastAPI @app.get resolves async handler', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'h', name: 'get_user', kind: 'function', file: 'app/api.py', line: [10, 20], lang: 'python', exported: true },
+    ]);
+    const src = "@app.get('/users/{id}')\nasync def get_user(id: int):\n    pass";
+    const rels = djangoResolver.scanSource(src, 'app/api.py', g);
+    assert(rels.length === 1);
+    assert(rels[0].to === 'h');
+  });
+
+  // ── Phase 03 import-strategy ──
+
+  await test('importStrategy: resolves via importMap to file in resolved module', async () => {
+    const { importStrategy } = await import('../scripts/lib/code-intel/resolution/import-strategy.mjs');
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'btnA', name: 'Button', kind: 'function', file: 'src/ui/Button.tsx', line: [5, 20], lang: 'tsx', exported: true },
+      { id: 'btnB', name: 'Button', kind: 'function', file: 'src/legacy/Button.tsx', line: [3, 8], lang: 'tsx', exported: true },
+    ]);
+    const importMap = new Map();
+    // ./ui/Button resolves from src/Page.tsx → src/ui/Button (finds src/ui/Button.tsx).
+    importMap.set('src/Page.tsx', new Map([['Button', './ui/Button']]));
+    const r = importStrategy.resolve(
+      { sourceId: 'x', referenceName: 'Button', referenceKind: 'renders', fromFile: 'src/Page.tsx' },
+      { graph: g, importMap }
+    );
+    assert(r, 'expected import resolution');
+    assert(r.targetId === 'btnA', `expected btnA (imported), got ${r.targetId}`);
+    assert(r.resolvedBy === 'import');
+  });
+
+  await test('importStrategy: returns null without importMap', async () => {
+    const { importStrategy } = await import('../scripts/lib/code-intel/resolution/import-strategy.mjs');
+    const g = new CodeGraph();
+    const r = importStrategy.resolve(
+      { sourceId: 'x', referenceName: 'X', referenceKind: 'calls', fromFile: 'a.ts' },
+      { graph: g }
+    );
+    assert(r === null);
+  });
 }
 
 // MAIN
