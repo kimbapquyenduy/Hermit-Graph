@@ -90,6 +90,10 @@
     "prepublishOnly": "node scripts/publish-preflight.mjs",
     "test:e2e": "node scripts/test-e2e-code-intel.mjs",
     "test:all": "node scripts/test-v4.mjs && node scripts/test-e2e-code-intel.mjs",
+    "bench:tokens": "node plans/260521-0951-codegraph-learnings-hard-plan/bench/run-token-bench.mjs",
+    "bench:hard": "node plans/260521-0951-codegraph-learnings-hard-plan/bench/run-hard-bench.mjs",
+    "bench:functional": "node plans/260521-0951-codegraph-learnings-hard-plan/bench/run-functional-bench.mjs",
+    "bench:framework-e2e": "node plans/260521-0951-codegraph-learnings-hard-plan/bench/run-framework-e2e.mjs",
     "publish:dry": "npm pack --dry-run",
     "smoke:vec": "node scripts/smoke-sqlite-vec.mjs"
   },

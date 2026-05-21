@@ -377,7 +377,10 @@ async function mcpIntegrationTests() {
     return new Promise((resolve, reject) => {
       const proc = spawn('node', [join(ROOT, 'scripts', 'hermit-mcp-server.mjs')], {
         cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, MEMORY_FILE_PATH: REAL_BRAIN },
+        // MCP integration tests exercise advanced tools (consolidate, branch_context,
+        // command_list, hook_list) that are gated behind HERMIT_TOOL_PROFILE=full.
+        // Force full profile here so tests see the original 34-tool surface.
+        env: { ...process.env, MEMORY_FILE_PATH: REAL_BRAIN, HERMIT_TOOL_PROFILE: 'full' },
       });
       let stdout = '';
       proc.stdout.on('data', d => { stdout += d; });
@@ -1142,6 +1145,723 @@ async function frontmatterTests() {
   });
 }
 
+async function resolutionTests() {
+  console.log('\n🧭 Multi-Strategy Resolution Tests (Phase 03)');
+  const res = await import('../scripts/lib/code-intel/resolution/index.mjs');
+  const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+  const { scoreCandidate, pickBest } = await import('../scripts/lib/code-intel/resolution/scoring.mjs');
+
+  // Fixture: 3 symbols across 2 files, one with parent class.
+  function fixture() {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 's1', name: 'fooBar', kind: 'function', file: 'src/util.ts', line: [10, 20], lang: 'typescript', exported: true },
+      { id: 's2', name: 'fooBar', kind: 'method',   file: 'src/other.ts', line: [30, 40], lang: 'typescript', parent: 'OtherClass' },
+      { id: 's3', name: 'baz',    kind: 'function', file: 'src/util.ts', line: [50, 60], lang: 'typescript' },
+    ]);
+    return g;
+  }
+
+  await test('scoring: same-file beats cross-file', () => {
+    const g = fixture();
+    const ref = { referenceKind: 'calls', fromFile: 'src/util.ts', fromLang: 'typescript' };
+    const sameFile = scoreCandidate(ref, g.symbols.get('s1'));
+    const crossFile = scoreCandidate(ref, g.symbols.get('s2'));
+    assert(sameFile > crossFile, `same-file (${sameFile}) should beat cross-file (${crossFile})`);
+  });
+
+  await test('scoring: cross-language penalty applies', () => {
+    const ref = { referenceKind: 'calls', fromFile: 'a.ts', fromLang: 'typescript' };
+    const tsTarget = { id: 'x', name: 'y', kind: 'function', file: 'b.ts', lang: 'typescript' };
+    const pyTarget = { id: 'x', name: 'y', kind: 'function', file: 'b.py', lang: 'python' };
+    const tsScore = scoreCandidate(ref, tsTarget);
+    const pyScore = scoreCandidate(ref, pyTarget);
+    assert(tsScore - pyScore >= 100, `cross-language penalty too weak: ts=${tsScore} py=${pyScore}`);
+  });
+
+  await test('pickBest: returns ambiguous when scores tie', () => {
+    const ref = { referenceKind: 'calls', fromFile: 'src/somewhere-else.ts', fromLang: 'typescript' };
+    const candidates = [
+      { id: 'a', name: 'fooBar', kind: 'function', file: 'src/util.ts', lang: 'typescript' },
+      { id: 'b', name: 'fooBar', kind: 'function', file: 'src/other.ts', lang: 'typescript' },
+    ];
+    const r = pickBest(ref, candidates);
+    assert(r.ambiguous, 'should be ambiguous');
+    assert(r.alternatives.length === 1, `expected 1 alt, got ${r.alternatives.length}`);
+  });
+
+  await test('resolveReference: unknown name returns null', () => {
+    const g = fixture();
+    const r = res.resolveReference(
+      { sourceId: 'x', referenceName: 'doesNotExist', referenceKind: 'calls', fromFile: 'src/util.ts', fromLang: 'typescript' },
+      { graph: g, knownNames: res.buildKnownNames(g) }
+    );
+    assert(r === null, `expected null, got ${JSON.stringify(r)}`);
+  });
+
+  await test('resolveReference: same-file gets confidence 1.0 via name strategy', () => {
+    const g = fixture();
+    const r = res.resolveReference(
+      { sourceId: 'x', referenceName: 'fooBar', referenceKind: 'calls', fromFile: 'src/util.ts', fromLine: 5, fromLang: 'typescript' },
+      { graph: g, knownNames: res.buildKnownNames(g) }
+    );
+    assert(r, 'should resolve');
+    assert(r.targetId === 's1', `expected s1, got ${r.targetId}`);
+    assert(r.confidence >= 0.9, `confidence too low: ${r.confidence}`);
+    assert(r.resolvedBy === 'name', `unexpected provenance: ${r.resolvedBy}`);
+  });
+
+  await test('resolveReference: ambiguous returns alternatives', () => {
+    const g = fixture();
+    const r = res.resolveReference(
+      { sourceId: 'x', referenceName: 'fooBar', referenceKind: 'calls', fromFile: 'src/somewhere-else.ts', fromLang: 'typescript' },
+      { graph: g, knownNames: res.buildKnownNames(g) }
+    );
+    assert(r, 'should resolve');
+    assert(r.resolvedBy === 'name:fuzzy', `expected fuzzy, got ${r.resolvedBy}`);
+    assert(Array.isArray(r.alternatives) && r.alternatives.length === 1, `expected 1 alt, got ${r.alternatives?.length}`);
+  });
+
+  await test('resolveReference: ClassName.methodName form picks scoped target', () => {
+    const g = fixture();
+    const r = res.resolveReference(
+      { sourceId: 'x', referenceName: 'OtherClass.fooBar', referenceKind: 'calls', fromFile: 'src/util.ts', fromLang: 'typescript' },
+      { graph: g, knownNames: res.buildKnownNames(g) }
+    );
+    assert(r, 'should resolve');
+    assert(r.targetId === 's2', `expected s2, got ${r.targetId}`);
+  });
+
+  await test('framework strategy short-circuits at confidence >= 0.9', () => {
+    const g = fixture();
+    res.clearFrameworks();
+    res.registerFramework({
+      name: 'fake-fw',
+      resolve: (ref) => ({ sourceId: ref.sourceId, targetId: 's3', kind: 'calls', confidence: 0.95 }),
+    });
+    const r = res.resolveReference(
+      { sourceId: 'x', referenceName: 'fooBar', referenceKind: 'calls', fromFile: 'src/util.ts', fromLang: 'typescript' },
+      { graph: g, knownNames: res.buildKnownNames(g), activeFrameworks: ['fake-fw'] }
+    );
+    res.clearFrameworks();
+    assert(r, 'should resolve via framework');
+    assert(r.resolvedBy === 'framework:fake-fw', `expected framework provenance, got ${r.resolvedBy}`);
+    assert(r.targetId === 's3', `framework target wrong: ${r.targetId}`);
+  });
+
+  await test('framework strategy below 0.9 falls through to name', () => {
+    const g = fixture();
+    res.clearFrameworks();
+    res.registerFramework({
+      name: 'weak-fw',
+      resolve: (ref) => ({ sourceId: ref.sourceId, targetId: 's3', kind: 'calls', confidence: 0.6 }),
+    });
+    const r = res.resolveReference(
+      { sourceId: 'x', referenceName: 'fooBar', referenceKind: 'calls', fromFile: 'src/util.ts', fromLine: 5, fromLang: 'typescript' },
+      { graph: g, knownNames: res.buildKnownNames(g), activeFrameworks: ['weak-fw'] }
+    );
+    res.clearFrameworks();
+    assert(r, 'should resolve');
+    // Same-file name match scores higher (conf 1.0) than weak framework (0.6).
+    assert(r.confidence === 1, `expected name win at conf 1.0, got ${r.confidence} via ${r.resolvedBy}`);
+  });
+
+  await test('resolveBatch: filters unresolved refs', () => {
+    const g = fixture();
+    const batch = res.resolveBatch(
+      [
+        { sourceId: 'x', referenceName: 'baz',  referenceKind: 'calls', fromFile: 'src/util.ts', fromLang: 'typescript' },
+        { sourceId: 'y', referenceName: 'nope', referenceKind: 'calls', fromFile: 'src/util.ts', fromLang: 'typescript' },
+      ],
+      { graph: g }
+    );
+    assert(batch.length === 1, `expected 1 resolved, got ${batch.length}`);
+    assert(batch[0].targetId === 's3', `unexpected target: ${batch[0].targetId}`);
+  });
+
+  await test('known-names: indexes Class.method qualified form', () => {
+    const g = fixture();
+    const names = res.buildKnownNames(g);
+    assert(res.isKnownName(names, 'OtherClass.fooBar'), 'qualified form should be indexed');
+    assert(res.isKnownName(names, 'fooBar'), 'plain name should be indexed');
+    assert(!res.isKnownName(names, 'NoSuchSym'), 'unknown should be rejected');
+  });
+}
+
+async function frameworkResolverTests() {
+  console.log('\n🛣️  Framework Resolver Tests (Phase 04)');
+  const res = await import('../scripts/lib/code-intel/resolution/index.mjs');
+  const { expressResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/express.mjs');
+  const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+
+  function fixture() {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'h1', name: 'getUser',         kind: 'function', file: 'src/handlers/user.ts',     line: [10, 20], lang: 'typescript', exported: true },
+      { id: 'h2', name: 'checkoutHandler', kind: 'function', file: 'src/handlers/checkout.ts', line: [5, 30],  lang: 'typescript', exported: true },
+      { id: 'r1', name: 'app',             kind: 'variable', file: 'src/server.ts',            line: [3, 3],   lang: 'typescript' },
+    ]);
+    return g;
+  }
+
+  await test('express resolver: handler reference resolves via regex', () => {
+    const g = fixture();
+    const r = expressResolver.resolve(
+      {
+        sourceId: 'r1',
+        referenceName: 'getUser',
+        referenceKind: 'calls',
+        fromFile: 'src/server.ts',
+        fromLang: 'typescript',
+        contextText: "app.get('/users/:id', getUser)",
+      },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'h1', `expected h1, got ${r.targetId}`);
+    assert(r.confidence === 0.85, `expected 0.85, got ${r.confidence}`);
+  });
+
+  await test('express resolver: router.METHOD also matches', () => {
+    const g = fixture();
+    const r = expressResolver.resolve(
+      {
+        sourceId: 'r1',
+        referenceName: 'checkoutHandler',
+        referenceKind: 'calls',
+        fromFile: 'src/server.ts',
+        fromLang: 'typescript',
+        contextText: "router.post('/checkout', checkoutHandler)",
+      },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'h2', `expected h2, got ${r.targetId}`);
+  });
+
+  await test('express resolver: returns null without contextText', () => {
+    const g = fixture();
+    const r = expressResolver.resolve(
+      { sourceId: 'r1', referenceName: 'getUser', referenceKind: 'calls' },
+      { graph: g }
+    );
+    assert(r === null, `expected null, got ${JSON.stringify(r)}`);
+  });
+
+  await test('express resolver: returns null for non-calls kind', () => {
+    const g = fixture();
+    const r = expressResolver.resolve(
+      {
+        sourceId: 'r1', referenceName: 'getUser', referenceKind: 'imports',
+        contextText: "app.get('/users/:id', getUser)",
+      },
+      { graph: g }
+    );
+    assert(r === null, `expected null for non-calls, got ${JSON.stringify(r)}`);
+  });
+
+  await test('express resolver registered → cascade wins via framework', () => {
+    const g = fixture();
+    res.clearFrameworks();
+    res.registerFramework({
+      name: 'express',
+      resolve: (ref, ctx) => {
+        const r = expressResolver.resolve(ref, ctx);
+        if (!r) return null;
+        // Bump to high-confidence so cascade short-circuits to framework.
+        return { ...r, confidence: 0.92 };
+      },
+    });
+    const result = res.resolveReference(
+      {
+        sourceId: 'r1',
+        referenceName: 'getUser',
+        referenceKind: 'calls',
+        fromFile: 'src/server.ts',
+        fromLang: 'typescript',
+        contextText: "app.get('/users/:id', getUser)",
+      },
+      { graph: g, knownNames: res.buildKnownNames(g), activeFrameworks: ['express'] }
+    );
+    res.clearFrameworks();
+    assert(result, 'cascade should resolve');
+    assert(result.resolvedBy === 'framework:express', `expected framework provenance, got ${result.resolvedBy}`);
+    assert(result.targetId === 'h1', `target wrong: ${result.targetId}`);
+  });
+
+  await test('express resolver: handler not in graph → null', () => {
+    const g = fixture();
+    const r = expressResolver.resolve(
+      {
+        sourceId: 'r1',
+        referenceName: 'orphanHandler',
+        referenceKind: 'calls',
+        contextText: "app.delete('/x', orphanHandler)",
+      },
+      { graph: g }
+    );
+    assert(r === null, `expected null when handler absent, got ${JSON.stringify(r)}`);
+  });
+}
+
+async function scanSourceTests() {
+  console.log('\n🔭 scanSource Live-Pipeline Tests (Phase 03 wave 2)');
+  const { expressResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/express.mjs');
+  const { laravelResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/laravel.mjs');
+  const { nestjsResolver }  = await import('../scripts/lib/code-intel/resolution/frameworks/nestjs.mjs');
+  const { vueResolver }     = await import('../scripts/lib/code-intel/resolution/frameworks/vue.mjs');
+  const { djangoResolver }  = await import('../scripts/lib/code-intel/resolution/frameworks/django.mjs');
+  const { railsResolver }   = await import('../scripts/lib/code-intel/resolution/frameworks/rails.mjs');
+  const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+
+  await test('express scanSource: emits CALLS for app.get(handler)', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'h', name: 'getUser', kind: 'function', file: 'src/server.ts', line: [50, 60], lang: 'typescript' },
+    ]);
+    const src = "import express from 'express';\nconst app = express();\napp.get('/users/:id', getUser);\n";
+    const rels = expressResolver.scanSource(src, 'src/server.ts', g);
+    assert(rels.length === 1, `expected 1 relation, got ${rels.length}`);
+    assert(rels[0].kind === 'CALLS');
+    assert(rels[0].to === 'h');
+    assert(rels[0]._meta.resolvedBy === 'framework:express');
+  });
+
+  await test('laravel scanSource: emits CALLS for [Ctrl::class, method]', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'm', name: 'store', kind: 'method', file: 'app/Http/Controllers/CheckoutController.php', line: [10, 20], lang: 'php', parent: 'CheckoutController' },
+    ]);
+    const src = "Route::post('/checkout', [CheckoutController::class, 'store']);";
+    const rels = laravelResolver.scanSource(src, 'routes/web.php', g);
+    assert(rels.length === 1);
+    assert(rels[0].to === 'm');
+  });
+
+  await test('nestjs scanSource: emits CALLS for @Inject(TOKEN)', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 't', name: 'USER_REPO', kind: 'constant', file: 'src/tokens.ts', line: [3, 3], lang: 'typescript' },
+    ]);
+    const src = "@Injectable()\nclass UserService {\n  constructor(@Inject(USER_REPO) repo) {}\n}";
+    const rels = nestjsResolver.scanSource(src, 'src/user.service.ts', g);
+    assert(rels.length === 1);
+    assert(rels[0].to === 't');
+  });
+
+  await test('vue scanSource: emits RENDERS for <PascalCase /> tag', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'p', name: 'parent', kind: 'function', file: 'src/Parent.vue', line: [1, 50], lang: 'vue' },
+      { id: 'c', name: 'UserCard', kind: 'component', file: 'src/UserCard.vue', line: [1, 30], lang: 'vue' },
+    ]);
+    const src = '<template>\n  <UserCard :user="u" />\n</template>\n<script>\nexport default { name: "parent" };\n</script>';
+    const rels = vueResolver.scanSource(src, 'src/Parent.vue', g);
+    assert(rels.length === 1, `expected 1, got ${rels.length}`);
+    assert(rels[0].kind === 'RENDERS');
+    assert(rels[0].to === 'c');
+  });
+
+  await test('django scanSource: emits CALLS for path("/", view)', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'v', name: 'user_detail', kind: 'function', file: 'app/views.py', line: [10, 30], lang: 'python', exported: true },
+    ]);
+    const src = "from django.urls import path\nfrom .views import user_detail\nurlpatterns = [path('users/<int:pk>/', user_detail)]";
+    const rels = djangoResolver.scanSource(src, 'app/urls.py', g);
+    assert(rels.length === 1);
+    assert(rels[0].to === 'v');
+  });
+
+  await test('svelte scanSource: emits RENDERS for <Component /> + custom function CALLS', async () => {
+    const { svelteResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/svelte.mjs');
+    const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'p', name: 'Page',     kind: 'component', file: 'src/Page.svelte',    line: [1, 30], lang: 'svelte' },
+      { id: 'c', name: 'UserCard', kind: 'component', file: 'src/UserCard.svelte', line: [1, 20], lang: 'svelte' },
+    ]);
+    const src = '<script>\n  import UserCard from "./UserCard.svelte";\n</script>\n<UserCard user={u} />';
+    const rels = svelteResolver.scanSource(src, 'src/Page.svelte', g);
+    assert(rels.length >= 1, `expected at least 1 relation, got ${rels.length}`);
+    const rendersRel = rels.find(r => r.kind === 'RENDERS');
+    assert(rendersRel, 'expected RENDERS relation');
+    assert(rendersRel.to === 'c');
+    assert(rendersRel._meta.resolvedBy === 'framework:svelte');
+  });
+
+  await test('svelte scanSource: skips Svelte runes', async () => {
+    const { svelteResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/svelte.mjs');
+    const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+    const g = new CodeGraph();
+    // No matching symbol for $state — should produce no relations.
+    const src = '<script>\n  let x = $state(0);\n  let y = $derived(x * 2);\n</script>';
+    const rels = svelteResolver.scanSource(src, 'src/Cmp.svelte', g);
+    assert(rels.length === 0, `runes should be skipped, got ${rels.length} rels`);
+  });
+
+  await test('rails scanSource: emits CALLS for controller#action route', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'a', name: 'index', kind: 'method', file: 'app/controllers/users_controller.rb', line: [5, 20], lang: 'ruby', parent: 'UsersController' },
+    ]);
+    const src = "Rails.application.routes.draw do\n  get '/users' => 'users#index'\nend";
+    const rels = railsResolver.scanSource(src, 'config/routes.rb', g);
+    assert(rels.length === 1);
+    assert(rels[0].to === 'a');
+  });
+}
+
+async function svelteExtractorTests() {
+  console.log('\n🎯 Svelte SFC Extractor Tests (Phase 07)');
+  const { extractSvelteSfc, isSvelteSfc } = await import('../scripts/lib/code-intel/extractor-svelte-sfc.mjs');
+
+  await test('isSvelteSfc: recognizes .svelte files', () => {
+    assert(isSvelteSfc('src/Foo.svelte') === true);
+    assert(isSvelteSfc('src/Foo.vue') === false);
+    assert(isSvelteSfc('src/foo.ts') === false);
+  });
+
+  await test('extractSvelteSfc: derives PascalCase name from filename', () => {
+    const { symbols } = extractSvelteSfc('<script>let x = 1;</script>', 'src/components/user-card.svelte');
+    const comp = symbols.find(s => s.kind === 'component');
+    assert(comp.name === 'UserCard', `expected UserCard, got ${comp.name}`);
+  });
+
+  await test('extractSvelteSfc: extracts export let props', () => {
+    const src = '<script>\n  export let user;\n  export let onClick;\n</script>';
+    const { symbols } = extractSvelteSfc(src, 'src/UserCard.svelte');
+    const props = symbols.filter(s => s.kind === 'variable' && s.exported);
+    assert(props.length === 2, `expected 2 props, got ${props.length}`);
+    assert(props.find(p => p.name === 'user'));
+    assert(props.find(p => p.name === 'onClick'));
+  });
+
+  await test('extractSvelteSfc: extracts internal + exported functions', () => {
+    const src = '<script>\n  export function publicFn() {}\n  function privateFn() {}\n</script>';
+    const { symbols } = extractSvelteSfc(src, 'src/Cmp.svelte');
+    const methods = symbols.filter(s => s.kind === 'method');
+    assert(methods.length === 2, `expected 2 methods, got ${methods.length}`);
+    assert(methods.find(m => m.name === 'publicFn' && m.exported));
+    assert(methods.find(m => m.name === 'privateFn' && !m.exported));
+  });
+
+  await test('extractSvelteSfc: MEMBER_OF relations link methods to component', () => {
+    const src = '<script>\n  function a() {}\n  function b() {}\n</script>';
+    const { symbols, relations } = extractSvelteSfc(src, 'src/Cmp.svelte');
+    const memberOf = relations.filter(r => r.kind === 'MEMBER_OF');
+    assert(memberOf.length === 2, `expected 2 MEMBER_OF, got ${memberOf.length}`);
+    const comp = symbols.find(s => s.kind === 'component');
+    for (const r of memberOf) {
+      assert(r.to === comp.id, `MEMBER_OF target should be component, got ${r.to}`);
+    }
+  });
+}
+
+async function phase01QuickWinsTests() {
+  console.log('\n⚡ Phase 01 Quick Wins Tests');
+  const { makeSymbolId, idMode } = await import('../scripts/lib/code-intel/id-gen.mjs');
+  const { stripCommentsForRegex } = await import('../scripts/lib/code-intel/strip-comments.mjs');
+  const { getOutputBudget, getExploreBudget } = await import('../scripts/lib/code-intel/output-budget.mjs');
+
+  // ── id-gen ──
+  await test('id-gen: legacy mode default', () => {
+    delete process.env.HERMIT_ID_MODE;
+    assert(idMode() === 'legacy');
+    const id = makeSymbolId({ file: 'src/a.ts', kind: 'function', name: 'foo', line: 10 });
+    assert(id === 'src/a.ts::foo', `unexpected legacy id: ${id}`);
+  });
+
+  await test('id-gen: legacy mode with parent', () => {
+    delete process.env.HERMIT_ID_MODE;
+    const id = makeSymbolId({ file: 'src/a.ts', kind: 'method', name: 'bar', line: 20, parent: 'Foo' });
+    assert(id === 'src/a.ts::Foo.bar', `unexpected: ${id}`);
+  });
+
+  await test('id-gen: sha256 mode produces stable 32-char hash', () => {
+    process.env.HERMIT_ID_MODE = 'sha256';
+    const a = makeSymbolId({ file: 'src/a.ts', kind: 'function', name: 'foo', line: 10 });
+    const b = makeSymbolId({ file: 'src/a.ts', kind: 'function', name: 'foo', line: 10 });
+    assert(a === b, `deterministic: ${a} vs ${b}`);
+    assert(a.startsWith('function:'), `expected kind prefix: ${a}`);
+    assert(a.length === 'function:'.length + 32, `expected 32-char hash, got ${a.length - 'function:'.length}`);
+    delete process.env.HERMIT_ID_MODE;
+  });
+
+  await test('id-gen: sha256 different inputs → different ids', () => {
+    process.env.HERMIT_ID_MODE = 'sha256';
+    const a = makeSymbolId({ file: 'src/a.ts', kind: 'function', name: 'foo', line: 10 });
+    const b = makeSymbolId({ file: 'src/a.ts', kind: 'function', name: 'foo', line: 11 });
+    assert(a !== b, 'different lines should produce different ids');
+    delete process.env.HERMIT_ID_MODE;
+  });
+
+  // ── strip-comments ──
+  await test('strip-comments: JS line comment blanked, length preserved', () => {
+    const src = 'const x = 1; // comment here\nconst y = 2;';
+    const out = stripCommentsForRegex(src, 'javascript');
+    assert(out.length === src.length, `length changed: ${src.length} -> ${out.length}`);
+    assert(!out.includes('comment here'), 'comment text should be blanked');
+    assert(out.includes('const x = 1;') && out.includes('const y = 2;'), 'code preserved');
+  });
+
+  await test('strip-comments: JS block comment blanked across lines', () => {
+    const src = 'before\n/* block\nspanning\nlines */ after';
+    const out = stripCommentsForRegex(src, 'javascript');
+    assert(out.length === src.length, 'length preserved');
+    // Newlines inside block must be preserved.
+    assert((out.match(/\n/g) || []).length === (src.match(/\n/g) || []).length, 'newline count preserved');
+    assert(out.includes('after'), 'code after block preserved');
+  });
+
+  await test('strip-comments: // inside string is NOT blanked', () => {
+    const src = 'const url = "https://example.com/path";';
+    const out = stripCommentsForRegex(src, 'javascript');
+    assert(out === src, `expected unchanged, got: ${out}`);
+  });
+
+  await test('strip-comments: Python triple-quoted docstring blanked', () => {
+    const src = 'def foo():\n    """docstring\n    spans lines"""\n    return 1';
+    const out = stripCommentsForRegex(src, 'python');
+    assert(out.length === src.length, 'length preserved');
+    assert(!out.includes('docstring'), 'docstring blanked');
+    assert(out.includes('def foo():') && out.includes('return 1'), 'code preserved');
+  });
+
+  await test('strip-comments: Python # comment blanked', () => {
+    const src = 'x = 1  # explanation\ny = 2';
+    const out = stripCommentsForRegex(src, 'python');
+    assert(out.length === src.length);
+    assert(!out.includes('explanation'));
+  });
+
+  await test('strip-comments: unknown language passes through', () => {
+    const src = '// not stripped';
+    const out = stripCommentsForRegex(src, 'klingon');
+    assert(out === src);
+  });
+
+  // ── output-budget ──
+  await test('output-budget: tier boundaries', () => {
+    const tiny = getOutputBudget(100);
+    assert(tiny.maxOutputChars === 18000, `tiny maxOutputChars: ${tiny.maxOutputChars}`);
+    assert(tiny.includeBudgetNote === false, 'tiny should not include budget note');
+
+    const small = getOutputBudget(1000);
+    assert(small.maxOutputChars === 13000);
+    assert(small.includeBudgetNote === true);
+
+    const medium = getOutputBudget(10000);
+    assert(medium.maxOutputChars === 35000);
+
+    const large = getOutputBudget(20000);
+    assert(large.maxOutputChars === 38000);
+  });
+
+  await test('output-budget: explore budget scales with size', () => {
+    assert(getExploreBudget(100) === 1);
+    assert(getExploreBudget(2000) === 2);
+    assert(getExploreBudget(10000) === 3);
+    assert(getExploreBudget(20000) === 4);
+    assert(getExploreBudget(50000) === 5);
+  });
+}
+
+async function frameworkResolverPackTests() {
+  console.log('\n🛣️  Framework Resolver Pack Tests (Phase 04 wave 2)');
+  const { laravelResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/laravel.mjs');
+  const { nestjsResolver }  = await import('../scripts/lib/code-intel/resolution/frameworks/nestjs.mjs');
+  const { reactResolver }   = await import('../scripts/lib/code-intel/resolution/frameworks/react.mjs');
+  const { vueResolver }     = await import('../scripts/lib/code-intel/resolution/frameworks/vue.mjs');
+  const { djangoResolver }  = await import('../scripts/lib/code-intel/resolution/frameworks/django.mjs');
+  const { railsResolver }   = await import('../scripts/lib/code-intel/resolution/frameworks/rails.mjs');
+  const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+
+  // ── Laravel ──
+  await test('laravel: [Controller::class, method] resolves', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'm1', name: 'store', kind: 'method', file: 'app/Http/Controllers/CheckoutController.php', line: [10, 20], lang: 'php', parent: 'CheckoutController' },
+    ]);
+    const r = laravelResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: "[CheckoutController::class, 'store']" },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'm1', `expected m1, got ${r.targetId}`);
+    assert(r.confidence === 0.88);
+  });
+
+  await test('laravel: Model::method resolves to method on class', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'mf', name: 'find', kind: 'method', file: 'app/Models/User.php', line: [5, 15], lang: 'php', parent: 'User' },
+    ]);
+    const r = laravelResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: 'User::find($id)' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'mf');
+  });
+
+  await test('laravel: Facade::method has lower confidence', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'fc', name: 'Auth', kind: 'class', file: 'vendor/laravel/.../Auth.php', line: [1, 1], lang: 'php' },
+    ]);
+    const r = laravelResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: 'Auth::user()' },
+      { graph: g }
+    );
+    assert(r, 'expected facade resolution');
+    assert(r.confidence === 0.7, `expected 0.7, got ${r.confidence}`);
+  });
+
+  await test('laravel: no contextText → null', () => {
+    assert(laravelResolver.resolve({ sourceId: 'x', referenceKind: 'calls' }, { graph: new CodeGraph() }) === null);
+  });
+
+  // ── NestJS ──
+  await test('nestjs: @Inject(TOKEN) resolves token', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'tk', name: 'USER_REPO', kind: 'constant', file: 'src/tokens.ts', line: [3, 3], lang: 'typescript' },
+    ]);
+    const r = nestjsResolver.resolve(
+      { sourceId: 'x', referenceKind: 'references', contextText: '@Inject(USER_REPO)' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'tk');
+  });
+
+  await test('nestjs: @Controller decorator returns null (marker only)', () => {
+    const r = nestjsResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: "@Controller('/users')" },
+      { graph: new CodeGraph() }
+    );
+    assert(r === null, `expected null for marker, got ${JSON.stringify(r)}`);
+  });
+
+  // ── React ──
+  await test('react: JSX <Component /> resolves to component', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'cp', name: 'UserCard', kind: 'function', file: 'src/components/UserCard.tsx', line: [10, 50], lang: 'typescript', exported: true },
+    ]);
+    const r = reactResolver.resolve(
+      { sourceId: 'x', referenceKind: 'renders', contextText: '<UserCard userId={id} />' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'cp');
+    assert(r.kind === 'renders');
+  });
+
+  await test('react: builtin hook (useState) returns null', () => {
+    const r = reactResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: 'const [x, setX] = useState(0);' },
+      { graph: new CodeGraph() }
+    );
+    assert(r === null, `expected null for builtin, got ${JSON.stringify(r)}`);
+  });
+
+  await test('react: custom hook resolves to project function', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'hk', name: 'useUserProfile', kind: 'function', file: 'src/hooks/use-user-profile.ts', line: [5, 30], lang: 'typescript', exported: true },
+    ]);
+    const r = reactResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: 'const profile = useUserProfile(userId);' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'hk');
+  });
+
+  // ── Vue ──
+  await test('vue: <PascalCase /> tag resolves', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'vc', name: 'UserCard', kind: 'component', file: 'src/components/UserCard.vue', line: [1, 80], lang: 'vue' },
+    ]);
+    const r = vueResolver.resolve(
+      { sourceId: 'x', referenceKind: 'renders', contextText: '<UserCard :user="user" />' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'vc');
+  });
+
+  await test('vue: <kebab-case /> tag resolves via PascalCase conversion', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'vc', name: 'UserCard', kind: 'component', file: 'src/components/UserCard.vue', line: [1, 80], lang: 'vue' },
+    ]);
+    const r = vueResolver.resolve(
+      { sourceId: 'x', referenceKind: 'renders', contextText: '<user-card :user="user" />' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'vc', `expected vc via kebab→Pascal, got ${r.targetId}`);
+  });
+
+  // ── Django ──
+  await test('django: path("url/", view) resolves view function', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'vw', name: 'user_detail', kind: 'function', file: 'app/views.py', line: [10, 30], lang: 'python', exported: true },
+    ]);
+    const r = djangoResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: "path('users/<int:pk>/', user_detail)" },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'vw');
+  });
+
+  await test('django: path with module prefix (views.user_detail) resolves', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'vw', name: 'user_detail', kind: 'function', file: 'app/views.py', line: [10, 30], lang: 'python', exported: true },
+    ]);
+    const r = djangoResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: "path('users/', views.user_detail)" },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'vw');
+  });
+
+  // ── Rails ──
+  await test('rails: get "/path" => "controller#action" resolves', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'rc', name: 'index', kind: 'method', file: 'app/controllers/users_controller.rb', line: [5, 20], lang: 'ruby', parent: 'UsersController' },
+    ]);
+    const r = railsResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: "get '/users' => 'users#index'" },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'rc');
+  });
+
+  await test('rails: before_action :method_name resolves', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'cb', name: 'authenticate_user', kind: 'method', file: 'app/controllers/application_controller.rb', line: [10, 20], lang: 'ruby', parent: 'ApplicationController' },
+    ]);
+    const r = railsResolver.resolve(
+      { sourceId: 'x', referenceKind: 'calls', contextText: 'before_action :authenticate_user' },
+      { graph: g }
+    );
+    assert(r, 'expected resolution');
+    assert(r.targetId === 'cb');
+  });
+}
+
 // MAIN
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -1163,6 +1883,12 @@ try {
   await recallCoreTests();
   await entityExtractorTests();
   await frontmatterTests();
+  await resolutionTests();
+  await frameworkResolverTests();
+  await frameworkResolverPackTests();
+  await scanSourceTests();
+  await svelteExtractorTests();
+  await phase01QuickWinsTests();
 } finally {
   cleanup();
 }
