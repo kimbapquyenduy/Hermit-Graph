@@ -21,6 +21,8 @@ import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
 import { BruteForceVectorBackend } from './lib/memory/brute-force-vector-fallback.mjs';
 import { setVectorBackend, setHybridContext } from './lib/semantic-search.mjs';
 import { detectVaultState, autoMigrate } from './lib/memory/v6-detect-and-migrate.mjs';
+import { makeProfileProxy, getProfile } from './lib/token-diet/tool-profile.mjs';
+import { SERVER_INSTRUCTIONS } from './lib/token-diet/server-instructions.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = getPackageRoot();
@@ -163,14 +165,23 @@ const context = {
 const server = new McpServer({
   name: 'hermit-graph',
   version: pkg.version,
+}, {
+  instructions: SERVER_INSTRUCTIONS,
 });
+
+// Token-diet: wrap with profile proxy so non-core tools are skipped silently
+// under HERMIT_TOOL_PROFILE=core (default). Set HERMIT_TOOL_PROFILE=full to
+// register all 34 tools (back-compat / power users).
+const profile = getProfile();
+const registrationTarget = makeProfileProxy(server, log);
+log(`Tool profile: ${profile}${profile === 'core' ? ' (10 core tools; set HERMIT_TOOL_PROFILE=full for all 34)' : ''}`);
 
 /**
  * Register hermit_tap_traces — introspection tool for the trace ring buffer.
  * Returns [] if trace bus is disabled. N is capped at 1000.
  */
 function registerTapTracesTool() {
-  server.tool('hermit_tap_traces', 'Inspect recent execution trace events from the in-memory ring buffer (last N events). Only populated when HERMIT_TRACE_BUS=1. Returns [] when trace bus is disabled. Tap points: tool:call, tool:result, search:query, search:fusion, bridge:forward. Use for observability and debugging.', {
+  registrationTarget.tool('hermit_tap_traces', 'Inspect recent execution trace events from the in-memory ring buffer (last N events). Only populated when HERMIT_TRACE_BUS=1. Returns [] when trace bus is disabled. Tap points: tool:call, tool:result, search:query, search:fusion, bridge:forward. Use for observability and debugging.', {
     n: z.number().int().min(1).max(1000).optional().default(50).describe('Number of recent events to return (default 50, max 1000)'),
   }, { readOnlyHint: true }, async ({ n = 50 }) => {
     if (!_traceBus) {
@@ -200,7 +211,7 @@ async function loadModules() {
   for (const mod of modules) {
     try {
       const { register } = await import(mod);
-      register(server, context);
+      register(registrationTarget, context);
       log(`Module loaded: ${mod}`);
     } catch (err) {
       log(`Warning: Failed to load ${mod}: ${err.message}`);

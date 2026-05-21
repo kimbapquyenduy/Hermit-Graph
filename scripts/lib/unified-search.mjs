@@ -12,6 +12,8 @@ import {
   checkLowConfidence, checkMissingRelations, calculateHealth,
 } from './brain-health-checks.mjs';
 import { zNumber } from './zod-coerce.mjs';
+import { topNWithTail } from './token-diet/compact-format.mjs';
+import { truncateOutput } from './token-diet/output-cap.mjs';
 
 const RO = { readOnlyHint: true };
 
@@ -27,7 +29,7 @@ export function register(server, ctx) {
   const { brainPath, log } = ctx;
 
   // ── T1: Unified Search (KG + Code in parallel) ──
-  server.tool('hermit_unified_search', 'ONE-SHOT first-step recall: searches both saved knowledge (past decisions, patterns, bugs) AND current code symbols in parallel, ranked by relevance. Use as the FIRST action when exploring any unfamiliar task area — a single call replaces 3-5 Grep queries.', {
+  server.tool('hermit_unified_search', 'ONE-SHOT first-step recall: searches both saved knowledge (past decisions, patterns, bugs) AND current code symbols in parallel, ranked by relevance. Use as FIRST action on any unfamiliar task — replaces 3-5 Grep queries. DON\'T grep + read separately when starting — this returns both KG and code hits in one call. DON\'T chain with hermit_search_nodes for the same query.', {
     query: z.string().min(1).max(500).describe('Search query'),
     limit: zNumber().int().min(1).max(50).optional().default(20),
     cwd: z.string().optional().describe('Working directory for code search'),
@@ -56,7 +58,7 @@ export function register(server, ctx) {
       if (codeHits.length) sources.push(`${codeHits.length} code`);
       if (codeResult.status === 'rejected') sources.push('code: unavailable');
 
-      return ok(formatMerged(query, merged, sources));
+      return ok(truncateOutput(formatMerged(query, merged, sources)));
     } catch (e) { return fail(e.message); }
   });
 
@@ -136,12 +138,14 @@ function mergeResults(kgHits, codeHits, limit) {
 }
 
 function formatMerged(query, results, sources) {
-  if (!results.length) return `## Unified Search: "${query}"\n\nNo results found. Sources: ${sources.join(', ')}`;
-  const lines = results.map((r, i) => {
-    const tag = r.source === 'kg' ? '[KG]' : '[CODE]';
-    return `${i + 1}. ${tag} **${r.name}** (${r.type}) — ${r.score.toFixed(3)} — ${r.detail}`;
+  if (!results.length) return `# Search: "${query}"\nNo results. Sources: ${sources.join(', ')}`;
+  const { shown, tail } = topNWithTail(results, 20);
+  const lines = shown.map(r => {
+    const tag = r.source === 'kg' ? 'KG  ' : 'CODE';
+    return `${tag} ${r.name} (${r.type}) ${r.detail}`;
   });
-  return `## Unified Search: "${query}"\n\nSources: ${sources.join(', ')}\n\n${lines.join('\n')}`;
+  if (tail) lines.push(tail);
+  return `# Search: "${query}" — ${sources.join(', ')}\n${lines.join('\n')}`;
 }
 
 // ── Health formatting ──

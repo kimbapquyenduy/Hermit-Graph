@@ -8,9 +8,30 @@ import { z } from 'zod';
 import { basename, join, resolve } from 'path';
 import { existsSync } from 'fs';
 import * as codeIntel from './code-intel/index.mjs';
+import { formatSymbolCompact, formatRefCompact, topNWithTail } from './token-diet/compact-format.mjs';
+import { truncateOutput } from './token-diet/output-cap.mjs';
+import { featureRequestReminder } from './token-diet/feature-detect.mjs';
 
 const RO = { readOnlyHint: true };
 const IDEM = { idempotentHint: true };
+
+// F4 container outline — kinds whose value is best summarized via member list.
+const CONTAINER_KINDS = new Set(['class', 'interface', 'struct', 'trait', 'protocol', 'enum', 'module', 'namespace']);
+
+/**
+ * Collect direct members of a container symbol (matched by `parent === name`).
+ * Used by F4 container outline so a class context returns its method list
+ * instead of an empty "no callers/callees" message.
+ */
+function collectMembers(graph, parentName) {
+  const out = [];
+  for (const s of graph.symbols.values()) {
+    if (s.parent === parentName) out.push(s);
+  }
+  // Stable order: by line number within file, then by name.
+  out.sort((a, b) => (a.line?.[0] ?? 0) - (b.line?.[0] ?? 0) || a.name.localeCompare(b.name));
+  return out;
+}
 
 // ── Data directory resolution ──
 
@@ -130,7 +151,7 @@ export function register(server, ctx) {
     : server;
 
   // ── T1: Query (semantic concept search) ──
-  tracedServer.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank using all-MiniLM-L6-v2 embeddings. Exported symbols include inline [d=1:N] tag showing direct-caller count for refactor-risk awareness. First call per project auto-builds symbol embedding index (~30-60s for medium repo), cached thereafter.', {
+  tracedServer.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank. Exported symbols carry [d1:N] tag showing direct-caller count. DON\'T: chain query→read for each result — call hermit_context once on the top hit instead. DON\'T grep first when you have a concept — query is faster and ranked.', {
     query: z.string().min(1).max(500).describe('Concept to search for in code (natural language OK)'),
     cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
   }, RO, async ({ query, cwd }) => {
@@ -147,12 +168,13 @@ export function register(server, ctx) {
           s._d1 = counts.d1;
         }
       }
-      return ok(`_Project: ${projectCwd}_\n\n${formatQuery(result, query)}`);
+      const reminder = featureRequestReminder(query);
+      return ok(truncateOutput(`_Project: ${projectCwd}_\n\n${formatQuery(result, query)}${reminder}`));
     } catch (e) { return fail(e.message); }
   });
 
   // ── T2: Context (360-degree symbol view) ──
-  tracedServer.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). Includes inline Impact Preview (d=1/d=2/d=3 counts + risk) for exported symbols, so you see refactor risk during discovery without a second tool call. Use BEFORE refactoring to see the full neighborhood.', {
+  tracedServer.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). For classes/interfaces/structs, returns a MEMBER OUTLINE (method names + line numbers) instead of bodies — drill into a method for its details. Includes inline Impact Preview for exported symbols.', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
@@ -160,23 +182,27 @@ export function register(server, ctx) {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.context(name, dataDir);
-      // Embed impact preview for any resolved symbol (Phase 1 of v6.5.0).
-      // formatImpactPreview internally filters out pure-leaf cases (d1=0, not framework-bound).
+      // F4: container outline + impact preview share a graph read — fetch once.
       if (result.symbol && result.symbol.id) {
         const graph = codeIntel.readCodeGraph(dataDir);
         const counts = codeIntel.impactCounts(graph, result.symbol.id, 'upstream');
         result.impactPreview = codeIntel.formatImpactPreview(result.symbol, counts);
+        // F4 container outline — classes, interfaces, modules return member list.
+        if (CONTAINER_KINDS.has(result.symbol.kind)) {
+          result.members = collectMembers(graph, result.symbol.name);
+        }
       }
-      return ok(`_Project: ${projectCwd}_\n\n${formatContext(result, name)}`);
+      return ok(truncateOutput(`_Project: ${projectCwd}_\n\n${formatContext(result, name)}`));
     } catch (e) { return fail(e.message); }
   });
 
   // ── T3: Impact (blast radius + business rules) ──
-  tracedServer.tool('hermit_impact', 'REQUIRED before editing any exported function/class/method. Returns TRANSITIVE callers (d=1 WILL_BREAK = direct callers, d=2 LIKELY_AFFECTED = indirect, d=3 MAY_NEED_TESTING). Grep cannot find transitive breakage — only AST call-graph analysis can. Also overlays business rules at risk.', {
+  tracedServer.tool('hermit_impact', 'REQUIRED before editing any exported function/class/method. Returns counts-first blast radius (d=1 WILL_BREAK, d=2 LIKELY_AFFECTED, d=3 MAY_NEED_TESTING) + d=1 caller names + business rules at risk. Pass verbose=true for full d=2/d=3 lists. DON\'T manually walk callers — impact returns transitive breakage in one call. DON\'T call on private helpers — focus on exported / framework-bound symbols.', {
     target: z.string().min(1).describe('Symbol name to analyze impact for'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().default('upstream'),
+    verbose: z.boolean().optional().default(false).describe('Return full d=2 and d=3 lists (default: counts + d=1 names only)'),
     cwd: z.string().optional(),
-  }, RO, async ({ target, direction, cwd }) => {
+  }, RO, async ({ target, direction, verbose, cwd }) => {
     try {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
@@ -190,7 +216,10 @@ export function register(server, ctx) {
           log(`biz-linker: ${e.message}`);
         }
       }
-      return ok(`_Project: ${projectCwd}_\n\n${result.summary || `Symbol not found: ${target}`}${bizSection}`);
+      const body = verbose
+        ? (result.summary || `Symbol not found: ${target}`)
+        : formatImpactCompact(result, target, direction);
+      return ok(truncateOutput(`_Project: ${projectCwd}_\n\n${body}${bizSection}`));
     } catch (e) { return fail(e.message); }
   });
 
@@ -224,60 +253,119 @@ export function register(server, ctx) {
 
 // ── Formatters ──
 
+// Minimum semantic match score — below this, results are dross matches the
+// vector index returned for nonsense queries. Threshold tuned conservatively
+// so weak-but-valid concept matches still surface; raise if false negatives.
+const QUERY_MIN_SCORE = 0.30;
+
 function formatQuery(result, q) {
-  const lines = [`## Code Search: "${q}"\n`];
-  if (result.symbols.length) {
-    lines.push(`### Symbols (${result.symbols.length})`);
-    for (const s of result.symbols) {
-      const score = typeof s.score === 'number' ? ` \`${s.score.toFixed(3)}\`` : '';
-      const tags = [];
-      if (s.exported) tags.push('exported');
-      if (typeof s._d1 === 'number') tags.push(`d=1:${s._d1}`);
-      const tagStr = tags.length ? ` [${tags.join(', ')}]` : '';
-      lines.push(`-${score} **${s.name}** (${s.kind}) — \`${s.file}:${s.line[0]}\`${tagStr}`);
-    }
+  const lines = [`# Search: "${q}"`];
+  // Filter out below-threshold dross — saves agent from chasing irrelevant hits.
+  const relevant = (result.symbols || []).filter(s =>
+    typeof s.score !== 'number' || s.score >= QUERY_MIN_SCORE
+  );
+  if (relevant.length) {
+    const { shown, tail } = topNWithTail(relevant, 15);
+    lines.push(`## Symbols (${shown.length}${tail ? ` of ${relevant.length}` : ''})`);
+    for (const s of shown) lines.push(formatSymbolCompact(s));
+    if (tail) lines.push(tail);
   }
   if (result.processes.length) {
-    lines.push(`\n### Execution Flows (${result.processes.length})`);
-    for (const p of result.processes) {
-      lines.push(`- **${p.label}** — ${p.stepCount} steps, communities: ${p.communities.join(', ')}`);
-    }
+    const { shown, tail } = topNWithTail(result.processes, 5);
+    lines.push(`## Flows (${shown.length}${tail ? ` of ${result.processes.length}` : ''})`);
+    for (const p of shown) lines.push(`- ${p.label} (${p.stepCount} steps)`);
+    if (tail) lines.push(tail);
   }
-  if (!result.symbols.length && !result.processes.length) {
-    lines.push('No results found.');
+  if (!relevant.length && !result.processes.length) {
+    const filteredCount = (result.symbols || []).length - relevant.length;
+    if (filteredCount > 0) {
+      lines.push(`No high-confidence matches (${filteredCount} low-score results filtered, all < ${QUERY_MIN_SCORE}). Refine query or use hermit_search_nodes for exact-name lookup.`);
+    } else {
+      lines.push('No results. Try a different concept or use hermit_search_nodes for exact-name lookup.');
+    }
   }
   return lines.join('\n');
 }
 
 function formatContext(result, name) {
   if (result.ambiguous) {
+    const { shown, tail } = topNWithTail(result.candidates, 10);
     const lines = [
-      `## Context: ${name}`,
-      '',
-      `Name is ambiguous — ${result.candidates.length} symbols match. Disambiguate by calling again with \`ClassName.methodName\` or full ID:`,
-      '',
-      ...result.candidates.map(c => {
-        const scope = c.parent ? `${c.parent}.` : '';
-        return `- \`${scope}${c.name}\` (${c.kind}) — \`${c.file}:${c.line[0]}\``;
-      }),
+      `# Context: ${name} (ambiguous, ${result.candidates.length} matches)`,
+      `Use ClassName.methodName or full ID to disambiguate:`,
     ];
+    for (const c of shown) {
+      const scope = c.parent ? `${c.parent}.` : '';
+      lines.push(`- ${scope}${c.name} (${c.kind}) ${c.file}:${c.line[0]}`);
+    }
+    if (tail) lines.push(tail);
     return lines.join('\n');
   }
-  if (!result.symbol) return `## Context: ${name}\n\nSymbol not found.`;
+  if (!result.symbol) return `# Context: ${name}\nSymbol not found.`;
   const s = result.symbol;
+  const meta = [s.kind];
+  if (s.exported) meta.push('exp');
+  if (s.lang && s.lang !== 'unknown') meta.push(s.lang);
   const lines = [
-    `## Context: ${s.name} (${s.kind})`,
-    `**File:** \`${s.file}:${s.line[0]}-${s.line[1]}\``,
-    `**Exported:** ${s.exported} | **Params:** ${s.params} | **Lang:** ${s.lang}`,
-    '', `### Callers (${result.callers.length})`,
-    ...result.callers.map(c => `- ${c.name} (\`${c.file}:${c.line[0]}\`)`),
-    '', `### Callees (${result.callees.length})`,
-    ...result.callees.map(c => `- ${c.name} (\`${c.file}:${c.line[0]}\`)`),
+    `# ${s.name} [${meta.join(' ')}] ${s.file}:${s.line[0]}-${s.line[1]}`,
   ];
+  // F4 container outline — when target is a class/interface/module, list its
+  // members. Far more useful than "no callers/callees" for containers.
+  if (result.members && result.members.length) {
+    const { shown, tail } = topNWithTail(result.members, 25);
+    lines.push(`## Members (${shown.length}${tail ? ` of ${result.members.length}` : ''})`);
+    for (const m of shown) {
+      const memMeta = m.exported ? ' exp' : '';
+      lines.push(`- ${m.kind}: ${m.name}${memMeta} (${m.file}:${m.line[0]})`);
+    }
+    if (tail) lines.push(tail);
+    lines.push(`Drill into a member with \`hermit_context({name: "${s.name}.<methodName>"})\` for its callers/callees.`);
+  }
+  if (result.callers.length) {
+    const { shown, tail } = topNWithTail(result.callers, 15);
+    lines.push(`## Callers (${shown.length}${tail ? ` of ${result.callers.length}` : ''})`);
+    for (const c of shown) lines.push(formatRefCompact(c));
+    if (tail) lines.push(tail);
+  }
+  if (result.callees.length) {
+    const { shown, tail } = topNWithTail(result.callees, 15);
+    lines.push(`## Callees (${shown.length}${tail ? ` of ${result.callees.length}` : ''})`);
+    for (const c of shown) lines.push(formatRefCompact(c));
+    if (tail) lines.push(tail);
+  }
+  // Only emit the "no callers/callees" line for non-container leaves —
+  // container outline above is the meaningful answer for classes/modules.
+  const hasMembers = result.members && result.members.length > 0;
+  if (!result.callers.length && !result.callees.length && !hasMembers) {
+    lines.push('No callers, no callees (leaf or framework-bound).');
+  }
   const hint = codeIntel.detectFrameworkBindingHint(s, result.callers.length);
   if (hint) lines.push(hint);
-  // Impact preview: surface d=1/d=2/d=3 counts so AI sees risk in discovery flow
   if (result.impactPreview) lines.push(result.impactPreview);
+  return lines.join('\n');
+}
+
+/**
+ * Counts-first impact summary — d1/d2/d3 counts + risk + d=1 names only.
+ * Verbose mode (full d2/d3 lists) returned via the existing result.summary.
+ */
+function formatImpactCompact(result, target, direction) {
+  if (!result.target) return `# Impact: ${target}\nSymbol not found.`;
+  const t = result.target;
+  const lines = [
+    `# Impact: ${t.name} (${t.kind}) ${direction}`,
+    `${t.file}:${t.line[0]}`,
+    `d1=${result.d1.length} WILL_BREAK | d2=${result.d2.length} LIKELY | d3=${result.d3.length} MAY_NEED_TESTING | risk=${result.riskLevel}`,
+  ];
+  if (result.d1.length) {
+    const { shown, tail } = topNWithTail(result.d1, 10);
+    lines.push(`## d=1 (${shown.length}${tail ? ` of ${result.d1.length}` : ''})`);
+    for (const s of shown) lines.push(formatRefCompact(s));
+    if (tail) lines.push(tail);
+    lines.push(`Pass verbose=true for full d=2/d=3 lists.`);
+  }
+  const hint = codeIntel.detectFrameworkBindingHint(t, result.d1.length);
+  if (hint) lines.push(hint);
   return lines.join('\n');
 }
 

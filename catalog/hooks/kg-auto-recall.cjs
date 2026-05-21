@@ -19,6 +19,7 @@
 'use strict';
 
 const core = require('./lib/recall-core.cjs');
+const { shouldFireRecall } = require('./lib/recall-gate.cjs');
 
 function main() {
   try {
@@ -28,6 +29,18 @@ function main() {
     const payload = JSON.parse(stdin);
     const prompt = payload.tool_input?.prompt || payload.prompt || '';
     if (prompt.length < 10) process.exit(0);
+
+    // F10 conditional auto-recall — gate on prompt content. Saves ~1500 tokens
+    // on trivial sessions (typo fixes, casual chat, "what time is it").
+    // Env: HERMIT_AUTORECALL=always bypasses gating; =off disables entirely;
+    //      HERMIT_AUTORECALL_LOG=1 logs skip decisions to stderr.
+    const { fire, reason } = shouldFireRecall(prompt);
+    if (!fire) {
+      if (process.env.HERMIT_AUTORECALL_LOG === '1') {
+        process.stderr.write(`[kg-auto-recall] skip: ${reason}\n`);
+      }
+      process.exit(0);
+    }
 
     // Use payload.cwd for scope detection (SubagentStart provides cwd)
     if (payload.cwd) process.env.CWD = payload.cwd;
