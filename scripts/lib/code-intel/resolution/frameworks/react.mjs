@@ -88,8 +88,8 @@ export const reactResolver = {
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === componentName && (s.kind === 'function' || s.kind === 'class' || s.kind === 'component')) {
+      for (const s of graph.findByName(componentName)) {
+        if (s.kind === 'function' || s.kind === 'class' || s.kind === 'component') {
           target = s; break;
         }
       }
@@ -115,10 +115,8 @@ export const reactResolver = {
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === hookName && (s.kind === 'function' || s.kind === 'method')) {
-          target = s; break;
-        }
+      for (const s of graph.findByName(hookName)) {
+        if (s.kind === 'function' || s.kind === 'method') { target = s; break; }
       }
       if (!target) continue;
       const fromId = enclosingId(line);

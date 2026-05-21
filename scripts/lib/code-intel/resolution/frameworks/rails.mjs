@@ -61,8 +61,8 @@ export const railsResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === action && s.parent === controllerName) { target = s; break; }
+      for (const s of graph.findByName(action)) {
+        if (s.parent === controllerName) { target = s; break; }
       }
       if (!target) continue;
       rels.push({
@@ -78,8 +78,8 @@ export const railsResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === method && (s.kind === 'method' || s.kind === 'function')) { target = s; break; }
+      for (const s of graph.findByName(method)) {
+        if (s.kind === 'method' || s.kind === 'function') { target = s; break; }
       }
       if (!target) continue;
       const fromId = enclosingId(line);

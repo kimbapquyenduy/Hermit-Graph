@@ -77,9 +77,12 @@ export const vueResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if ((s.name === pascal || s.name === raw) && (s.kind === 'component' || s.kind === 'function')) {
-          target = s; break;
+      for (const s of graph.findByName(pascal)) {
+        if (s.kind === 'component' || s.kind === 'function') { target = s; break; }
+      }
+      if (!target && raw !== pascal) {
+        for (const s of graph.findByName(raw)) {
+          if (s.kind === 'component' || s.kind === 'function') { target = s; break; }
         }
       }
       if (!target) continue;
@@ -98,8 +101,8 @@ export const vueResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === name && (s.kind === 'function' || s.kind === 'method')) { target = s; break; }
+      for (const s of graph.findByName(name)) {
+        if (s.kind === 'function' || s.kind === 'method') { target = s; break; }
       }
       if (!target) continue;
       const fromId = enclosingId(line);
