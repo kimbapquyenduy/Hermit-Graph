@@ -3,14 +3,41 @@
  * Parses files, extracts symbols/relations, writes to code-symbols.jsonl.
  */
 
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync, statSync, promises as fsp } from 'fs';
 import { join, relative, extname } from 'path';
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import { parseFile, isSupported, ensurePythonLoaded, ensureJavaLoaded } from './parser.mjs';
 import { extractAll } from './extractor.mjs';
 import { CodeGraph } from './graph.mjs';
 import { readCodeGraph, writeCodeGraph, invalidateCache } from './code-io.mjs';
 import { isMybatisMapper, extractMybatisMapper } from './extractor-mybatis-xml.mjs';
+import { isVueSfc, extractVueSfc } from './extractor-vue-sfc.mjs';
+import { isSvelteSfc, extractSvelteSfc } from './extractor-svelte-sfc.mjs';
+import { runFrameworkPass } from './framework-scanner.mjs';
+
+// Phase 05 lite — parallel file I/O batching. CPU-bound ast-grep parsing
+// stays sequential (single-threaded); only reads are parallelized.
+const FILE_IO_BATCH_SIZE = 10;
+
+/**
+ * Read files in batches concurrently, yielding {file, source} pairs.
+ * Skips unreadable files (>500KB cap, permission errors, binaries).
+ */
+async function* batchedReads(projectRoot, files) {
+  for (let i = 0; i < files.length; i += FILE_IO_BATCH_SIZE) {
+    const batch = files.slice(i, i + FILE_IO_BATCH_SIZE);
+    const reads = await Promise.all(batch.map(async (file) => {
+      try {
+        const stat = await fsp.stat(join(projectRoot, file));
+        if (stat.size > 500_000) return null;
+        const source = await fsp.readFile(join(projectRoot, file), 'utf-8');
+        return { file, source };
+      } catch { return null; }
+    }));
+    for (const r of reads) if (r) yield r;
+  }
+}
 
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', '.hermit', 'dist', 'build', 'coverage',
@@ -38,29 +65,47 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   // XML results held separately — XML extraction is single-pass (not AST-based)
   const xmlResults = [];
 
-  for (let i = 0; i < files.length; i++) {
-    const absPath = join(projectRoot, files[i]);
-    const source = safeRead(absPath);
-    if (!source) continue;
-
+  // Phase 05 lite — batched async reads, sequential parse.
+  let i = 0;
+  for await (const { file, source } of batchedReads(projectRoot, files)) {
+    i++;
     // XML branch — currently only MyBatis mappers
-    if (files[i].toLowerCase().endsWith('.xml')) {
+    if (file.toLowerCase().endsWith('.xml')) {
       if (isMybatisMapper(source)) {
-        const { symbols, relations } = extractMybatisMapper(source, files[i]);
+        const { symbols, relations } = extractMybatisMapper(source, file);
         for (const s of symbols) globalSymbolMap.set(s.name, s.id);
         xmlResults.push({ symbols, relations });
       }
-      opts.onProgress?.(files[i], i + 1, files.length);
+      opts.onProgress?.(file, i, files.length);
+      continue;
+    }
+
+    // Vue SFC branch — extract component + members from .vue files.
+    // Treated like XML: single-pass extraction, no AST.
+    if (isVueSfc(file)) {
+      const { symbols, relations } = extractVueSfc(source, file);
+      for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+      xmlResults.push({ symbols, relations });
+      opts.onProgress?.(file, i, files.length);
+      continue;
+    }
+
+    // Svelte SFC branch — same shape as Vue.
+    if (isSvelteSfc(file)) {
+      const { symbols, relations } = extractSvelteSfc(source, file);
+      for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+      xmlResults.push({ symbols, relations });
+      opts.onProgress?.(file, i, files.length);
       continue;
     }
 
     // AST branch — JS/TS/Python/Java via ast-grep
-    const parsed = parseFile(files[i], source);
+    const parsed = parseFile(file, source);
     if (!parsed) continue;
-    const { symbols } = extractAll(parsed.root, files[i], parsed.langStr);
+    const { symbols } = extractAll(parsed.root, file, parsed.langStr);
     for (const s of symbols) globalSymbolMap.set(s.name, s.id);
-    fileResults.push({ file: files[i], parsed, symbols });
-    opts.onProgress?.(files[i], i + 1, files.length);
+    fileResults.push({ file, parsed, symbols });
+    opts.onProgress?.(file, i, files.length);
   }
 
   // Pass 2: extract relations with global symbol map for cross-file call resolution
@@ -83,12 +128,32 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
     graph.addRelations(relations);
   }
 
+  // Phase 03 wave 2 — framework post-pass. Adds RENDERS / framework-resolved
+  // CALLS edges that the AST extractor misses (JSX, Laravel dispatch, etc.).
+  // No-op when no framework is detected.
+  let frameworkStats = { active: [], added: 0, byFramework: {} };
+  try {
+    frameworkStats = await runFrameworkPass(projectRoot, files, graph);
+  } catch (err) {
+    // Framework pass is opportunistic — never block indexing on failure.
+    opts.onProgress?.(`framework-pass error: ${err.message}`, files.length, files.length);
+  }
+
   graph.meta.commit = getHeadCommit(projectRoot);
+  // Phase 01 — capture content hashes for non-git change detection fallback.
+  const { newHashes } = getChangedFilesByHash(projectRoot, {});
+  graph.meta.fileHashes = newHashes;
+  graph.meta.frameworks = frameworkStats.active;
   await writeCodeGraph(dataDir, graph);
 
   return {
     graph,
-    stats: { files: files.length, symbols: graph.symbols.size, relations: graph.relations.length },
+    stats: {
+      files: files.length,
+      symbols: graph.symbols.size,
+      relations: graph.relations.length,
+      frameworks: frameworkStats,
+    },
   };
 }
 
@@ -110,10 +175,19 @@ export async function incrementalIndex(projectRoot, dataDir) {
     return { ...(await fullIndex(projectRoot, dataDir)), changed: [] };
   }
 
-  const changed = getChangedFiles(projectRoot, lastCommit);
+  let changed = getChangedFiles(projectRoot, lastCommit);
+  // Phase 01 — when git diff fails (commit lost, non-git dir), fall back to
+  // content-hash sync instead of always full-reindexing.
   if (changed === null) {
-    // Commit no longer in history (force-push) — fall back to full index
-    return { ...(await fullIndex(projectRoot, dataDir)), changed: [] };
+    if (graph.meta.fileHashes && Object.keys(graph.meta.fileHashes).length > 0) {
+      const hashResult = getChangedFilesByHash(projectRoot, graph.meta.fileHashes);
+      changed = hashResult.changed;
+      // Update hashes for next round; we'll persist these below.
+      graph.meta.fileHashes = hashResult.newHashes;
+    } else {
+      // No prior hashes — full reindex
+      return { ...(await fullIndex(projectRoot, dataDir)), changed: [] };
+    }
   }
   if (changed.length === 0) {
     return { graph, changed: [], stats: { files: 0, symbols: 0, relations: 0 } };
@@ -213,4 +287,37 @@ function getChangedFiles(projectRoot, sinceCommit) {
     if (!output) return [];
     return output.split('\n').filter(f => isSupported(f));
   } catch { return null; } // null = commit not found or git error → trigger full reindex
+}
+
+/**
+ * Phase 01 — content-hash change detection.
+ *
+ * Universal fallback when git diff fails (non-git dir, force-push, rebase).
+ * Computes sha256 of each supported file and compares against stored hashes
+ * in graph.meta.fileHashes. Returns the list of changed/new files.
+ *
+ * Hashing 598-file medium project takes ~150ms on commodity hw — bounded by
+ * 500KB per-file cap in safeRead.
+ *
+ * @param {string} projectRoot
+ * @param {Record<string, string>} oldHashes
+ * @returns {{ changed: string[], newHashes: Record<string, string> }}
+ */
+export function getChangedFilesByHash(projectRoot, oldHashes = {}) {
+  const files = collectFiles(projectRoot);
+  const changed = [];
+  const newHashes = {};
+  for (const file of files) {
+    const abs = join(projectRoot, file);
+    const src = safeRead(abs);
+    if (src === null) continue;
+    const hash = createHash('sha256').update(src).digest('hex').slice(0, 16);
+    newHashes[file] = hash;
+    if (oldHashes[file] !== hash) changed.push(file);
+  }
+  // Files that disappeared (in old, not in new) are also "changed".
+  for (const file of Object.keys(oldHashes)) {
+    if (!Object.prototype.hasOwnProperty.call(newHashes, file)) changed.push(file);
+  }
+  return { changed, newHashes };
 }

@@ -116,7 +116,10 @@ export class CodeGraph {
   // ── Internal ──
 
   _addAdjacency(r) {
-    if (r.kind === 'CALLS' || r.kind === 'IMPORTS') {
+    // Phase 03 wave 2 — RENDERS is treated as a directional usage edge:
+    // a component's "callers" include the files / components that render it.
+    // EXTENDS treated same way so class hierarchy flows into impact.
+    if (r.kind === 'CALLS' || r.kind === 'IMPORTS' || r.kind === 'RENDERS' || r.kind === 'EXTENDS') {
       if (!this.callees.has(r.from)) this.callees.set(r.from, new Set());
       this.callees.get(r.from).add(r.to);
       if (!this.callers.has(r.to)) this.callers.set(r.to, new Set());
