@@ -61,10 +61,8 @@ export const nestjsResolver = {
       const key = `${token}@${line}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === token) { target = s; break; }
-      }
+      const matches = graph.findByName(token);
+      const target = matches.length ? matches[0] : null;
       if (!target) continue;
       const fromId = enclosingId(line);
       if (fromId === target.id) continue;

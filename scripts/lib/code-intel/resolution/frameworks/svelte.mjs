@@ -69,10 +69,8 @@ export const svelteResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === tagName && (s.kind === 'component' || s.kind === 'function')) {
-          target = s; break;
-        }
+      for (const s of graph.findByName(tagName)) {
+        if (s.kind === 'component' || s.kind === 'function') { target = s; break; }
       }
       if (!target) continue;
       const fromId = enclosingId(line);
@@ -93,10 +91,8 @@ export const svelteResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === fnName && (s.kind === 'function' || s.kind === 'method')) {
-          target = s; break;
-        }
+      for (const s of graph.findByName(fnName)) {
+        if (s.kind === 'function' || s.kind === 'method') { target = s; break; }
       }
       if (!target) continue;
       const fromId = enclosingId(line);

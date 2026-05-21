@@ -76,8 +76,8 @@ export const laravelResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === method && s.parent === controller) { target = s; break; }
+      for (const s of graph.findByName(method)) {
+        if (s.parent === controller) { target = s; break; }
       }
       if (!target) continue;
       rels.push({
@@ -94,8 +94,8 @@ export const laravelResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === method && s.parent === klass) { target = s; break; }
+      for (const s of graph.findByName(method)) {
+        if (s.parent === klass) { target = s; break; }
       }
       if (!target) continue;
       rels.push({

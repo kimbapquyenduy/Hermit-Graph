@@ -78,8 +78,8 @@ export const expressResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === handlerName && (s.kind === 'function' || s.kind === 'method')) { target = s; break; }
+      for (const s of graph.findByName(handlerName)) {
+        if (s.kind === 'function' || s.kind === 'method') { target = s; break; }
       }
       if (!target) continue;
       const fromId = enclosingId(line);

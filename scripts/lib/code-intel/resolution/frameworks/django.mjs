@@ -54,8 +54,8 @@ export const djangoResolver = {
       if (seen.has(key)) continue;
       seen.add(key);
       let target = null;
-      for (const s of graph.symbols.values()) {
-        if (s.name === viewRef && (s.kind === 'function' || s.kind === 'class' || s.kind === 'method')) { target = s; break; }
+      for (const s of graph.findByName(viewRef)) {
+        if (s.kind === 'function' || s.kind === 'class' || s.kind === 'method') { target = s; break; }
       }
       if (!target) continue;
       rels.push({
