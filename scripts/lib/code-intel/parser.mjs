@@ -101,7 +101,7 @@ export function isSupported(filePath) {
   // XML files handled by non-AST extractors (e.g. MyBatis mapper) — indexer
   // inspects content to decide whether to process them, not this predicate.
   // .vue files handled by SFC extractor (extractor-vue-sfc.mjs).
-  return ext === '.xml' || ext === '.vue' || ext === '.svelte';
+  return ext === '.xml' || ext === '.vue' || ext === '.svelte' || ext === '.liquid';
 }
 
 /** @returns {boolean} whether Python language is available */

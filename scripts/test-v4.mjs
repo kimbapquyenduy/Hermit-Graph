@@ -1558,6 +1558,58 @@ async function svelteExtractorTests() {
   });
 }
 
+async function liquidExtractorTests() {
+  console.log('\n🛍️  Liquid Extractor + Shopify Resolver Tests (Phase 07)');
+  const { extractLiquid, isLiquid } = await import('../scripts/lib/code-intel/extractor-liquid.mjs');
+  const { shopifyResolver } = await import('../scripts/lib/code-intel/resolution/frameworks/shopify.mjs');
+  const { CodeGraph } = await import('../scripts/lib/code-intel/graph.mjs');
+
+  await test('isLiquid: recognizes .liquid files', () => {
+    assert(isLiquid('snippets/product-card.liquid') === true);
+    assert(isLiquid('src/Foo.vue') === false);
+  });
+
+  await test('extractLiquid: emits component symbol with directory-inferred kind', () => {
+    const { symbols } = extractLiquid('<div>{{ x }}</div>', 'snippets/product-card.liquid');
+    const c = symbols[0];
+    assert(c.name === 'product-card');
+    assert(c.kind === 'component');
+    assert(c.lang === 'liquid');
+    assert(c._liquidKind === 'snippet');
+  });
+
+  await test('extractLiquid: section directory → liquidKind=section', () => {
+    const { symbols } = extractLiquid('', 'sections/featured.liquid');
+    assert(symbols[0]._liquidKind === 'section');
+  });
+
+  await test('shopify scanSource: emits RENDERS for {% render \'snippet\' %}', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'sn', name: 'product-card', kind: 'component', file: 'snippets/product-card.liquid', line: [1, 5], lang: 'liquid' },
+      { id: 'sec', name: 'featured', kind: 'component', file: 'sections/featured.liquid', line: [1, 10], lang: 'liquid' },
+    ]);
+    const src = '<section>\n  {% render \'product-card\' %}\n</section>';
+    const rels = shopifyResolver.scanSource(src, 'sections/featured.liquid', g);
+    assert(rels.length === 1, `expected 1 RENDERS, got ${rels.length}`);
+    assert(rels[0].kind === 'RENDERS');
+    assert(rels[0].to === 'sn');
+    assert(rels[0]._meta.resolvedBy === 'framework:shopify');
+  });
+
+  await test('shopify scanSource: {% section \'name\' %} resolves', () => {
+    const g = new CodeGraph();
+    g.addSymbols([
+      { id: 'tmp', name: 'index', kind: 'component', file: 'templates/index.liquid', line: [1, 10], lang: 'liquid' },
+      { id: 'sec', name: 'featured', kind: 'component', file: 'sections/featured.liquid', line: [1, 10], lang: 'liquid' },
+    ]);
+    const src = '{% section \'featured\' %}';
+    const rels = shopifyResolver.scanSource(src, 'templates/index.liquid', g);
+    assert(rels.length === 1);
+    assert(rels[0].to === 'sec');
+  });
+}
+
 async function phase01QuickWinsTests() {
   console.log('\n⚡ Phase 01 Quick Wins Tests');
   const { makeSymbolId, idMode } = await import('../scripts/lib/code-intel/id-gen.mjs');
@@ -1888,6 +1940,7 @@ try {
   await frameworkResolverPackTests();
   await scanSourceTests();
   await svelteExtractorTests();
+  await liquidExtractorTests();
   await phase01QuickWinsTests();
 } finally {
   cleanup();

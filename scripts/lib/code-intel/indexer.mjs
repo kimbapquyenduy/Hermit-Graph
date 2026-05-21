@@ -14,6 +14,7 @@ import { readCodeGraph, writeCodeGraph, invalidateCache } from './code-io.mjs';
 import { isMybatisMapper, extractMybatisMapper } from './extractor-mybatis-xml.mjs';
 import { isVueSfc, extractVueSfc } from './extractor-vue-sfc.mjs';
 import { isSvelteSfc, extractSvelteSfc } from './extractor-svelte-sfc.mjs';
+import { isLiquid, extractLiquid } from './extractor-liquid.mjs';
 import { runFrameworkPass } from './framework-scanner.mjs';
 
 // Phase 05 lite — parallel file I/O batching. CPU-bound ast-grep parsing
@@ -93,6 +94,15 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
     // Svelte SFC branch — same shape as Vue.
     if (isSvelteSfc(file)) {
       const { symbols, relations } = extractSvelteSfc(source, file);
+      for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+      xmlResults.push({ symbols, relations });
+      opts.onProgress?.(file, i, files.length);
+      continue;
+    }
+
+    // Liquid (Shopify) branch — single-pass template extraction.
+    if (isLiquid(file)) {
+      const { symbols, relations } = extractLiquid(source, file);
       for (const s of symbols) globalSymbolMap.set(s.name, s.id);
       xmlResults.push({ symbols, relations });
       opts.onProgress?.(file, i, files.length);

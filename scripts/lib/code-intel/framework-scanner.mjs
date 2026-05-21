@@ -14,8 +14,32 @@
  * per match where the target resolves in the graph.
  */
 
-import { readFileSync, promises as fsp, readdirSync } from 'fs';
+import { readFileSync, promises as fsp, readdirSync, existsSync } from 'fs';
 import { join, extname } from 'path';
+import { homedir } from 'os';
+
+/**
+ * Load per-user framework override config from ~/.hermit/frameworks.json.
+ * Shape:
+ *   {
+ *     "disable": ["django"],            // never run these resolvers
+ *     "override": ["react", "vue"]      // ONLY run these (skip detect)
+ *   }
+ * Either key is optional. Missing file → no overrides.
+ */
+function loadFrameworkOverrides() {
+  try {
+    const p = join(homedir(), '.hermit', 'frameworks.json');
+    if (!existsSync(p)) return { disable: [], override: null };
+    const cfg = JSON.parse(readFileSync(p, 'utf-8'));
+    return {
+      disable:  Array.isArray(cfg.disable)  ? cfg.disable  : [],
+      override: Array.isArray(cfg.override) ? cfg.override : null,
+    };
+  } catch {
+    return { disable: [], override: null };
+  }
+}
 
 // Framework resolvers can declare extra extensions they want to scan beyond
 // the AST extractor's supported set (e.g. .vue templates, .blade.php, .erb).
@@ -26,6 +50,7 @@ const FRAMEWORK_EXTRA_EXTS = {
   laravel: ['.blade.php', '.php'],
   rails:   ['.erb', '.rb'],
   django:  ['.html', '.py'],
+  shopify: ['.liquid'],
 };
 
 // Walk project for framework-specific files (skipping common ignored dirs).
@@ -65,6 +90,7 @@ async function loadResolvers() {
     (await import('./resolution/frameworks/django.mjs')).djangoResolver,
     (await import('./resolution/frameworks/rails.mjs')).railsResolver,
     (await import('./resolution/frameworks/svelte.mjs')).svelteResolver,
+    (await import('./resolution/frameworks/shopify.mjs')).shopifyResolver,
   ];
   return _resolvers;
 }
@@ -77,8 +103,18 @@ async function loadResolvers() {
  */
 export async function detectActiveFrameworks(projectRoot) {
   const resolvers = await loadResolvers();
+  const { disable, override } = loadFrameworkOverrides();
+  const disableSet = new Set(disable);
+  const overrideSet = override ? new Set(override) : null;
+
+  // Override mode: skip detect, run only the named resolvers.
+  if (overrideSet) {
+    return resolvers.filter(r => overrideSet.has(r.name) && !disableSet.has(r.name));
+  }
+
   const active = [];
   for (const r of resolvers) {
+    if (disableSet.has(r.name)) continue;
     try {
       if (await r.detect(projectRoot, fsp)) active.push(r);
     } catch {}
