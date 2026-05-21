@@ -21,113 +21,130 @@
 import { Worker } from 'worker_threads';
 import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { cpus } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Worker constructor accepts a URL object (not a URL string); needed on Windows.
 const WORKER_PATH = pathToFileURL(join(__dirname, 'parse-worker.mjs'));
 
 const RECYCLE_AFTER       = Number(process.env.HERMIT_PARSE_RECYCLE || 500);
-const PARSE_TIMEOUT_BASE  = 30_000;        // 30s base
-const PARSE_TIMEOUT_PER_K = 10_000 / 1024; // +10s per ~100KB of source
+const PARSE_TIMEOUT_BASE  = 30_000;
+const DEFAULT_WORKER_COUNT = Math.max(2, Math.min(8, Math.floor(cpus().length / 2)));
 
 function timeoutFor(sourceLen) {
   return PARSE_TIMEOUT_BASE + Math.floor(sourceLen / 100_000) * 10_000;
 }
 
+/**
+ * Stable hash → worker index. Same file always routes to same worker so its
+ * AST stays cached in pass-2.
+ */
+function hashFile(file, count) {
+  let h = 0;
+  for (let i = 0; i < file.length; i++) h = ((h << 5) - h + file.charCodeAt(i)) | 0;
+  return Math.abs(h) % count;
+}
+
 export class ParsePool {
-  constructor({ recycleAfter = RECYCLE_AFTER } = {}) {
+  constructor({ recycleAfter = RECYCLE_AFTER, workerCount = DEFAULT_WORKER_COUNT } = {}) {
     this.recycleAfter = recycleAfter;
-    this.parseCount = 0;
+    this.workerCount = Math.max(1, workerCount);
+    this.workers = new Array(this.workerCount).fill(null);
+    this.pending = new Array(this.workerCount).fill(null).map(() => new Map());
+    this.parseCounts = new Array(this.workerCount).fill(0);
     this.nextId = 1;
-    this.pending = new Map();
     this.shuttingDown = false;
-    this._spawn();
+    for (let i = 0; i < this.workerCount; i++) this._spawn(i);
   }
 
-  _spawn() {
-    this.worker = new Worker(WORKER_PATH);
-    this.worker.on('message', (msg) => this._onMessage(msg));
-    this.worker.on('error', (err) => this._onCrash(err));
-    this.worker.on('exit', (code) => {
+  _spawn(idx) {
+    const w = new Worker(WORKER_PATH);
+    w.on('message', (msg) => this._onMessage(idx, msg));
+    w.on('error', (err) => this._onCrash(idx, err));
+    w.on('exit', (code) => {
       if (this.shuttingDown) return;
-      if (code !== 0) this._onCrash(new Error(`worker exit ${code}`));
+      if (code !== 0) this._onCrash(idx, new Error(`worker exit ${code}`));
     });
+    this.workers[idx] = w;
   }
 
-  _onMessage(msg) {
-    const cb = this.pending.get(msg.id);
+  _onMessage(idx, msg) {
+    const m = this.pending[idx];
+    const cb = m.get(msg.id);
     if (!cb) return;
-    this.pending.delete(msg.id);
+    m.delete(msg.id);
     if (msg.ok) cb.resolve(msg);
     else cb.reject(new Error(msg.error || 'worker error'));
   }
 
-  _onCrash(err) {
-    // Reject every in-flight request, then spawn fresh worker for future ones.
-    for (const [id, cb] of this.pending) {
-      cb.reject(new Error(`worker crash: ${err.message}`));
+  _onCrash(idx, err) {
+    for (const [, cb] of this.pending[idx]) {
+      cb.reject(new Error(`worker[${idx}] crash: ${err.message}`));
     }
-    this.pending.clear();
-    if (!this.shuttingDown) this._spawn();
+    this.pending[idx].clear();
+    if (!this.shuttingDown) this._spawn(idx);
   }
 
-  async _maybeRecycle() {
-    if (this.parseCount < this.recycleAfter) return;
-    if (this.pending.size > 0) return; // wait for in-flight to drain
-    try { await this.worker.terminate(); } catch {}
-    this.parseCount = 0;
-    this._spawn();
+  async _maybeRecycle(idx) {
+    if (this.parseCounts[idx] < this.recycleAfter) return;
+    if (this.pending[idx].size > 0) return;
+    try { await this.workers[idx].terminate(); } catch {}
+    this.parseCounts[idx] = 0;
+    this._spawn(idx);
   }
 
-  async _request(payload, sourceLen = 0) {
-    await this._maybeRecycle();
+  async _request(idx, payload, sourceLen = 0) {
+    await this._maybeRecycle(idx);
     const id = this.nextId++;
-    this.parseCount++;
+    this.parseCounts[idx]++;
     const tMs = timeoutFor(sourceLen);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
+        this.pending[idx].delete(id);
         reject(new Error(`parse timeout after ${tMs}ms`));
       }, tMs);
-      this.pending.set(id, {
+      this.pending[idx].set(id, {
         resolve: (r) => { clearTimeout(timer); resolve(r); },
         reject:  (e) => { clearTimeout(timer); reject(e); },
       });
-      this.worker.postMessage({ id, ...payload });
+      this.workers[idx].postMessage({ id, ...payload });
     });
   }
 
   /**
-   * Pass-1: parse + extract symbols. AST cached in worker for pass-2.
-   * @returns {Promise<{ symbols: object[], langStr: string|null }>}
+   * Pass-1: parse + extract symbols. AST cached in this file's assigned
+   * worker for pass-2 cache hit.
    */
   extractSymbols(file, source) {
-    return this._request({ type: 'extract-symbols', file, source }, source.length);
+    const idx = hashFile(file, this.workerCount);
+    return this._request(idx, { type: 'extract-symbols', file, source }, source.length);
   }
 
   /**
-   * Pass-2: extract relations against a global symbol map. Uses cached AST
-   * if pass-1 ran first; otherwise re-parses (cache-miss safe).
-   * @returns {Promise<{ relations: object[] }>}
+   * Pass-2: extract relations against a global symbol map. Routes to the
+   * SAME worker that handled pass-1 so the cached AST is reused.
    */
   extractRelations(file, source, symbolMap) {
-    return this._request({
+    const idx = hashFile(file, this.workerCount);
+    return this._request(idx, {
       type: 'extract-relations',
       file, source,
       symbolMapEntries: [...symbolMap.entries()],
     }, source.length);
   }
 
-  /** Free cached AST for a file (rarely needed; pass-2 auto-drops). */
   dropCache(file) {
-    return this._request({ type: 'drop-cache', file }, 0);
+    const idx = hashFile(file, this.workerCount);
+    return this._request(idx, { type: 'drop-cache', file }, 0);
   }
 
-  /** Graceful shutdown. Resolves once worker thread has exited. */
+  /** Graceful shutdown — terminates all workers in parallel. */
   async shutdown() {
     this.shuttingDown = true;
-    for (const [id, cb] of this.pending) cb.reject(new Error('shutdown'));
-    this.pending.clear();
-    try { await this.worker.terminate(); } catch {}
+    for (let i = 0; i < this.workerCount; i++) {
+      for (const [, cb] of this.pending[i]) cb.reject(new Error('shutdown'));
+      this.pending[i].clear();
+    }
+    await Promise.all(this.workers.map(w => w?.terminate().catch(() => {})));
   }
 }
