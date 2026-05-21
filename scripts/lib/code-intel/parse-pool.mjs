@@ -122,15 +122,27 @@ export class ParsePool {
 
   /**
    * Pass-2: extract relations against a global symbol map. Routes to the
-   * SAME worker that handled pass-1 so the cached AST is reused.
+   * SAME worker that handled pass-1 so the cached AST is reused. If the
+   * map was preloaded via preloadSymbols, we skip resending it per file.
    */
   extractRelations(file, source, symbolMap) {
     const idx = hashFile(file, this.workerCount);
-    return this._request(idx, {
-      type: 'extract-relations',
-      file, source,
-      symbolMapEntries: [...symbolMap.entries()],
-    }, source.length);
+    const payload = { type: 'extract-relations', file, source };
+    if (!this._symbolsPreloaded) payload.symbolMapEntries = [...symbolMap.entries()];
+    return this._request(idx, payload, source.length);
+  }
+
+  /**
+   * Send the global symbol map to every worker once. Subsequent
+   * extractRelations calls skip the per-file map send — huge win on
+   * large repos (avoids serializing ~1MB × N files of map data).
+   */
+  async preloadSymbols(symbolMap) {
+    const entries = [...symbolMap.entries()];
+    await Promise.all(this.workers.map((_, i) =>
+      this._request(i, { type: 'preload-symbols', symbolMapEntries: entries }, 0)
+    ));
+    this._symbolsPreloaded = true;
   }
 
   dropCache(file) {
