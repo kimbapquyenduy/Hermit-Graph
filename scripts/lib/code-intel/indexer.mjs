@@ -16,6 +16,7 @@ import { isVueSfc, extractVueSfc } from './extractor-vue-sfc.mjs';
 import { isSvelteSfc, extractSvelteSfc } from './extractor-svelte-sfc.mjs';
 import { isLiquid, extractLiquid } from './extractor-liquid.mjs';
 import { runFrameworkPass } from './framework-scanner.mjs';
+import { ParsePool } from './parse-pool.mjs';
 
 // Phase 05 lite — parallel file I/O batching. CPU-bound ast-grep parsing
 // stays sequential (single-threaded); only reads are parallelized.
@@ -58,6 +59,14 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   await ensureJavaLoaded();
   const files = collectFiles(projectRoot);
   const graph = new CodeGraph();
+
+  // Phase 05 — worker pool parses files in a dedicated thread with periodic
+  // recycling. OPT-IN via HERMIT_PARSE_WORKER=1. Default is main-thread sync
+  // because the serial-await pattern adds IPC overhead per file that exceeds
+  // the parallelism benefit on small-to-medium repos. Worker mode helps when
+  // memory isolation matters or the parser is producing large heap pressure.
+  const useWorker = process.env.HERMIT_PARSE_WORKER === '1';
+  let _pool = null;
 
   // Pass 1: extract symbols from all files (build global symbol map)
   const globalSymbolMap = new Map();
@@ -109,19 +118,37 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
       continue;
     }
 
-    // AST branch — JS/TS/Python/Java via ast-grep
-    const parsed = parseFile(file, source);
-    if (!parsed) continue;
-    const { symbols } = extractAll(parsed.root, file, parsed.langStr);
-    for (const s of symbols) globalSymbolMap.set(s.name, s.id);
-    fileResults.push({ file, parsed, symbols });
+    // AST branch — JS/TS/Python/Java via ast-grep. Offload to worker pool
+    // unless HERMIT_PARSE_WORKER=0 (escape hatch — runs in main thread).
+    if (!_pool && useWorker) {
+      _pool = new ParsePool();
+    }
+    if (useWorker) {
+      const res = await _pool.extractSymbols(file, source);
+      const symbols = res.symbols || [];
+      for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+      fileResults.push({ file, source, symbols });
+    } else {
+      const parsed = parseFile(file, source);
+      if (!parsed) continue;
+      const { symbols } = extractAll(parsed.root, file, parsed.langStr);
+      for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+      fileResults.push({ file, source, parsed, symbols });
+    }
     opts.onProgress?.(file, i, files.length);
   }
 
   // Pass 2: extract relations with global symbol map for cross-file call resolution
-  for (const { file, parsed, symbols } of fileResults) {
-    const { relations } = extractAll(parsed.root, file, parsed.langStr, globalSymbolMap);
-    graph.addSymbols(symbols);
+  for (const fr of fileResults) {
+    let relations;
+    if (useWorker) {
+      const res = await _pool.extractRelations(fr.file, fr.source, globalSymbolMap);
+      relations = res.relations || [];
+    } else {
+      const r = extractAll(fr.parsed.root, fr.file, fr.parsed.langStr, globalSymbolMap);
+      relations = r.relations;
+    }
+    graph.addSymbols(fr.symbols);
     graph.addRelations(relations);
   }
 
@@ -136,6 +163,12 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
       }
     }
     graph.addRelations(relations);
+  }
+
+  // Phase 05 — release worker before framework pass (it's regex-only, no parsing).
+  if (_pool) {
+    try { await _pool.shutdown(); } catch {}
+    _pool = null;
   }
 
   // Phase 03 wave 2 — framework post-pass. Adds RENDERS / framework-resolved

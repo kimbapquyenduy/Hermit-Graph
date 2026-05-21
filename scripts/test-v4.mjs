@@ -1610,6 +1610,54 @@ async function liquidExtractorTests() {
   });
 }
 
+async function parsePoolTests() {
+  console.log('\n🏊 Parse Pool Tests (Phase 05)');
+  const { ParsePool } = await import('../scripts/lib/code-intel/parse-pool.mjs');
+
+  await test('ParsePool: extractSymbols on JS source', async () => {
+    const pool = new ParsePool();
+    try {
+      const res = await pool.extractSymbols('foo.js', 'function bar() {}\nclass Baz {}');
+      assert(Array.isArray(res.symbols), 'symbols should be array');
+      assert(res.symbols.length >= 1, `expected at least 1 symbol, got ${res.symbols.length}`);
+      assert(res.symbols.find(s => s.name === 'bar'), 'expected fn bar');
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  await test('ParsePool: extractRelations uses cached AST', async () => {
+    const pool = new ParsePool();
+    try {
+      const src = 'function a() { b(); }\nfunction b() {}';
+      await pool.extractSymbols('mod.js', src);
+      const symMap = new Map([['a', 'mod.js::a'], ['b', 'mod.js::b']]);
+      const res = await pool.extractRelations('mod.js', src, symMap);
+      assert(Array.isArray(res.relations), 'relations should be array');
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  await test('ParsePool: shutdown is idempotent', async () => {
+    const pool = new ParsePool();
+    await pool.shutdown();
+    await pool.shutdown(); // should not throw
+    assert(true);
+  });
+
+  await test('ParsePool: unsupported file returns empty symbols', async () => {
+    const pool = new ParsePool();
+    try {
+      const res = await pool.extractSymbols('foo.unknown', 'random data');
+      assert(Array.isArray(res.symbols));
+      assert(res.symbols.length === 0);
+    } finally {
+      await pool.shutdown();
+    }
+  });
+}
+
 async function phase01QuickWinsTests() {
   console.log('\n⚡ Phase 01 Quick Wins Tests');
   const { makeSymbolId, idMode } = await import('../scripts/lib/code-intel/id-gen.mjs');
@@ -1941,6 +1989,7 @@ try {
   await scanSourceTests();
   await svelteExtractorTests();
   await liquidExtractorTests();
+  await parsePoolTests();
   await phase01QuickWinsTests();
 } finally {
   cleanup();
