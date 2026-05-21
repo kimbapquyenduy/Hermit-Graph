@@ -24,6 +24,11 @@ import { extractAll } from './extractor.mjs';
 // AST cache keyed by file path. Pass-1 populates; pass-2 reads then deletes.
 const cache = new Map();
 
+// Preloaded symbol map for pass-2. Avoids re-sending full map with every
+// extract-relations call. Pool sends one 'preload-symbols' message after
+// pass-1 collects all symbols.
+let preloadedSymbolMap = null;
+
 async function init() {
   await ensurePythonLoaded();
   await ensureJavaLoaded();
@@ -57,10 +62,18 @@ parentPort.on('message', async (msg) => {
         parentPort.postMessage({ id, ok: true, relations: [] });
         return;
       }
-      const symbolMap = new Map(msg.symbolMapEntries || []);
+      // Use preloaded map if available (saves serializing the map per call);
+      // fall back to per-call map for back-compat when pool didn't preload.
+      const symbolMap = preloadedSymbolMap || new Map(msg.symbolMapEntries || []);
       const { relations } = extractAll(parsed.root, msg.file, parsed.langStr, symbolMap);
       cache.delete(msg.file); // free AST once relations extracted
       parentPort.postMessage({ id, ok: true, relations });
+      return;
+    }
+
+    if (type === 'preload-symbols') {
+      preloadedSymbolMap = new Map(msg.symbolMapEntries || []);
+      parentPort.postMessage({ id, ok: true });
       return;
     }
 

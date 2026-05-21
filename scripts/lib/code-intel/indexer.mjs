@@ -68,7 +68,7 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   const _envWorker = process.env.HERMIT_PARSE_WORKER;
   const useWorker = _envWorker === '1' ? true
                   : _envWorker === '0' ? false
-                  : files.length >= 200;
+                  : files.length >= 50;
   let _pool = null;
 
   // Pass 1: extract symbols from all files (build global symbol map)
@@ -159,6 +159,9 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
 
   // Pass 2: extract relations with global symbol map for cross-file call resolution.
   if (useWorker) {
+    // Preload the symbol map into every worker once (saves serializing the
+    // full map per file — big win on large repos with many symbols).
+    await _pool.preloadSymbols(globalSymbolMap);
     // Parallel pass-2 via fan-out. Each file routes to same worker as pass-1.
     const pass2 = await Promise.all(fileResults.map(async (fr) => {
       try {
