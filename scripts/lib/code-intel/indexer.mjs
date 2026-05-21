@@ -270,20 +270,56 @@ export async function incrementalIndex(projectRoot, dataDir) {
   // Remove old data for changed files
   for (const file of changed) graph.removeByFile(file);
 
-  // Re-parse changed files
+  // Re-parse changed files. Use worker pool when enough changed files to
+  // amortize worker startup (same heuristic as fullIndex).
   const globalSymbolMap = new Map();
-  for (const [name, s] of graph.symbols) globalSymbolMap.set(s.name, s.id);
+  for (const [_n, s] of graph.symbols) globalSymbolMap.set(s.name, s.id);
 
-  for (const file of changed) {
-    const absPath = join(projectRoot, file);
-    const source = safeRead(absPath);
-    if (!source) continue; // file deleted
-    const parsed = parseFile(file, source);
-    if (!parsed) continue;
-    const { symbols, relations } = extractAll(parsed.root, file, parsed.langStr, globalSymbolMap);
-    graph.addSymbols(symbols);
-    graph.addRelations(relations);
-    for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+  const _envWorker = process.env.HERMIT_PARSE_WORKER;
+  const useWorker = _envWorker === '1' ? true
+                  : _envWorker === '0' ? false
+                  : changed.length >= 50;
+  let _pool = null;
+
+  if (useWorker) {
+    _pool = new ParsePool();
+    // Pass-1 fan-out for symbols.
+    const pass1 = await Promise.all(changed.map(async (file) => {
+      const source = safeRead(join(projectRoot, file));
+      if (!source) return null;
+      try {
+        const { symbols } = await _pool.extractSymbols(file, source);
+        return { file, source, symbols: symbols || [] };
+      } catch { return null; }
+    }));
+    for (const r of pass1) {
+      if (!r) continue;
+      for (const s of r.symbols) globalSymbolMap.set(s.name, s.id);
+    }
+    // Pass-2 with preloaded map.
+    await _pool.preloadSymbols(globalSymbolMap);
+    const pass2 = await Promise.all(pass1.filter(Boolean).map(async (r) => {
+      try {
+        const { relations } = await _pool.extractRelations(r.file, r.source, globalSymbolMap);
+        return { ...r, relations: relations || [] };
+      } catch { return { ...r, relations: [] }; }
+    }));
+    for (const r of pass2) {
+      graph.addSymbols(r.symbols);
+      graph.addRelations(r.relations);
+    }
+    try { await _pool.shutdown(); } catch {}
+  } else {
+    for (const file of changed) {
+      const source = safeRead(join(projectRoot, file));
+      if (!source) continue;
+      const parsed = parseFile(file, source);
+      if (!parsed) continue;
+      const { symbols, relations } = extractAll(parsed.root, file, parsed.langStr, globalSymbolMap);
+      graph.addSymbols(symbols);
+      graph.addRelations(relations);
+      for (const s of symbols) globalSymbolMap.set(s.name, s.id);
+    }
   }
 
   graph.meta.commit = getHeadCommit(projectRoot);

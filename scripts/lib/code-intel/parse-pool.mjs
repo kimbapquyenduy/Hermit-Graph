@@ -59,6 +59,9 @@ export class ParsePool {
 
   _spawn(idx) {
     const w = new Worker(WORKER_PATH);
+    // unref so workers don't keep the main process alive if SIGINT fires
+    // mid-index — main exits cleanly, workers terminate with it.
+    w.unref();
     w.on('message', (msg) => this._onMessage(idx, msg));
     w.on('error', (err) => this._onCrash(idx, err));
     w.on('exit', (code) => {
