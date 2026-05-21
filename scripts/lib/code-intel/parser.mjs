@@ -97,9 +97,11 @@ export function langName(lang) {
 /** @returns {boolean} whether filePath is a supported code file */
 export function isSupported(filePath) {
   if (detectLang(filePath) !== null) return true;
+  const ext = extname(filePath).toLowerCase();
   // XML files handled by non-AST extractors (e.g. MyBatis mapper) — indexer
   // inspects content to decide whether to process them, not this predicate.
-  return extname(filePath).toLowerCase() === '.xml';
+  // .vue files handled by SFC extractor (extractor-vue-sfc.mjs).
+  return ext === '.xml' || ext === '.vue' || ext === '.svelte';
 }
 
 /** @returns {boolean} whether Python language is available */
