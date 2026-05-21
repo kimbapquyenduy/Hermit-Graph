@@ -865,6 +865,8 @@ HERMIT_LEGACY_DUAL_WRITE=1 hermit serve
 | `HERMIT_AUTORECALL` | `smart` | Auto-recall gating: `smart` (gate on prompt content), `always` (fire every session), `off` (disable). Saves ~1500 tokens × ~50% of sessions when `smart`. |
 | `HERMIT_AUTORECALL_LOG` | unset | Set to `1` to log auto-recall skip decisions to stderr. Debug aid. |
 | `HERMIT_ID_MODE` | `legacy` | Symbol ID format: `legacy` (`file::name`) or `sha256` (collision-safe `kind:hash32`). v7 back-compat keeps legacy default. |
+| `HERMIT_PARSE_WORKER` | auto | Multi-worker parser: `1` forces on, `0` forces off, otherwise auto-enables when project has ≥ 200 files. Measured -42% indexing time on 547-file repos. |
+| `HERMIT_PARSE_RECYCLE` | `500` | Per-worker parse count before terminate+respawn to bound native heap. |
 
 ### Token-conscious defaults
 
