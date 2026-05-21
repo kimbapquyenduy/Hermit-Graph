@@ -309,7 +309,7 @@ export function register(server, ctx) {
   });
 
   // ── T3: Search Nodes (keyword) ──
-  tracedServer.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations.', {
+  tracedServer.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations. DON\'T re-ask the user without searching first. DON\'T grep brain.jsonl — this is faster and ranks results.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
     include_archived: zBoolean().optional().default(false),
@@ -329,7 +329,7 @@ export function register(server, ctx) {
   });
 
   // ── T4: Semantic Search ──
-  tracedServer.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index.', {
+  tracedServer.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index. DON\'T call this AND hermit_search_nodes for the same query — they cover overlapping ground; pick one.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
   }, RO, async ({ query, limit }) => {
@@ -438,7 +438,7 @@ export function register(server, ctx) {
   });
 
   // ── T9: Get Related ──
-  tracedServer.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity.', {
+  tracedServer.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity. DON\'T loop hermit_open_nodes on each neighbor — this returns the neighborhood in one call.', {
     name: z.string().min(1),
     depth: zNumber().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
