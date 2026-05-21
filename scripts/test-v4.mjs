@@ -1512,6 +1512,55 @@ async function scanSourceTests() {
   });
 }
 
+async function vueExtractorTests() {
+  console.log('\n🎯 Vue SFC Extractor Tests (Phase 07)');
+  const { extractVueSfc, isVueSfc } = await import('../scripts/lib/code-intel/extractor-vue-sfc.mjs');
+
+  await test('isVueSfc: recognizes .vue files', () => {
+    assert(isVueSfc('src/Foo.vue') === true);
+    assert(isVueSfc('src/Foo.svelte') === false);
+  });
+
+  await test('vue variant 1: <script> with explicit name field', () => {
+    const src = '<template>\n  <div>hi</div>\n</template>\n<script>\nexport default { name: "MyExplicit" };\n</script>';
+    const { symbols } = extractVueSfc(src, 'src/Anything.vue');
+    const c = symbols.find(s => s.kind === 'component');
+    assert(c.name === 'MyExplicit', `expected MyExplicit, got ${c.name}`);
+  });
+
+  await test('vue variant 2: no name field falls back to PascalCase filename', () => {
+    const src = '<template><div /></template>\n<script>\nexport default {};\n</script>';
+    const { symbols } = extractVueSfc(src, 'components/user-card.vue');
+    const c = symbols.find(s => s.kind === 'component');
+    assert(c.name === 'UserCard', `expected UserCard, got ${c.name}`);
+  });
+
+  await test('vue variant 3: extracts methods inside methods: {} block', () => {
+    const src = '<script>\nexport default {\n  name: "X",\n  methods: {\n    handleClick() {},\n    submit() {}\n  }\n};\n</script>';
+    const { symbols } = extractVueSfc(src, 'src/X.vue');
+    const methods = symbols.filter(s => s.kind === 'method');
+    assert(methods.length >= 2, `expected 2+ methods, got ${methods.length}`);
+    assert(methods.find(m => m.name === 'handleClick'));
+    assert(methods.find(m => m.name === 'submit'));
+  });
+
+  await test('vue variant 4: extracts computed properties', () => {
+    const src = '<script>\nexport default {\n  computed: {\n    fullName() { return this.first + this.last; }\n  }\n};\n</script>';
+    const { symbols } = extractVueSfc(src, 'src/Greeting.vue');
+    assert(symbols.find(s => s.name === 'fullName'));
+  });
+
+  await test('vue line-offset preservation: methods report file line, not script-local', () => {
+    // <script> starts at line 5. Method is at script-relative line 3 = file line 8.
+    const src = '<template>\n  <div>\n  </div>\n</template>\n<script>\nexport default {\n  methods: {\n    target() {}\n  }\n};\n</script>';
+    const { symbols } = extractVueSfc(src, 'src/X.vue');
+    const m = symbols.find(s => s.name === 'target');
+    assert(m, 'expected target method');
+    // Should report somewhere in the script block range (lines 5-11), not lines 0-3.
+    assert(m.line[0] >= 5 && m.line[0] <= 11, `expected line in 5-11, got ${m.line[0]}`);
+  });
+}
+
 async function svelteExtractorTests() {
   console.log('\n🎯 Svelte SFC Extractor Tests (Phase 07)');
   const { extractSvelteSfc, isSvelteSfc } = await import('../scripts/lib/code-intel/extractor-svelte-sfc.mjs');
@@ -1987,6 +2036,7 @@ try {
   await frameworkResolverTests();
   await frameworkResolverPackTests();
   await scanSourceTests();
+  await vueExtractorTests();
   await svelteExtractorTests();
   await liquidExtractorTests();
   await parsePoolTests();

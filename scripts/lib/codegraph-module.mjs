@@ -174,7 +174,7 @@ export function register(server, ctx) {
   });
 
   // ── T2: Context (360-degree symbol view) ──
-  tracedServer.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). For classes/interfaces/structs, returns a MEMBER OUTLINE (method names + line numbers) instead of bodies — drill into a method for its details. Includes inline Impact Preview for exported symbols.', {
+  tracedServer.tool('hermit_context', 'Returns ALL callers and callees of a symbol in one shot (AST-derived call graph, not text search). For classes/interfaces/structs, returns a MEMBER OUTLINE (method names + line numbers) instead of bodies — drill into a method for its details. Includes inline Impact Preview for exported symbols. DON\'T Read the file first — context returns signature + callers + callees without opening the file. DON\'T call repeatedly to walk a chain — use hermit_impact to get the full blast radius in one shot.', {
     name: z.string().min(1).describe('Symbol name to get context for'),
     cwd: z.string().optional(),
   }, RO, async ({ name, cwd }) => {
@@ -207,6 +207,28 @@ export function register(server, ctx) {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
       const result = codeIntel.impact(target, direction, dataDir);
+      // Surface framework provenance breakdown: count d=1 callers whose
+      // incoming relation was resolved by a framework resolver.
+      let provenanceLine = '';
+      if (result.target && result.d1.length) {
+        const graph = codeIntel.readCodeGraph(dataDir);
+        const byProv = new Map();
+        for (const caller of result.d1) {
+          // Find the relation FROM caller.id TO result.target.id (or matching name).
+          const rel = graph.relations.find(r =>
+            r.from === caller.id && (r.to === result.target.id || graph.symbols.get(r.to)?.name === result.target.name)
+          );
+          const prov = rel?._meta?.resolvedBy || 'ast';
+          byProv.set(prov, (byProv.get(prov) || 0) + 1);
+        }
+        if (byProv.size > 1 || (byProv.size === 1 && !byProv.has('ast'))) {
+          const parts = [...byProv.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([k, n]) => `${k}: ${n}`)
+            .join(', ');
+          provenanceLine = `\n> Resolved by — ${parts}`;
+        }
+      }
       let bizSection = '';
       if (ctx.brainPath) {
         try {
@@ -219,7 +241,7 @@ export function register(server, ctx) {
       const body = verbose
         ? (result.summary || `Symbol not found: ${target}`)
         : formatImpactCompact(result, target, direction);
-      return ok(truncateOutput(`_Project: ${projectCwd}_\n\n${body}${bizSection}`));
+      return ok(truncateOutput(`_Project: ${projectCwd}_\n\n${body}${provenanceLine}${bizSection}`));
     } catch (e) { return fail(e.message); }
   });
 
@@ -236,7 +258,7 @@ export function register(server, ctx) {
   });
 
   // ── T5: Index (analyze project) ──
-  tracedServer.tool('hermit_index', 'Force a fresh CodeGraph full rebuild. Auto-runs on first query in a project, so rarely needed. Use only when repo structure changed drastically (branch switch, large rebase) and you want a guaranteed-clean baseline.', {
+  tracedServer.tool('hermit_index', 'Force a fresh CodeGraph full rebuild. Auto-runs on first query in a project, so rarely needed. Use only when repo structure changed drastically (branch switch, large rebase) and you want a guaranteed-clean baseline. DON\'T call this on every session — queries auto-reindex on stale. Calling unnecessarily wastes 10-60 seconds.', {
     cwd: z.string().optional().describe('Project root directory to index (defaults to CLAUDE_PROJECT_DIR env or process.cwd())'),
   }, IDEM, async ({ cwd }) => {
     try {
