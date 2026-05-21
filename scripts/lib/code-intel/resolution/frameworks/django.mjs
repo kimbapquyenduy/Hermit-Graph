@@ -43,7 +43,15 @@ export const djangoResolver = {
   scanSource(src, file, graph) {
     const rels = [];
     const seen = new Set();
-    const pathGlobal = /\b(?:path|re_path)\s*\(\s*[r]?['"][^'"]+['"]\s*,\s*([A-Za-z_][\w.]*)\b/g;
+    const pathGlobal       = /\b(?:path|re_path)\s*\(\s*[r]?['"][^'"]+['"]\s*,\s*([A-Za-z_][\w.]*)\b/g;
+    // Flask route decorator: @app.route('/path') applied to a function
+    // defined directly below. We capture the function name on the next
+    // non-blank, non-decorator line.
+    const flaskRouteGlobal = /@(?:app|bp|blueprint)\.route\s*\([^)]*\)[^\n]*\n(?:[^\n]*\n)?\s*def\s+([a-zA-Z_]\w*)/g;
+    // CBV in Django: class FooView(View): ... — we record the class symbol.
+    const cbvGlobal = /\bclass\s+([A-Z]\w*View)\s*\(/g;
+    // FastAPI: @app.get('/path') / @router.post(...)
+    const fastapiGlobal = /@(?:app|router)\.(?:get|post|put|patch|delete|options|head)\s*\([^)]*\)[^\n]*\n(?:[^\n]*\n)?\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)/g;
 
     let m;
     while ((m = pathGlobal.exec(src)) !== null) {
@@ -62,6 +70,59 @@ export const djangoResolver = {
         _v: 1, _type: 'relation', from: file, to: target.id, kind: 'CALLS', line,
         _meta: { confidence: 0.88, resolvedBy: 'framework:django' },
       });
+    }
+
+    // Flask @app.route('/path')\ndef handler() → resolve handler.
+    while ((m = flaskRouteGlobal.exec(src)) !== null) {
+      const fnName = m[1];
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `flask:${fnName}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let target = null;
+      for (const s of graph.findByName(fnName)) {
+        if (s.kind === 'function' && s.file === file) { target = s; break; }
+      }
+      if (!target) continue;
+      rels.push({
+        _v: 1, _type: 'relation', from: file, to: target.id, kind: 'CALLS', line,
+        _meta: { confidence: 0.9, resolvedBy: 'framework:django' },
+      });
+    }
+
+    // FastAPI @app.get('/path')\nasync def handler() → resolve handler.
+    while ((m = fastapiGlobal.exec(src)) !== null) {
+      const fnName = m[1];
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `fastapi:${fnName}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let target = null;
+      for (const s of graph.findByName(fnName)) {
+        if (s.kind === 'function' && s.file === file) { target = s; break; }
+      }
+      if (!target) continue;
+      rels.push({
+        _v: 1, _type: 'relation', from: file, to: target.id, kind: 'CALLS', line,
+        _meta: { confidence: 0.9, resolvedBy: 'framework:django' },
+      });
+    }
+
+    // Django class-based view: class FooView(View) — record the class.
+    while ((m = cbvGlobal.exec(src)) !== null) {
+      const className = m[1];
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `cbv:${className}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let target = null;
+      for (const s of graph.findByName(className)) {
+        if (s.kind === 'class' && s.file === file) { target = s; break; }
+      }
+      if (!target) continue;
+      // CBV is a marker, not a usage edge — record as low-confidence
+      // self-reference so the symbol shows up in graph traversal.
+      // Actually skip emitting (would be a self-edge); just dedupe.
     }
     return rels;
   },

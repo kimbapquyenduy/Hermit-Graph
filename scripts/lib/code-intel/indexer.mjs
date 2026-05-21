@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, readdirSync, statSync, promises as fsp } from 'fs';
-import { join, relative, extname } from 'path';
+import { join } from 'path';
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { parseFile, isSupported, ensurePythonLoaded, ensureJavaLoaded } from './parser.mjs';

@@ -35,8 +35,10 @@ export const railsResolver = {
   scanSource(src, file, graph) {
     const rels = [];
     const seen = new Set();
-    const routeGlobal    = /\b(?:get|post|put|patch|delete)\s+['"][^'"]+['"]\s*=>\s*['"](\w+)#(\w+)['"]/g;
-    const callbackGlobal = /\b(?:before_action|after_action|around_action)\s*:(\w+)/g;
+    const routeGlobal     = /\b(?:get|post|put|patch|delete)\s+['"][^'"]+['"]\s*=>\s*['"](\w+)#(\w+)['"]/g;
+    const callbackGlobal  = /\b(?:before_action|after_action|around_action)\s*:(\w+)/g;
+    const resourcesGlobal = /\bresources?\s+:(\w+)/g;
+    const findByGlobal    = /\b([A-Z][a-zA-Z]+)\.find_by_(\w+)/g;
 
     const fileSymbols = [];
     for (const s of graph.symbols.values()) {
@@ -87,6 +89,48 @@ export const railsResolver = {
       rels.push({
         _v: 1, _type: 'relation', from: fromId, to: target.id, kind: 'CALLS', line,
         _meta: { confidence: 0.8, resolvedBy: 'framework:rails' },
+      });
+    }
+
+    // resources :products → Rails convention generates 7 RESTful routes
+    // mapped to ProductsController. Link to the controller class symbol.
+    while ((m = resourcesGlobal.exec(src)) !== null) {
+      const resourceName = m[1];
+      const controllerName = resourceName[0].toUpperCase() + resourceName.slice(1) + 'Controller';
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `resources:${resourceName}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let target = null;
+      for (const s of graph.findByName(controllerName)) {
+        if (s.kind === 'class') { target = s; break; }
+      }
+      if (!target) continue;
+      rels.push({
+        _v: 1, _type: 'relation', from: file, to: target.id, kind: 'CALLS', line,
+        _meta: { confidence: 0.85, resolvedBy: 'framework:rails' },
+      });
+    }
+
+    // Model.find_by_<attr> → dynamic finder on the model class. Low confidence
+    // because the attribute name isn't a method symbol — we just record the
+    // class usage.
+    while ((m = findByGlobal.exec(src)) !== null) {
+      const model = m[1];
+      const line = src.slice(0, m.index).split('\n').length;
+      const key = `findby:${model}@${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let target = null;
+      for (const s of graph.findByName(model)) {
+        if (s.kind === 'class') { target = s; break; }
+      }
+      if (!target) continue;
+      const fromId = enclosingId(line);
+      if (fromId === target.id) continue;
+      rels.push({
+        _v: 1, _type: 'relation', from: fromId, to: target.id, kind: 'CALLS', line,
+        _meta: { confidence: 0.7, resolvedBy: 'framework:rails' },
       });
     }
     return rels;

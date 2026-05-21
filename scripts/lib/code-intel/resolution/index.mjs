@@ -16,15 +16,16 @@
 
 import { buildKnownNames, isKnownName } from './known-names.mjs';
 import { nameStrategy } from './name-strategy.mjs';
+import { importStrategy } from './import-strategy.mjs';
 import { frameworkStrategy, registerFramework, listFrameworks, clearFrameworks } from './framework-strategy.mjs';
 
 // Strategy chain — order matters. Framework runs first (highest confidence
-// when it hits), name is the universal fallback.
-const _strategies = [frameworkStrategy, nameStrategy];
+// when it hits), then import (path-aware), then name as universal fallback.
+const _strategies = [frameworkStrategy, importStrategy, nameStrategy];
 
 // Re-export framework registry for Phase 04 module bootstraps.
 export { registerFramework, listFrameworks, clearFrameworks };
-export { nameStrategy, frameworkStrategy };
+export { nameStrategy, importStrategy, frameworkStrategy };
 export { buildKnownNames, isKnownName };
 
 const HIGH_CONFIDENCE = 0.9;
