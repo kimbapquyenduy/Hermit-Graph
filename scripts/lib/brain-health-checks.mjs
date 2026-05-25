@@ -25,8 +25,12 @@ export function loadBrain(filePath) {
   for (const line of lines) {
     try {
       const data = JSON.parse(line);
-      if (data.type === 'entity') entities.push(data);
-      if (data.type === 'relation') relations.push(data);
+      // Soft-archived entities (e.g. consolidate merged-into duplicates) are
+      // skipped from health checks — they're audit-trail records, not active
+      // graph nodes. Without this filter, dedup'd duplicates keep showing
+      // up in the Duplicates / Orphans warnings indefinitely.
+      if (data.type === 'entity' && !data._archived) entities.push(data);
+      if (data.type === 'relation' && !data._archived) relations.push(data);
     } catch { /* skip malformed lines */ }
   }
   return { entities, relations };
