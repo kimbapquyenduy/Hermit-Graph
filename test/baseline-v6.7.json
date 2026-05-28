@@ -1,0 +1,186 @@
+{
+  "date": "2026-05-04T10:59:15.698Z",
+  "version": "7.0.0-alpha.0",
+  "fixtures": {
+    "size": 500,
+    "seed": 42
+  },
+  "keyword": {
+    "p50": 0.53,
+    "p95": 1.01,
+    "avg": 0.59,
+    "count": 50
+  },
+  "readAll": {
+    "ms": 14.85
+  },
+  "write": {
+    "totalMs": 1925,
+    "count": 100,
+    "throughputPerSec": 52
+  },
+  "phase01a": {
+    "date": "2026-05-04",
+    "backend": "sqlite (better-sqlite3)",
+    "bench": {
+      "entities": 1000,
+      "elapsedMs": 10,
+      "throughputPerSec": 100000
+    },
+    "note": "Bulk transaction write via better-sqlite3 sync API"
+  },
+  "phase01b": {
+    "date": "2026-05-04",
+    "jsonlOnlyMs": 17534,
+    "dualWriteMs": 16568,
+    "overheadPct": -5.5,
+    "throughputJsonlPerSec": 57,
+    "throughputDualPerSec": 60,
+    "entities": 1000,
+    "note": "Phase 01b dual-write latency benchmark"
+  },
+  "phase01c": {
+    "date": "2026-05-04",
+    "backend": "sqlite fts5 bm25",
+    "fixture": {
+      "entities": 5000,
+      "seed": 42
+    },
+    "bm25Search": {
+      "p50Ms": 0.23,
+      "p95Ms": 2,
+      "avgMs": 0.35,
+      "queryCount": 55,
+      "target": "p95 ≤ 50ms"
+    },
+    "spotCheck": {
+      "passed": 10,
+      "total": 10,
+      "criterion": "all top-3 results contain query term in name"
+    },
+    "note": "Phase 01c FTS5 BM25 read path. Content FTS5 table (non-contentless). Prefix matching via quoted-token* syntax."
+  },
+  "phase03b": {
+    "date": "2026-05-04",
+    "model": "Xenova/all-MiniLM-L6-v2",
+    "dim": 384,
+    "backend": "sqlite-vec (vec0 virtual table)",
+    "eagerWrite": {
+      "entities10Ms": 1232,
+      "throughput10PerSec": 8.1,
+      "entities100Ms": 3845,
+      "throughput100PerSec": 26,
+      "note": "Embedding model dominates latency (~120ms/entity). vec upsert itself is <1ms."
+    },
+    "backfill": {
+      "entities": 618,
+      "vecRows": 618,
+      "parity": "PASS"
+    },
+    "note": "Phase 03b write-only embed pipeline. Eager mode default. DELETE+INSERT upsert (vec0 does not support INSERT OR REPLACE)."
+  },
+  "phase03c": {
+    "date": "2026-05-04",
+    "fixture": {
+      "entities": 5000,
+      "queryCount": 100,
+      "dim": 384,
+      "vectorType": "deterministic normalized (mulberry32)"
+    },
+    "recall": {
+      "atK": 10,
+      "avgRecall": 1,
+      "target": ">=0.9",
+      "result": "PASS"
+    },
+    "latency": {
+      "sqliteVec": {
+        "p50Ms": 29.28,
+        "p95Ms": 35.28,
+        "target": "p95 <=100ms",
+        "result": "PASS"
+      },
+      "bruteForce": {
+        "p50Ms": 3.4,
+        "p95Ms": 4.26,
+        "note": "informational only, no assertion"
+      }
+    },
+    "backends": {
+      "primary": "SqliteVecBackend (sqlite-vec vec_distance_cosine)",
+      "fallback": "BruteForceVectorBackend (in-memory linear scan)"
+    },
+    "note": "Phase 03c kNN read path. 100% recall@10 (sqlite-vec == brute-force for normalized vectors). Lazy embed-on-miss via setImmediate."
+  },
+  "phase02": {
+    "date": "2026-05-04",
+    "realVault": {
+      "entities": 618,
+      "relations": 759,
+      "observations": 3692
+    },
+    "migrationMs": 298,
+    "parityCheckMs": 45,
+    "exportLines": 1377,
+    "parityResult": "PARITY OK",
+    "roundTripEquivalent": true,
+    "note": "Phase 02 migration tooling. 618-entity real vault. readline stream + 200-row batched transactions. FTS5 rebuild post-migration."
+  },
+  "phase04a": {
+    "date": "2026-05-04",
+    "rrfFusion": "scripts/lib/memory/rrf-fusion.mjs",
+    "goldenQueries": {
+      "count": 30,
+      "tiers": [
+        "BIZ",
+        "PATTERN",
+        "TECH",
+        "INCIDENT"
+      ],
+      "entityTypes": 13
+    },
+    "baselineNdcg10": 0.6881,
+    "baselineMrr10": 0.8579,
+    "note": "Phase 04a RRF fusion + quality harness. NDCG@10=0.6881 (in expected [0.4,0.7] range)."
+  },
+  "phase04b": {
+    "date": "2026-05-04",
+    "hybridNdcg10": 0.6635,
+    "hybridMrr10": 0.8,
+    "deltaVsV67Pct": -3.57,
+    "gatePass": false,
+    "kChosen": 60,
+    "latencyP95Ms": 10.7,
+    "defaultMode": "bm25",
+    "optIn": "HERMIT_RETRIEVAL=hybrid",
+    "note": "Gate missed (-3.6%). BM25 FTS5 + brute-force vectors slightly below v6.7 weighted-sum. Opt-in only until vec_entities backfilled."
+  },
+  "phase05a": {
+    "date": "2026-05-04",
+    "transport": ["stdio (StdioClientTransport)", "http (StreamableHTTPClientTransport)"],
+    "pool": {
+      "restartPolicy": "3 retries: 1s/2s/4s backoff",
+      "stateModel": "connecting|ready|restarting|dead",
+      "toolCacheTtlMs": 60000
+    },
+    "tests": { "count": 10, "result": "PASS" },
+    "note": "Phase 05a MCP client pool. stdio transport used for all tests (local mock server). Crash→dead in ~7s (backoff sum). shutdownAll<2s verified."
+  },
+  "phase05b": {
+    "date": "2026-05-04",
+    "schema": "zod v4, superRefine cross-field (stdio requires command, http requires url)",
+    "registry": "O(1) Map, sanitize tool names (non-alphanumeric → _)",
+    "configPath": "~/.hermit/mcp-bridges.json (HERMIT_BRIDGES_PATH override)",
+    "tests": { "count": 19, "result": "PASS" },
+    "note": "Phase 05b discovery + namespace registry. All edges: malformed JSON, bad regex name, missing field, duplicates, empty array."
+  },
+  "phase05c": {
+    "date": "2026-05-04",
+    "circuitBreaker": { "threshold": 3, "autoRecoverMs": 300000 },
+    "forwardingOverheadMs": "<50 (stdio, measured on warm connection)",
+    "introspectionTools": ["hermit_list_bridges", "hermit_reload_bridges", "hermit_enable_bridge"],
+    "totalToolsOnBrainServer": 33,
+    "tests": { "count": 9, "result": "PASS" },
+    "note": "Phase 05c tool surfacing + circuit breaker + reload. Real server: mcp-server-time skipped (not installed); all tests use in-process mock. Security warning in README."
+  }
+}

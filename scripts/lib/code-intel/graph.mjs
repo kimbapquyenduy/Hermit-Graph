@@ -11,8 +11,40 @@ export class CodeGraph {
     this.callers = new Map();   // symbolId → Set<symbolId> (reverse/upstream)
     this.callees = new Map();   // symbolId → Set<symbolId> (forward/downstream)
     this.fileIndex = new Map(); // filePath → Set<symbolId>
+    this.nameIndex = new Map(); // symbol.name → Symbol[] (lazy — see _ensureNameIndex)
+    this._nameIndexBuilt = false;
     this.meta = { commit: null, files: 0, symbols: 0, relations: 0, indexedAt: null };
   }
+
+  /**
+   * Build the symbol-name index lazily on first query. Framework resolvers
+   * call findByName 10000s of times during scan; pre-indexing turns each
+   * lookup from O(N) symbols → O(1) average.
+   */
+  _ensureNameIndex() {
+    if (this._nameIndexBuilt) return;
+    this.nameIndex.clear();
+    for (const s of this.symbols.values()) {
+      const arr = this.nameIndex.get(s.name);
+      if (arr) arr.push(s);
+      else this.nameIndex.set(s.name, [s]);
+    }
+    this._nameIndexBuilt = true;
+  }
+
+  /**
+   * Fast name lookup. Returns array (could be multiple symbols sharing a name).
+   * O(1) average. Lazily builds the index on first call.
+   * @param {string} name
+   * @returns {object[]}
+   */
+  findByName(name) {
+    this._ensureNameIndex();
+    return this.nameIndex.get(name) || [];
+  }
+
+  /** Mark name index dirty so it rebuilds on next query (after mutations). */
+  _invalidateNameIndex() { this._nameIndexBuilt = false; }
 
   /** Build graph from parsed JSONL entries. */
   static fromEntries(symbols, relations, meta) {
@@ -31,6 +63,7 @@ export class CodeGraph {
       if (!this.fileIndex.has(s.file)) this.fileIndex.set(s.file, new Set());
       this.fileIndex.get(s.file).add(s.id);
     }
+    this._invalidateNameIndex();
   }
 
   addRelations(rels) {
@@ -49,6 +82,7 @@ export class CodeGraph {
     this.relations = this.relations.filter(r => !ids.has(r.from) && !ids.has(r.to));
     this.fileIndex.delete(filePath);
     this._rebuildAdjacency();
+    this._invalidateNameIndex();
   }
 
   // ── Query ──
@@ -116,7 +150,10 @@ export class CodeGraph {
   // ── Internal ──
 
   _addAdjacency(r) {
-    if (r.kind === 'CALLS' || r.kind === 'IMPORTS') {
+    // Phase 03 wave 2 — RENDERS is treated as a directional usage edge:
+    // a component's "callers" include the files / components that render it.
+    // EXTENDS treated same way so class hierarchy flows into impact.
+    if (r.kind === 'CALLS' || r.kind === 'IMPORTS' || r.kind === 'RENDERS' || r.kind === 'EXTENDS') {
       if (!this.callees.has(r.from)) this.callees.set(r.from, new Set());
       this.callees.get(r.from).add(r.to);
       if (!this.callers.has(r.to)) this.callers.set(r.to, new Set());

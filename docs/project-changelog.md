@@ -4,6 +4,165 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [7.1.0] — 2026-05-28
+
+### Added — Token Diet + Framework Resolvers + Multi-Worker Indexer
+
+Substantial efficiency + capability release on top of v7.0.0's SQLite foundation. Measured -84% indexing time on real projects (EduMVP 27.5s → 4.5s; gsf20 Vue 2.6 167s → 30s; RandomFantasy 19s → 3.6s), -58.6% session token cost via tool-surface diet.
+
+**Token diet (-58.6% session tokens):**
+- `HERMIT_TOOL_PROFILE=core` default — 10 core tools instead of 34 (catalog: 4,775 → 1,635 tokens). Env override `=full` restores all tools.
+- MCP `instructions` field ships a 60-line agent playbook at init.
+- Compact response format across `hermit_query`/`context`/`impact`/`unified_search`.
+- F4 container outline — `hermit_context` on classes returns member outline (signatures + line numbers) instead of body dump.
+- F9 counts-first impact — default returns counts + d=1 names + risk only; `verbose: true` opt-in for full d=2/d=3 lists. -92% tokens on impact calls.
+- F10 conditional auto-recall — `HERMIT_AUTORECALL=smart` gates recall on prompt content (code/biz keywords). Saves ~1,500 tok × 50% of sessions.
+- F11 feature-request heuristic appends UX-clarification reminder when query looks like a feature request.
+- Universal 15,000-char output cap on all tool responses.
+- Min-score 0.30 filter eliminates dross matches in semantic queries.
+- Anti-pattern DON'T coaching baked into core tool descriptions.
+
+**Multi-strategy resolution (Phase 03):**
+- `scripts/lib/code-intel/resolution/` cascade: framework → import → name.
+- Confidence scoring + provenance (`resolvedBy` on every edge).
+- Ambiguity reporting with top-N candidates.
+- Name-indexed O(1) symbol lookup (was O(N) linear scan) — ~50% extra speedup on framework pass.
+
+**9 framework resolvers (Phase 04):**
+- Express (`app.METHOD('/path', handler)`)
+- Laravel (5 patterns: `[Ctrl::class, 'method']`, `Model::scope()`, facades, `route('name')`, `view('blade.path')`)
+- NestJS (`@Inject(TOKEN)`)
+- React (JSX `<Component />`, custom hooks; built-in hooks like `useState` skip)
+- Vue (PascalCase + kebab-case template tags, composables)
+- Django (`path('url', view)`, Flask `@app.route`, FastAPI `@app.get`)
+- Rails (`get '/x' => 'controller#action'`, `before_action :method`, `resources :name`, `Model.find_by_X`)
+- Svelte (template `<Component />`, mustache `{fn()}`; Svelte 5 runes skipped)
+- Shopify Liquid (`{% render %}`, `{% include %}`, `{% section %}`)
+- Auto-detect via `package.json` / `composer.json` / `Gemfile` / `pyproject.toml`.
+- Override via `~/.hermit/frameworks.json` (`disable: [...]` and `override: [...]`).
+
+**Template-language extractors (Phase 07):**
+- Vue SFC parser — extracts component from `<script>` block, methods + computed from convention blocks.
+- Svelte SFC parser — extracts component, `export let` props, exported + internal functions.
+- Liquid parser — emits one component per `.liquid` file with directory-inferred kind (snippet/section/template/layout).
+- Framework post-pass adds RENDERS/CALLS edges across template languages.
+
+**Parallel indexer runtime (Phase 05):**
+- New `scripts/lib/code-intel/parse-pool.mjs` — multi-worker fan-out via `Promise.all`.
+- Stable-hash file routing keeps each file on the same worker across pass-1 + pass-2 (AST cache hit).
+- Default worker count `max(2, min(8, cpus()/2))`. Auto-enables at ≥ 50 files.
+- `preloadSymbols` sends global symbol map to each worker once between passes.
+- Recycle every 500 parses (`HERMIT_PARSE_RECYCLE`).
+- Per-request timeout, crash recovery (replay in-flight on respawn), `worker.unref()` for clean SIGINT.
+- Async batched file I/O (10 reads in parallel) — overlap I/O with parse.
+
+**Quick wins (Phase 01):**
+- `scripts/lib/code-intel/id-gen.mjs` — opt-in SHA256 IDs via `HERMIT_ID_MODE=sha256` (default `legacy` preserves v7 back-compat).
+- `scripts/lib/code-intel/strip-comments.mjs` — line-offset-preserving comment stripper (JS/TS/PHP/Python/Ruby).
+- `scripts/lib/code-intel/output-budget.mjs` — adaptive 4-tier response budget by project size.
+- Content-hash sync fallback in `incrementalIndex` (handles non-git dirs, force-pushes, rebase squash).
+
+**Other:**
+- `scripts/bench/` — reproducible bench harnesses for token, hard, functional, and framework-e2e measurement.
+- 4 new `npm run bench:*` scripts.
+- `docs/benchmarks/2026-Q2.md` — published measurement report.
+- `RENDERS` and `EXTENDS` edges now flow into caller/callee adjacency (impact analysis traverses them).
+- Framework provenance breakdown displayed in `hermit_impact` output ("Resolved by — framework:react: 7").
+- Brain-health checker now filters `_archived` entities (consolidation dupes no longer reappear in WARN list).
+
+**Tests:** 119 → 199 passing (+80), 0 failures.
+
+**No breaking changes** — `HERMIT_TOOL_PROFILE=full` restores the original 34-tool surface. All other defaults preserve existing behavior.
+
+---
+
+## [7.0.0] — 2026-05-05
+
+### Added — Multi-Tier Memory + MCP-Native Tool Bridging + SQLite Single Source of Truth
+
+This release adopts three architectural patterns from `NousResearch/hermes-agent` and consolidates to SQLite as the sole write target. JSONL becomes export-only.
+
+**Core delta vs 6.7.0:**
+- `MemoryProvider` interface — pluggable backends behind one shape (Phase 00)
+- SQLite + FTS5 keyword layer — now authoritative write target (Phases 01a/b/c, Phase 08)
+- `SqliteWriter` replaces `DualWriter` — single transactional write, no JSONL fan-out (Phase 08)
+- Migration tool — `hermit-migrate` backfills existing JSONL vaults (Phase 02)
+- v6 vault auto-detected at boot — auto-migrates transparently (Phase 08)
+- `sqlite-vec` ANN backend with brute-force fallback, `vec_entities` populated (Phases 03a/b/c)
+- Hybrid retrieval via Reciprocal Rank Fusion (Phases 04a/b)
+- MCP client subsystem — Brain consumes external MCP servers and re-surfaces tools with `mcp_<bridge>_<tool>` namespace (Phases 05a/b/c, optional 05d)
+- Plugin loader for third-party memory backends (P2 — Phases 06a/b)
+- Skill-evolution trace emitter (stub — Phase 07)
+- Universal `--help` / `-h` flag at CLI dispatcher level (Phase 08 / B2)
+- `hermit migrate` now requires confirmation or `--yes` flag before mutating data (Phase 08 / B1)
+- `hermit-migrate-vec --dry-run` no longer loads embedding model (Phase 08 / B8)
+- `HERMIT_LEGACY_DUAL_WRITE=1` escape hatch for users needing dual-write (marked for removal in v8.0)
+
+**Breaking changes:**
+- `brain.jsonl` is no longer auto-written. All writes go to `brain.db` only.
+- Export explicitly via `hermit export` or `hermit-export-jsonl`.
+- Default `HERMIT_PRIMARY_READ` changed from `jsonl` → `sqlite`.
+
+**Bug fixes (EduMVP audit):**
+- B1: `hermit migrate` now prompts for confirmation before mutating data
+- B2/B4/B5/B6: Universal `--help` / `-h` flag — every subcommand now prints usage instead of running
+- B3: `hermit export` no longer crashes — replaced broken libsql exporter with Phase 02 SQLite exporter
+- B7: Drift impossible — SQLite is now the only source of truth (by design)
+- B8: `hermit-migrate-vec --dry-run` completes in <1s (was >30s)
+
+**Backward compatibility:** v6 vaults auto-migrate on first boot. All existing MCP tool signatures preserved. `HERMIT_LEGACY_DUAL_WRITE=1` available if dual-write is needed temporarily.
+
+**Plan:** see `plans/260504-1648-hermes-pattern-adoption/plan.md`.
+
+---
+
+## [6.7.0] — 2026-04-22
+
+### Added — Java + MyBatis XML CodeGraph support
+
+CodeGraph now indexes Java source files and MyBatis XML mapper files, unifying them with JS/TS/Python in the same call-graph. Hermit's transitive blast-radius advantage extends to enterprise Java backends + Spring/MyBatis monorepos.
+
+**Java via `@ast-grep/lang-java`**
+- New optional dep `@ast-grep/lang-java@^0.0.7` (5.1MB prebuilt native binaries, ISC license, no Rust compile)
+- New extractor `scripts/lib/code-intel/extractor-java.mjs` — classes, interfaces, methods, constructors, fields, imports, annotations
+- Relations: CALLS, IMPORTS, EXTENDS, IMPLEMENTS, MEMBER_OF
+- Captures annotations (`@Service`, `@Controller`, `@Transactional`, etc.) on class + method symbols — feeds framework-bound detection
+- Generics erased for identity — `List<User>` stored as `List`, accepts overload ambiguity resolved via disambiguation list
+- Nested types (nested classes/interfaces/enums) scoped under outer class parent
+
+**MyBatis XML mapper integration**
+- New optional dep `fast-xml-parser@^5.7.1` (fastest Node XML parser, zero deps, small bundle)
+- New extractor `scripts/lib/code-intel/extractor-mybatis-xml.mjs`
+- Detector: file must contain `<mapper namespace="...">` AND at least one `<select|insert|update|delete|sql>` tag (prevents false positives on other XML schemas)
+- `<select id="X">` becomes a symbol with kind=`mybatis-statement`, linked MEMBER_OF to the Java interface class (cross-language edge)
+- `<include refid="...">` extracted as CALLS edges within the XML
+- Line numbers preserved via raw-text scan (fast-xml-parser's preserveOrder doesn't expose line info)
+- Security: XXE entity expansion disabled
+
+**Parser architecture**
+- Java uses dynamic-language registration path (`registerDynamicLanguage` + string key to `parse()`) — differs from JS/TS sync `parse(Lang.X, src)` but unified at the API surface via extension map
+- Race-condition fix in `loadPython`/`loadJava` — dedup concurrent callers with promise caching (previous boolean flag was set before async import resolved, causing second caller to see stale state)
+
+**Indexer**
+- Two-lane pipeline: ast-grep for JS/TS/Python/Java, single-pass XML for MyBatis mappers
+- Post-link resolution: XML MEMBER_OF edges pointing at short class names auto-rewritten to Java symbol IDs when the Java interface exists in the global symbol map
+- `.xml` extension added to `isSupported` allowlist and the PreToolUse hook's SOURCE_EXTS
+
+### Verified
+- Fixture: 3 Java files + 1 MyBatis XML → 18 symbols, 21 relations across 4 files
+- Cross-language MEMBER_OF: `UserMapper.findById` (XML) correctly links to `UserMapper` (Java interface)
+- Annotation capture: `@Service`, `@Transactional`, `@Override` surface on the symbol's `annotations` field
+- `hermit_impact("findById")` disambiguation lists 3 candidates (IUserService.findById, UserService.findById, UserMapper.findById) — ambiguity handling generalizes to Java
+- `<include refid="baseColumns">` produces CALLS edges (XML internal references)
+- 103 unit tests + 16 e2e tests all pass (no regressions on JS/TS/Python paths)
+
+### Deferred (documented in plans/260422-java-xml-codegraph/)
+- Spring XML bean definitions (applicationContext.xml) — legacy pattern, low new-development volume, ship only on user request
+- Kotlin — similar effort, deferred to v6.8.0 if demand emerges
+- MyBatis-Plus annotation magic — captured via Java AST (annotations already extracted); explicit modeling can come later
+
+---
+
 ## [6.6.4] — 2026-04-21
 
 ### Added — Global PreToolUse hook registration

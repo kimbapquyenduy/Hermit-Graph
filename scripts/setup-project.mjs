@@ -299,6 +299,7 @@ async function setupAllAgents() {
 
   // 1. Shared: brain.jsonl + templates
   ensureBrainJsonl();
+  ensureBridgesConfig();
   const projectInfo = scanProject(projectRoot);
   copyBusinessTemplate(AGENTS.claude, projectInfo);
 
@@ -376,6 +377,7 @@ async function setupSingleAgent(key) {
   console.log('');
 
   ensureBrainJsonl();
+  ensureBridgesConfig();
   const projectInfo = scanProject(projectRoot);
 
   // Auto-learn project identity
@@ -443,6 +445,20 @@ function ensureBrainJsonl() {
     if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
     writeFileSync(brainJsonlPath, '');
     console.log('  + Created: data/brain.jsonl (empty knowledge graph)');
+  }
+}
+
+function ensureBridgesConfig() {
+  if (!userHome) return;
+  const hermitDir = join(userHome, '.hermit');
+  const dst = join(hermitDir, 'mcp-bridges.json');
+  if (!existsSync(dst)) {
+    const src = join(brainRoot, 'templates', 'hermit', 'mcp-bridges.example.json');
+    if (existsSync(src)) {
+      if (!existsSync(hermitDir)) mkdirSync(hermitDir, { recursive: true });
+      copyFileSync(src, dst);
+      console.log('  + Created: ~/.hermit/mcp-bridges.json (all bridges disabled by default — safe to ignore)');
+    }
   }
 }
 

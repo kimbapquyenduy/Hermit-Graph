@@ -96,6 +96,7 @@ scripts/sync-to-neo4j.mjs
 # Temp & test artifacts
 tmp/
 tests/
+test/fixtures/
 er.name
 
 # IDE (non-VSCode)

@@ -1,0 +1,212 @@
+[
+  {
+    "query": "VNPay",
+    "expectedTop3": ["TECH:VNPay", "PATTERN:INT:WebCash:FPT_TVAN", "BIZ:WebCash"],
+    "categoryTag": "TECH",
+    "entityType": "tech-stack",
+    "tier": "TECH"
+  },
+  {
+    "query": "JWT authentication pattern",
+    "expectedTop3": ["PATTERN:JWTAuth", "PATTERN:ARCH:ServerSideValidation", "RULE:WebCash:SSOTokenExpiry"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-code",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "semantic search missing bug",
+    "expectedTop3": ["INCIDENT:brain:SemanticSearchMissing", "DECISION:ClaudeCodeBrain:SemanticSearch_vs_KeywordSearch", "INCIDENT:ClaudeCodeBrain:EnhancedMcpMemoryZeroTools"],
+    "categoryTag": "INCIDENT",
+    "entityType": "incident-bug",
+    "tier": "INCIDENT"
+  },
+  {
+    "query": "combat damage formula wheel of fate",
+    "expectedTop3": ["RULE:WheelOfFate:CombatDamage", "RULE:WheelOfFate:FormulasReference", "RULE:WOF:CombatFormulas"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-rule",
+    "tier": "BIZ"
+  },
+  {
+    "query": "WebCash login auth flow",
+    "expectedTop3": ["FLOW:WebCash:LoginAuth", "RULE:WebCash:SSOTokenExpiry", "BIZ:WebCash"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-flow",
+    "tier": "BIZ"
+  },
+  {
+    "query": "SQLite vector embedding storage decision",
+    "expectedTop3": ["DECISION:ClaudeCodeBrain:VectorDB_Embedding_Storage", "TECH:Decision:SemanticSearch_LightweightVsCloud", "DECISION:ClaudeCodeBrain:SemanticSearch_vs_KeywordSearch"],
+    "categoryTag": "TECH",
+    "entityType": "tech-decision",
+    "tier": "TECH"
+  },
+  {
+    "query": "payroll flow",
+    "expectedTop3": ["FLOW:Payroll_Flow", "ENTITY:Module_10_HR", "ENTITY:Module_12_Timekeeping"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-flow",
+    "tier": "BIZ"
+  },
+  {
+    "query": "MCP upgrade strategy",
+    "expectedTop3": ["DECISION:ClaudeCodeBrain:MCP_Upgrade_Strategy", "BIZ:ClaudeCodeBrain", "TECH:HermitGraph"],
+    "categoryTag": "TECH",
+    "entityType": "tech-decision",
+    "tier": "TECH"
+  },
+  {
+    "query": "boss encounter game rule",
+    "expectedTop3": ["RULE:WheelOfFate:BossEncounter", "RULE:WOF:EncounterCycle", "RULE:WheelOfFate:EncounterCycle"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-rule",
+    "tier": "BIZ"
+  },
+  {
+    "query": "AST grep code intel",
+    "expectedTop3": ["TECH:Decision:CodeIntel_V6_AstGrep", "TECH:Decision:ReplaceGitNexus_TreeSitter", "PATTERN:ARCH:HermitGraph_v4_CodeGraph_Design"],
+    "categoryTag": "TECH",
+    "entityType": "tech-decision",
+    "tier": "TECH"
+  },
+  {
+    "query": "e-invoice lifecycle",
+    "expectedTop3": ["FLOW:WebCash:EInvoiceLifecycle", "FLOW:EInvoice_Flow", "PATTERN:INT:WebCash:FPT_TVAN"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-flow",
+    "tier": "BIZ"
+  },
+  {
+    "query": "frontend architecture hooks components",
+    "expectedTop3": ["PATTERN:ARCH:MentorX_Hooks", "PATTERN:ARCH:MentorX_Components", "PATTERN:ARCH:FrontendArchitecture"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-arch",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "git history cleanup npm package",
+    "expectedTop3": ["TECH:Process:GitHistoryCleanup", "TECH:Decision:NpmPackagePrivacy", "INCIDENT:HermitGraph:FactoryNotGit"],
+    "categoryTag": "INCIDENT",
+    "entityType": "incident-gotcha",
+    "tier": "INCIDENT"
+  },
+  {
+    "query": "WOF Gemini AI integration",
+    "expectedTop3": ["PATTERN:INT:WOF:GeminiAI", "PATTERN:INT:WheelOfFate:GeminiAI", "PATTERN:INT:NeuronsAI:GeminiProxy"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-integration",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "XP formula progression",
+    "expectedTop3": ["TECH:RandomFantasy:XPFormulaV2", "RULE:WheelOfFate:Progression", "INCIDENT:RandomFantasy:StaleXPFormulaTests"],
+    "categoryTag": "TECH",
+    "entityType": "tech-config",
+    "tier": "TECH"
+  },
+  {
+    "query": "confidence scoring temporal prefix observation",
+    "expectedTop3": ["PATTERN:ConfidenceScoring_TemporalPrefix", "TECH:ClaudeCodeBrain:ConfidenceWeightedDecay", "TECH:ClaudeCodeBrain:ContradictionDetection"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-code",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "PocketBase WOF",
+    "expectedTop3": ["TECH:WOF:PocketBase", "PATTERN:INT:WOF:PocketBase", "PATTERN:INT:WheelOfFate:PocketBase"],
+    "categoryTag": "TECH",
+    "entityType": "tech-config",
+    "tier": "TECH"
+  },
+  {
+    "query": "rate limiting whitelist auth rule",
+    "expectedTop3": ["RULE:LLMApiProxy:RateLimiting", "RULE:LLMApiProxy:WhitelistAuth", "RULE:KGApp:ChatRateLimiting"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-rule",
+    "tier": "BIZ"
+  },
+  {
+    "query": "graph viewer migration visualization",
+    "expectedTop3": ["DECISION:ClaudeCodeBrain:GraphViewerMigration", "TECH:ClaudeCodeBrain:GraphVisualizationStack", "TECH:ClaudeCodeBrain:ViewerPerformanceConfig"],
+    "categoryTag": "TECH",
+    "entityType": "tech-decision",
+    "tier": "TECH"
+  },
+  {
+    "query": "HermitGraph input validation gaps",
+    "expectedTop3": ["INCIDENT:HermitGraph:InputValidationGaps", "TECH:HermitGraph:WriteValidation", "INCIDENT:HermitGraph:QueryResultFormatting"],
+    "categoryTag": "INCIDENT",
+    "entityType": "incident-gotcha",
+    "tier": "INCIDENT"
+  },
+  {
+    "query": "service layer architecture",
+    "expectedTop3": ["PATTERN:ARCH:ServiceLayer", "PATTERN:ARCH:ServerSideValidation", "TECH:Decision:ServerSideOverHook"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-arch",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "dual password hash WebCash security",
+    "expectedTop3": ["RULE:WebCash:DualPasswordHash", "RULE:WebCash:UserLock", "RULE:WebCash:LicenseValidation"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-rule",
+    "tier": "BIZ"
+  },
+  {
+    "query": "HIUDigitizer parallel processing retry",
+    "expectedTop3": ["RULE:HIUDigitizer:ParallelProcessing", "RULE:HIUDigitizer:RetryLogic", "FLOW:HIUDigitizer:DigitizationWorkflow"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-rule",
+    "tier": "BIZ"
+  },
+  {
+    "query": "audio system TTS WOF",
+    "expectedTop3": ["TECH:WOF:AudioSystemArchitecture", "TECH:WOF:TTSResearch", "TECH:WOF:GameAudioResearch"],
+    "categoryTag": "TECH",
+    "entityType": "tech-decision",
+    "tier": "TECH"
+  },
+  {
+    "query": "CrawBot message routing gateway",
+    "expectedTop3": ["FLOW:CrawBot:MessageRoute", "FLOW:CrawBot:GatewayLifecycle", "RULE:CrawBot:ChannelBindings"],
+    "categoryTag": "BIZ",
+    "entityType": "biz-flow",
+    "tier": "BIZ"
+  },
+  {
+    "query": "MCP server command injection bug",
+    "expectedTop3": ["INCIDENT:HermitV4:CommandInjection", "INCIDENT:HermitV4:PerformanceIssues", "INCIDENT:HermitGraph:CodeGraphCLIArgFormat"],
+    "categoryTag": "INCIDENT",
+    "entityType": "incident-bug",
+    "tier": "INCIDENT"
+  },
+  {
+    "query": "WebCash Wetax SIERP integration",
+    "expectedTop3": ["PATTERN:INT:WebCash:Wetax", "PATTERN:INT:WebCash:SIERP", "PATTERN:INT:Integration_Wetax"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-integration",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "brain CLI vision architecture",
+    "expectedTop3": ["TECH:Decision:BrainCLI_Vision", "PATTERN:ARCH:BrainCLI_Architecture", "INCIDENT:BrainCLI:PlanVsRealityGap"],
+    "categoryTag": "TECH",
+    "entityType": "tech-decision",
+    "tier": "TECH"
+  },
+  {
+    "query": "VFX skill canvas animation",
+    "expectedTop3": ["PATTERN:VFX:SkillVFXCanvas", "INCIDENT:WOF:ChargeSkillVFXBugs", "PATTERN:WOF:Wheel-d20-Mapping"],
+    "categoryTag": "PATTERN",
+    "entityType": "pattern-code",
+    "tier": "PATTERN"
+  },
+  {
+    "query": "WOF arena effect combat background bug",
+    "expectedTop3": ["INCIDENT:WoF:ArenaEffectNotInitOnCombatStart", "INCIDENT:WoF:EnrageOverwritesArenaType", "GOTCHA:WOF:CombatBgIgnoresSceneContext"],
+    "categoryTag": "INCIDENT",
+    "entityType": "incident-bug",
+    "tier": "INCIDENT"
+  }
+]
