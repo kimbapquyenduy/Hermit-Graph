@@ -1,10 +1,15 @@
 {
   "name": "hermit-graph",
-  "version": "6.6.4",
+  "version": "7.1.0",
   "description": "Persistent memory for AI coding agents. Knowledge graph with 4-tier taxonomy, confidence scoring, and MCP protocol support for Claude Code, Cursor, Gemini CLI, Windsurf, Cline, Codex, and OpenCode.",
   "type": "module",
   "bin": {
-    "hermit": "./scripts/brain-cli.mjs"
+    "hermit": "./scripts/brain-cli.mjs",
+    "hermit-migrate": "./scripts/migrate-jsonl-to-sqlite.mjs",
+    "hermit-migrate-vec": "./scripts/migrate-embeddings-to-vec.mjs",
+    "hermit-verify": "./scripts/verify-parity.mjs",
+    "hermit-export-jsonl": "./scripts/export-sqlite-to-jsonl.mjs",
+    "hermit-export": "./scripts/export-sqlite-to-jsonl.mjs"
   },
   "files": [
     "scripts/lib/",
@@ -12,7 +17,10 @@
     "scripts/brain-health.mjs",
     "scripts/build-embedding-index.mjs",
     "scripts/clean-skills.mjs",
-    "scripts/export-db-to-jsonl.mjs",
+    "scripts/export-sqlite-to-jsonl.mjs",
+    "scripts/migrate-jsonl-to-sqlite.mjs",
+    "scripts/migrate-embeddings-to-vec.mjs",
+    "scripts/verify-parity.mjs",
     "scripts/hermit-mcp-server.mjs",
     "scripts/merge-brain-jsonl.mjs",
     "scripts/migrate-v3-to-v4.mjs",
@@ -69,11 +77,11 @@
     "migrate": "node scripts/migrate-v3-to-v4.mjs",
     "backfill": "node scripts/backfill-confidence.mjs",
     "stale": "node scripts/stale-report.mjs",
-    "export": "node scripts/export-db-to-jsonl.mjs",
+    "export": "node scripts/export-sqlite-to-jsonl.mjs",
     "sync": "node scripts/sync-to-neo4j.mjs",
     "view": "node scripts/view-graph.mjs",
     "view:code": "node scripts/view-graph.mjs --code",
-    "view:live": "node scripts/export-db-to-jsonl.mjs && node scripts/view-graph.mjs",
+    "view:live": "node scripts/export-sqlite-to-jsonl.mjs && node scripts/view-graph.mjs",
     "setup:semantic": "node scripts/setup-semantic.mjs",
     "setup:conventions": "node scripts/setup-conventions.mjs",
     "setup:all": "node scripts/setup-project.mjs && node scripts/setup-semantic.mjs && node scripts/setup-conventions.mjs",
@@ -82,16 +90,25 @@
     "prepublishOnly": "node scripts/publish-preflight.mjs",
     "test:e2e": "node scripts/test-e2e-code-intel.mjs",
     "test:all": "node scripts/test-v4.mjs && node scripts/test-e2e-code-intel.mjs",
-    "publish:dry": "npm pack --dry-run"
+    "bench:tokens": "node scripts/bench/run-token-bench.mjs",
+    "bench:hard": "node scripts/bench/run-hard-bench.mjs",
+    "bench:functional": "node scripts/bench/run-functional-bench.mjs",
+    "bench:framework-e2e": "node scripts/bench/run-framework-e2e.mjs",
+    "publish:dry": "npm pack --dry-run",
+    "smoke:vec": "node scripts/smoke-sqlite-vec.mjs"
   },
   "dependencies": {
     "@ast-grep/napi": "^0.42.1",
     "@huggingface/transformers": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.9.0",
     "dotenv": "^16.4.0",
+    "sqlite-vec": "^0.1.9",
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
-    "@ast-grep/lang-python": "^0.0.6"
+    "@ast-grep/lang-java": "^0.0.7",
+    "@ast-grep/lang-python": "^0.0.6",
+    "fast-xml-parser": "^5.7.1"
   }
 }

@@ -6,16 +6,41 @@
  * Usage: node scripts/migrate-v3-to-v4.mjs [path-to-brain.jsonl]
  */
 
-import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, copyFileSync, existsSync, createReadStream } from 'fs';
+import { createInterface } from 'readline';
 import { resolveBrainPath } from './lib/resolve-brain-path.mjs';
 
-const brainPath = process.argv[2] || resolveBrainPath();
+const rawArgs = process.argv.slice(2);
+const skipConfirm = rawArgs.includes('--yes');
+// Filter out flags to find positional path arg
+const brainPath = rawArgs.filter(a => !a.startsWith('--'))[0] || resolveBrainPath();
 const backupPath = brainPath + '.v3-backup';
 
 if (!existsSync(brainPath)) {
   console.error(`File not found: ${brainPath}`);
-  console.error('Usage: node scripts/migrate-v3-to-v4.mjs [path-to-brain.jsonl]');
+  console.error('Usage: node scripts/migrate-v3-to-v4.mjs [path-to-brain.jsonl] [--yes]');
   process.exit(1);
+}
+
+// Count entities for confirmation prompt
+const lines = readFileSync(brainPath, 'utf-8').split('\n').filter(Boolean);
+const entityCount = lines.filter(l => { try { return JSON.parse(l).type === 'entity'; } catch { return false; } }).length;
+
+// Step 0: Confirmation prompt (unless --yes or non-TTY)
+if (!skipConfirm && process.stdin.isTTY) {
+  const answer = await new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`About to migrate ${entityCount} entities at ${brainPath}. Continue? [y/N] `, (ans) => {
+      rl.close();
+      resolve(ans.trim().toLowerCase());
+    });
+  });
+  if (answer !== 'y' && answer !== 'yes') {
+    console.log('Migration aborted. Re-run with --yes to skip this prompt.');
+    process.exit(0);
+  }
+} else if (!skipConfirm && !process.stdin.isTTY) {
+  console.log(`Migrating ${entityCount} entities at ${brainPath} (non-interactive — add --yes to confirm explicitly).`);
 }
 
 // Step 1: Backup (only once — don't overwrite existing backup)
@@ -27,7 +52,6 @@ if (!existsSync(backupPath)) {
 }
 
 // Step 2: Read + migrate
-const lines = readFileSync(brainPath, 'utf-8').split('\n').filter(Boolean);
 let migratedEntities = 0, migratedObs = 0, alreadyMigrated = 0;
 
 const migrated = lines.map(line => {

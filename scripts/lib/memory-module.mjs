@@ -134,19 +134,102 @@ function ok(text) { return { content: [{ type: 'text', text }] }; }
 function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }; }
 
 /**
+ * Wrap a tool handler to emit tool:call + tool:result trace events.
+ * No-op (returns handler unchanged) when traceBus is null — zero overhead path.
+ *
+ * @param {string} toolName
+ * @param {Function} handler
+ * @param {object|null} traceBus
+ * @returns {Function}
+ */
+function withTrace(toolName, handler, traceBus) {
+  if (!traceBus) return handler;
+  return async (args) => {
+    traceBus.emit('tool:call', { tool: toolName, args });
+    const t0 = Date.now();
+    try {
+      const result = await handler(args);
+      traceBus.emit('tool:result', { tool: toolName, durationMs: Date.now() - t0, success: !result?.isError });
+      return result;
+    } catch (err) {
+      traceBus.emit('tool:result', { tool: toolName, durationMs: Date.now() - t0, success: false, error: err.message });
+      throw err;
+    }
+  };
+}
+
+/**
+ * Read full graph via ctx.memoryProvider, falling back to ctx.fallbackProvider on error.
+ * @param {object} ctx
+ * @returns {Promise<{ entities: Map<string, object>, relations: object[] }>}
+ */
+async function readGraph(ctx) {
+  try {
+    if (ctx.memoryProvider) return await ctx.memoryProvider.readAll();
+  } catch (err) {
+    ctx.log(`memory-module: primary read failed (${err.message}), falling back`);
+    if (ctx.fallbackProvider) return await ctx.fallbackProvider.readAll();
+    throw err;
+  }
+  // Default: direct brain-io read (jsonl flag unset or provider missing)
+  return readBrain(ctx.brainPath);
+}
+
+/**
  * Register all 10 memory tools.
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
- * @param {object} ctx - Shared context { brainPath, log }
+ * @param {object} ctx - Shared context { brainPath, log, memoryProvider?, fallbackProvider?, dualWriter? }
  */
 export function register(server, ctx) {
   const { brainPath, log } = ctx;
 
-  // Expose brain readers for other modules
+  // Tap point 1: memory tools — auto-wrap all server.tool() calls in this module
+  // with tool:call + tool:result trace events when traceBus is active.
+  // Uses a local proxy so other modules are unaffected.
+  const _origTool = server.tool.bind(server);
+  const tracedServer = ctx.traceBus
+    ? {
+        tool: (name, desc, schema, ...rest) => {
+          // rest is [optsOrHandler, handler?] — MCP SDK supports 3 or 4-arg overloads
+          if (rest.length === 1 && typeof rest[0] === 'function') {
+            return _origTool(name, desc, schema, withTrace(name, rest[0], ctx.traceBus));
+          }
+          if (rest.length === 2 && typeof rest[1] === 'function') {
+            return _origTool(name, desc, schema, rest[0], withTrace(name, rest[1], ctx.traceBus));
+          }
+          return _origTool(name, desc, schema, ...rest);
+        },
+      }
+    : server;
+
+  /**
+   * Mirror a set of changed entities/relations to SQLite after a JSONL write.
+   * Called inside the existing withBrainLock callback — no new lock acquired.
+   * Non-fatal: SQLite errors are logged and swallowed via DualWriter stats.
+   *
+   * @param {object[]} changedEntities
+   * @param {object[]} changedRelations
+   */
+  async function mirrorToSqlite(changedEntities, changedRelations = []) {
+    if (!ctx.dualWriter?.getStats().enabled) return;
+    const sqlite = ctx.dualWriter._sqlite;
+    try {
+      for (const entity of changedEntities) await sqlite.writeEntity(entity);
+      for (const rel of changedRelations) await sqlite.writeRelation(rel);
+    } catch (err) {
+      ctx.dualWriter._lastSqliteError = err;
+      ctx.dualWriter._sqliteFailureCount++;
+      log(`memory-module: SQLite mirror failed (failure #${ctx.dualWriter._sqliteFailureCount}): ${err.message}`);
+    }
+  }
+
+  // Expose brain readers for other modules (both direct and via provider)
+  // These stay as synchronous brain-io reads for backward compat with codegraph/unified-search
   ctx.getEntities = () => readBrain(brainPath).entities;
   ctx.getRelations = () => readBrain(brainPath).relations;
 
   // ── T1: Create Entities ──
-  server.tool('hermit_create_entities', 'Persist knowledge across sessions — save whenever you learn: a business rule, an architecture pattern, a bug+fix root-cause, or a tech decision. Naming: TIER:SCOPE:LABEL (e.g. RULE:Shop:DiscountMax50). Deduplicates by name. THIS is how you remember things next session.', {
+  tracedServer.tool('hermit_create_entities', 'Persist knowledge across sessions — save whenever you learn: a business rule, an architecture pattern, a bug+fix root-cause, or a tech decision. Naming: TIER:SCOPE:LABEL (e.g. RULE:Shop:DiscountMax50). Deduplicates by name. THIS is how you remember things next session.', {
     entities: zArray(z.object({
       name: z.string().min(1).describe('Entity name (TIER:SCOPE:LABEL format)'),
       entityType: z.string().min(1).describe('One of 13 entity types'),
@@ -159,9 +242,10 @@ export function register(server, ctx) {
       if (invalid.length > 0) return fail(obsValidationError(invalid));
     }
 
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       let created = 0, merged = 0, typeConflicts = 0, superseded = 0;
+      const changed = [];
       for (const item of input) {
         const existing = findEntity(entities, item.name);
         if (existing) {
@@ -174,12 +258,16 @@ export function register(server, ctx) {
           existing.observations = resolution.merged;
           superseded += resolution.superseded;
           merged++;
+          changed.push(existing);
         } else {
-          entities.set(item.name, { type: 'entity', name: item.name, entityType: item.entityType, observations: item.observations });
+          const newEntity = { type: 'entity', name: item.name, entityType: item.entityType, observations: item.observations };
+          entities.set(item.name, newEntity);
           created++;
+          changed.push(newEntity);
         }
       }
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite(changed);
       return { created, merged, typeConflicts, superseded };
     });
     const conflictNote = result.typeConflicts > 0 ? ` (${result.typeConflicts} type conflicts — existing types preserved)` : '';
@@ -188,16 +276,17 @@ export function register(server, ctx) {
   });
 
   // ── T2: Create Relations ──
-  server.tool('hermit_create_relations', 'Link two saved entities (e.g. RULE:X depends_on PATTERN:Y, INCIDENT:Z caused_by TECH:W). Use after hermit_create_entities to encode the graph structure. Relations make recall vastly more useful — standalone entities are islands.', {
+  tracedServer.tool('hermit_create_relations', 'Link two saved entities (e.g. RULE:X depends_on PATTERN:Y, INCIDENT:Z caused_by TECH:W). Use after hermit_create_entities to encode the graph structure. Relations make recall vastly more useful — standalone entities are islands.', {
     relations: zArray(z.object({
       from: z.string().min(1),
       to: z.string().min(1),
       relationType: z.string().min(1),
     }), { min: 1 }),
   }, async ({ relations: input }) => {
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       let created = 0, skipped = 0, missing = 0;
+      const newRels = [];
       for (const rel of input) {
         if (!findEntity(entities, rel.from) || !findEntity(entities, rel.to)) {
           log(`hermit_create_relations: skipping relation "${rel.from}" → "${rel.to}" — one or both entities not found`);
@@ -206,10 +295,13 @@ export function register(server, ctx) {
         }
         const exists = relations.some(r => r.from === rel.from && r.to === rel.to && r.relationType === rel.relationType);
         if (exists) { skipped++; continue; }
-        relations.push({ type: 'relation', ...rel });
+        const newRel = { type: 'relation', ...rel };
+        relations.push(newRel);
+        newRels.push(newRel);
         created++;
       }
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite([], newRels);
       return { created, skipped, missing };
     });
     const missingNote = result.missing > 0 ? ` (${result.missing} skipped — entity not found)` : '';
@@ -217,12 +309,12 @@ export function register(server, ctx) {
   });
 
   // ── T3: Search Nodes (keyword) ──
-  server.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations.', {
+  tracedServer.tool('hermit_search_nodes', 'Search saved knowledge — past decisions, bug fixes, business rules, architecture patterns from prior sessions. Use BEFORE asking the user clarifying questions — you may have answered this topic before. Keyword-ranked across entity names, types, and observations. DON\'T re-ask the user without searching first. DON\'T grep brain.jsonl — this is faster and ranks results.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
     include_archived: zBoolean().optional().default(false),
   }, RO, async ({ query, limit, include_archived }) => {
-    const { entities } = readBrain(brainPath);
+    const { entities } = await readGraph(ctx);
     let results = [];
     for (const [, e] of entities) {
       if (!include_archived && e._archived) continue;
@@ -237,7 +329,7 @@ export function register(server, ctx) {
   });
 
   // ── T4: Semantic Search ──
-  server.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index.', {
+  tracedServer.tool('hermit_semantic_search', 'Semantic KG search — finds related saved knowledge even when your query wording differs from stored observations (vector similarity + keyword hybrid). Use when hermit_search_nodes returned nothing but you suspect related context exists. Falls back to keyword-only if no embedding index. DON\'T call this AND hermit_search_nodes for the same query — they cover overlapping ground; pick one.', {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
   }, RO, async ({ query, limit }) => {
@@ -253,10 +345,10 @@ export function register(server, ctx) {
   });
 
   // ── T5: Open Nodes ──
-  server.tool('hermit_open_nodes', 'Read full entity details when you already know the name(s). Use after hermit_search_nodes surfaces a relevant entity and you want all its observations + relations expanded (search returns summaries only).', {
+  tracedServer.tool('hermit_open_nodes', 'Read full entity details when you already know the name(s). Use after hermit_search_nodes surfaces a relevant entity and you want all its observations + relations expanded (search returns summaries only).', {
     names: zArray(z.string().min(1), { min: 1, max: 20 }),
   }, RO, async ({ names }) => {
-    const { entities } = readBrain(brainPath);
+    const { entities } = await readGraph(ctx);
     const found = [], missing = [];
     for (const name of names) {
       const e = findEntity(entities, name);
@@ -269,7 +361,7 @@ export function register(server, ctx) {
   });
 
   // ── T6: Add Observations ──
-  server.tool('hermit_add_observations', 'Extend an already-saved entity with new facts — use when the user gives more detail about something you previously saved, or you discover more context mid-session. Requires [confidence|YYYY-MM-DD] prefix per observation.', {
+  tracedServer.tool('hermit_add_observations', 'Extend an already-saved entity with new facts — use when the user gives more detail about something you previously saved, or you discover more context mid-session. Requires [confidence|YYYY-MM-DD] prefix per observation.', {
     entityName: z.string().min(1),
     observations: zArray(z.string(), { min: 1 }),
   }, async ({ entityName, observations: newObs }) => {
@@ -277,12 +369,13 @@ export function register(server, ctx) {
     const invalid = validateObservations(newObs);
     if (invalid.length > 0) return fail(obsValidationError(invalid));
 
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       const entity = findEntity(entities, entityName);
       if (!entity) return null;
       entity.observations = [...(entity.observations || []), ...newObs];
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite([entity]);
       return entity.observations.length;
     });
     if (result === null) return fail(`Entity "${entityName}" not found.`);
@@ -290,12 +383,13 @@ export function register(server, ctx) {
   });
 
   // ── T7: Archive Entities (with audit trail) ──
-  server.tool('hermit_archive_entities', 'Soft-delete entities (set _archived=true)', {
+  tracedServer.tool('hermit_archive_entities', 'Soft-delete entities (set _archived=true)', {
     names: zArray(z.string().min(1), { min: 1 }),
   }, async ({ names }) => {
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       let archived = 0;
+      const changed = [];
       for (const name of names) {
         const entity = findEntity(entities, name);
         if (entity && !entity._archived) {
@@ -304,20 +398,22 @@ export function register(server, ctx) {
           entity.observations = (entity.observations || []).map(obs => archiveObservation(obs));
           entity._history = [...(entity._history || []), { action: 'archived', at: entity._archivedAt }];
           archived++;
+          changed.push(entity);
         }
       }
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite(changed);
       return archived;
     });
     return ok(`Archived ${result} entities.`);
   });
 
   // ── T8: Archive Observations (with audit trail) ──
-  server.tool('hermit_archive_observations', 'Soft-archive specific observations within an entity by content match', {
+  tracedServer.tool('hermit_archive_observations', 'Soft-archive specific observations within an entity by content match', {
     entityName: z.string().min(1),
     observations: zArray(z.string(), { min: 1 }).describe('Observation texts to archive (partial match)'),
   }, async ({ entityName, observations: targets }) => {
-    const result = await withBrainLock(brainPath, () => {
+    const result = await withBrainLock(brainPath, async () => {
       const { entities, relations } = readBrain(brainPath);
       const entity = findEntity(entities, entityName);
       if (!entity) return null;
@@ -334,6 +430,7 @@ export function register(server, ctx) {
         return obs;
       });
       writeBrain(brainPath, entities, relations);
+      await mirrorToSqlite([entity]);
       return count;
     });
     if (result === null) return fail(`Entity "${entityName}" not found.`);
@@ -341,12 +438,12 @@ export function register(server, ctx) {
   });
 
   // ── T9: Get Related ──
-  server.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity.', {
+  tracedServer.tool('hermit_get_related', 'Traverse the knowledge graph from a known entity (1-5 hops) — surfaces neighboring decisions, rules, bug reports, and patterns. Use for "what else connects to X?" when you need broader context than a single entity. DON\'T loop hermit_open_nodes on each neighbor — this returns the neighborhood in one call.', {
     name: z.string().min(1),
     depth: zNumber().int().min(1).max(5).optional().default(1),
     relationType: z.string().optional(),
   }, RO, async ({ name, depth, relationType }) => {
-    const { entities, relations } = readBrain(brainPath);
+    const { entities, relations } = await readGraph(ctx);
     if (!findEntity(entities, name)) return fail(`Entity "${name}" not found.`);
     const visited = new Set();
     const results = [];
@@ -373,13 +470,13 @@ export function register(server, ctx) {
   });
 
   // ── T10: Read Graph ──
-  server.tool('hermit_read_graph', 'Read knowledge graph with filters', {
+  tracedServer.tool('hermit_read_graph', 'Read knowledge graph with filters', {
     detailLevel: z.enum(['minimal', 'detail', 'entity-list']).optional().default('minimal'),
     entityNames: zArray(z.string()).optional(),
     entityTypes: zArray(z.string()).optional(),
     include_archived: zBoolean().optional().default(false),
   }, RO, async ({ detailLevel, entityNames, entityTypes, include_archived }) => {
-    const { entities, relations } = readBrain(brainPath);
+    const { entities, relations } = await readGraph(ctx);
     let filtered = [...entities.values()];
     if (!include_archived) filtered = filtered.filter(e => !e._archived);
     if (entityNames?.length) {

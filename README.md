@@ -368,9 +368,11 @@ Hermit is a **targeted enhancement, not a Grep replacement.** Real benchmark on 
 
 ### Languages Supported
 
-- **JavaScript** (.js, .mjs, .cjs)
+- **JavaScript** (.js, .mjs, .cjs, .jsx)
 - **TypeScript** (.ts, .tsx)
 - **Python** (.py) — via optional `@ast-grep/lang-python`
+- **Java** (.java) — via optional `@ast-grep/lang-java`, captures annotations (`@Service`, `@Controller`, `@Transactional`, etc.)
+- **MyBatis XML mappers** (.xml with `<mapper namespace=...>` schema) — `<select|insert|update|delete>` statements cross-linked to Java interface methods via `fast-xml-parser`. Editing a Java interface method surfaces its XML mapper as d=1 caller
 
 ### Performance (real numbers)
 
@@ -472,6 +474,63 @@ Hermit uses a **4-tier taxonomy** to categorize everything your agents learn:
 | **INCIDENT** | Bugs, gotchas, lessons learned | `INCIDENT:ShopX:PaymentTimeout` |
 
 Every observation is tagged with confidence `[0.0-1.0]` and date. Stale entries (180+ days) are auto-flagged for review.
+
+---
+
+## Bridging External MCP Servers
+
+> **SECURITY WARNING:** The bridge config file (`~/.hermit/mcp-bridges.json`) **executes arbitrary commands** when a bridge is enabled. Treat it exactly like your shell rc file — **only enable bridges from sources you fully trust.** A malicious bridge config can run any command as your user. All bridges ship disabled by default.
+
+Brain can act as a transparent proxy to other MCP servers, surfacing their tools to agents under a namespaced prefix (`mcp_<bridge>_<tool>`). Agents see foreign tools as if they were native Brain tools.
+
+### Quick Start
+
+1. Edit `~/.hermit/mcp-bridges.json` (created by `hermit setup`):
+   ```json
+   [
+     {
+       "name": "time",
+       "transport": "stdio",
+       "command": "npx",
+       "args": ["-y", "mcp-server-time"],
+       "enabled": true
+     }
+   ]
+   ```
+2. Restart Brain (restart your IDE/agent MCP server).
+3. Agents now see `mcp_time_get_current_time` (and any other tools the server exposes).
+
+### Transport Types
+
+| Transport | Config fields required | Use case |
+|-----------|----------------------|----------|
+| `stdio`   | `command`, `args`    | Local servers (99% of cases) |
+| `http`    | `url`                | Remote/hosted MCP servers |
+
+### Bridge Name Rules
+
+- Lowercase alphanumeric + underscore only: `^[a-z][a-z0-9_]*$`
+- Max 32 characters
+- Tool names with special characters are sanitized (`-` → `_`, etc.)
+
+### Bridge Management Tools
+
+| Tool | Description |
+|------|-------------|
+| `hermit_list_bridges` | List all bridges: status, tool count, circuit breaker state |
+| `hermit_reload_bridges` | Re-read config and apply diff — no Brain restart needed |
+| `hermit_enable_bridge` | Reset circuit breaker for a bridge (also restarts dead bridges) |
+
+### Circuit Breaker
+
+Each bridge has an automatic circuit breaker. After **3 consecutive call failures**, the bridge is marked "circuit open" and all calls return a clear error. The breaker auto-recovers after **5 minutes**, or immediately via `hermit_enable_bridge({ name: "..." })`.
+
+### Resilience
+
+- Subprocess crash → automatic restart with exponential backoff (1s, 2s, 4s)
+- After 3 restarts → bridge marked `dead`; use `hermit_enable_bridge` to revive
+- One bridge crashing never affects other bridges
+- `shutdownAll()` on SIGINT/SIGTERM — all subprocesses exit within 2s
 
 ---
 
@@ -615,6 +674,57 @@ npm run sync
 
 ---
 
+## Trace Bus (opt-in skill-evolution wiring)
+
+> **PRIVACY NOTICE:** Trace events may contain query text, tool arguments, and file paths from your working directory. This feature is **opt-in only** and disabled by default. Do not enable in shared or CI environments without reviewing what is captured.
+
+Hermit v7 includes a frozen v1 event bus that records execution traces for future auto-tuning pipelines (DSPy/GEPA). The bus is **wiring only** — no mutation, training, or scoring logic is included.
+
+### How to enable
+
+```bash
+# In-memory ring buffer only (no disk write)
+HERMIT_TRACE_BUS=1 <your agent MCP config>
+
+# With file sink (append-only JSONL)
+HERMIT_TRACE_BUS=1 HERMIT_TRACE_SINK=/tmp/hermit-traces.jsonl <your agent MCP config>
+```
+
+### Inspect recent events
+
+```json
+{ "name": "hermit_tap_traces", "arguments": { "n": 50 } }
+```
+
+Returns the last N events from the in-memory ring buffer. Returns `[]` when trace bus is disabled.
+
+### Trace event types (frozen v1 schema)
+
+| Event | Emitted by | When |
+|-------|-----------|------|
+| `tool:call` | memory + codegraph modules | Before each tool handler runs |
+| `tool:result` | memory + codegraph modules | After each tool handler completes |
+| `search:query` | `hermit_unified_search` | After search results are merged |
+| `search:fusion` | hybrid retrieval | After RRF fuses BM25 + vector rankings |
+| `bridge:forward` | MCP bridge proxy | After each forwarded bridge call |
+
+Full schema: [`docs/skill-evolution-trace-schema.md`](docs/skill-evolution-trace-schema.md)
+
+### What is NOT included
+
+- No DSPy/GEPA integration
+- No prompt mutation or rewriting
+- No training loops or scoring
+- No redaction filters (future work)
+
+### File sink notes
+
+- Append-only JSONL; one event per line
+- `HERMIT_TRACE_SINK` must point to a writable path — never writes to a default location
+- No rotation policy — monitor disk usage manually
+
+---
+
 ## Project Structure
 
 <details>
@@ -698,6 +808,124 @@ Run `npm run setup:semantic` then `npm run build:index`. Requires Node.js 18+.
 Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index auto-creates on first query but may need a refresh after large changes.
 
 </details>
+
+---
+
+## What's New in v7.1.0 — Token Diet + Framework Resolvers + Multi-Worker Indexer
+
+A capability + efficiency release on top of v7.0's SQLite foundation. **No breaking changes** — `HERMIT_TOOL_PROFILE=full` restores the original 34-tool surface.
+
+**Measured on real projects:**
+- Indexing **-84%** wall time (EduMVP 27.5s → 4.5s; Vue 2.6 enterprise app 167s → 30s)
+- Session tokens **-58.6%** via tool-surface diet (catalog 4,775 → 1,635 tokens)
+- `hermit_impact` payload **-92%** via counts-first default
+
+**Headline features:**
+- **9 framework resolvers** — Express, Laravel, NestJS, React, Vue, Django, Rails, Svelte, Shopify Liquid. Each auto-detects from project config, emits framework-resolved edges (JSX renders, route handlers, controller dispatches, etc.) that the AST extractor misses.
+- **Vue + Svelte + Liquid SFC extractors** — parse `<script>` blocks, extract component members, line-offset-preserving.
+- **Multi-strategy resolution cascade** — framework → import → name, with confidence scoring + provenance on every edge.
+- **Multi-worker parallel indexer** — auto-enables at ≥ 50 files. `Promise.all` fan-out across CPU cores with stable-hash routing so pass-2 hits cached AST. Name-indexed O(1) symbol lookup.
+- **Token-conscious defaults** — `HERMIT_TOOL_PROFILE=core` (10 tools), `HERMIT_AUTORECALL=smart` (skip on trivial prompts), 15K-char output cap, compact response format, container outline for class context, anti-pattern coaching in tool descriptions.
+- **`~/.hermit/frameworks.json`** override config (`disable: [...]` / `override: [...]`).
+- **4 reproducible bench harnesses** under `scripts/bench/` + `npm run bench:tokens|hard|functional|framework-e2e`.
+
+See `docs/project-changelog.md` for the full feature list and `docs/benchmarks/2026-Q2.md` for the measurement report.
+
+---
+
+## What's New in v7.0 — SQLite Single Source of Truth
+
+**v7.0 is a breaking change in storage behavior**: `brain.jsonl` is no longer auto-written. SQLite (`brain.db`) + `sqlite-vec` are now the single source of truth for all reads and writes.
+
+### Auto-migration on first boot
+
+If you have a v6 `brain.jsonl` vault and no `brain.db`, the MCP server auto-migrates on first boot:
+
+```
+[hermit] Boot: v6 vault detected — starting auto-migration...
+[hermit] Boot: v6 → v7 migration complete (620 entities). Backup: brain.jsonl.v6-backup-20260505
+```
+
+- Original `brain.jsonl` is **backed up** (renamed to `brain.jsonl.v6-backup-{date}`), never deleted.
+- Set `HERMIT_AUTO_MIGRATE=1` to skip the interactive prompt.
+
+### Manual migration
+
+```bash
+# JSONL → SQLite
+hermit-migrate
+
+# Backfill vector embeddings (for hybrid search)
+hermit-migrate-vec --from-jsonl data/brain.jsonl
+```
+
+### Export SQLite back to JSONL (disaster recovery)
+
+```bash
+hermit-export-jsonl --db data/brain.db --to data/brain.jsonl.recovered
+# or via CLI:
+hermit export
+```
+
+### Escape hatch — restore dual-write temporarily
+
+```bash
+# Also write JSONL on every write (marked for removal in v8.0)
+HERMIT_LEGACY_DUAL_WRITE=1 hermit serve
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HERMIT_PRIMARY_READ` | `sqlite` | Read source: `sqlite` (default) or `jsonl` |
+| `HERMIT_RETRIEVAL` | `bm25` | Search mode: `bm25`, `hybrid`, or `vector` |
+| `HERMIT_LEGACY_DUAL_WRITE` | unset | Set to `1` to re-enable JSONL fan-out (v8.0 removal target) |
+| `HERMIT_AUTO_MIGRATE` | unset | Set to `1` to skip v6 migration confirmation prompt |
+| `HERMIT_EMBED_MODE` | `eager` | Vector embed on write: `eager` or `lazy` |
+| `HERMIT_TOOL_PROFILE` | `core` | Tool surface: `core` (10 tools, ~1500 catalog tokens) or `full` (34 tools). Token-diet default. |
+| `HERMIT_AUTORECALL` | `smart` | Auto-recall gating: `smart` (gate on prompt content), `always` (fire every session), `off` (disable). Saves ~1500 tokens × ~50% of sessions when `smart`. |
+| `HERMIT_AUTORECALL_LOG` | unset | Set to `1` to log auto-recall skip decisions to stderr. Debug aid. |
+| `HERMIT_ID_MODE` | `legacy` | Symbol ID format: `legacy` (`file::name`) or `sha256` (collision-safe `kind:hash32`). v7 back-compat keeps legacy default. |
+| `HERMIT_PARSE_WORKER` | auto | Multi-worker parser: `1` forces on, `0` forces off, otherwise auto-enables when project has ≥ 200 files. Measured -42% indexing time on 547-file repos. |
+| `HERMIT_PARSE_RECYCLE` | `500` | Per-worker parse count before terminate+respawn to bound native heap. |
+
+### Token-conscious defaults
+
+Hermit ships with token-diet defaults that reduce session cost by ~58.6% vs the pre-diet baseline:
+
+- **Tool surface diet** (`HERMIT_TOOL_PROFILE=core`) — 10 core tools cover ~95% of agent flows. Advanced 24 tools require `HERMIT_TOOL_PROFILE=full`.
+- **Conditional auto-recall** (`HERMIT_AUTORECALL=smart`) — recall hook fires only when prompt has code/biz signal; trivial prompts skip the ~1500-token recall injection.
+- **Compact response format** — symbol rows use `- name (kind) file:line [tags]`; impact returns counts + d=1 names only by default (pass `verbose: true` for full d=2/d=3 lists).
+- **Container outline** — `hermit_context` on classes returns member outline (signatures + line numbers) instead of full body dumps.
+- **Universal output cap** — all tool responses capped at 15,000 chars with clean-newline truncation.
+- **Server instructions** — 60-line MCP playbook injected at init steers agents to the right tool by intent + avoids common anti-patterns ("don't grep first when looking up a symbol").
+- **Min-score query filter** — concept queries with no high-confidence matches return an honest "no matches" instead of misleading low-score dross.
+
+Set `HERMIT_TOOL_PROFILE=full` if you need any of the advanced tools (memory CRUD, skills export, MCP bridges, audit trail, …) and don't want to opt back in per-session.
+
+## Migrating from v6 (JSONL) to v7 (SQLite)
+
+Hermit v7 introduced SQLite as the primary storage backend. Migration is automatic on first boot, or can be run manually.
+
+### Manual migration steps
+
+```bash
+# Step 1: Migrate JSONL → SQLite
+hermit-migrate
+
+# Step 2: Backfill vector index
+hermit-migrate-vec --from-jsonl data/brain.jsonl
+
+# Step 3: Export back to JSONL if needed
+hermit-export-jsonl
+```
+
+### Notes
+
+- Migration is **idempotent** — safe to run multiple times. Existing data is UPSERTed, no duplicates.
+- Source `brain.jsonl` is **backed up** before migration and never deleted automatically.
+- v6 vault auto-detected at boot: `brain.jsonl` present + `brain.db` absent → auto-migration runs.
 
 ---
 
