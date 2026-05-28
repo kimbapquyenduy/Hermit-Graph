@@ -4,6 +4,78 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [7.1.0] — 2026-05-28
+
+### Added — Token Diet + Framework Resolvers + Multi-Worker Indexer
+
+Substantial efficiency + capability release on top of v7.0.0's SQLite foundation. Measured -84% indexing time on real projects (EduMVP 27.5s → 4.5s; gsf20 Vue 2.6 167s → 30s; RandomFantasy 19s → 3.6s), -58.6% session token cost via tool-surface diet.
+
+**Token diet (-58.6% session tokens):**
+- `HERMIT_TOOL_PROFILE=core` default — 10 core tools instead of 34 (catalog: 4,775 → 1,635 tokens). Env override `=full` restores all tools.
+- MCP `instructions` field ships a 60-line agent playbook at init.
+- Compact response format across `hermit_query`/`context`/`impact`/`unified_search`.
+- F4 container outline — `hermit_context` on classes returns member outline (signatures + line numbers) instead of body dump.
+- F9 counts-first impact — default returns counts + d=1 names + risk only; `verbose: true` opt-in for full d=2/d=3 lists. -92% tokens on impact calls.
+- F10 conditional auto-recall — `HERMIT_AUTORECALL=smart` gates recall on prompt content (code/biz keywords). Saves ~1,500 tok × 50% of sessions.
+- F11 feature-request heuristic appends UX-clarification reminder when query looks like a feature request.
+- Universal 15,000-char output cap on all tool responses.
+- Min-score 0.30 filter eliminates dross matches in semantic queries.
+- Anti-pattern DON'T coaching baked into core tool descriptions.
+
+**Multi-strategy resolution (Phase 03):**
+- `scripts/lib/code-intel/resolution/` cascade: framework → import → name.
+- Confidence scoring + provenance (`resolvedBy` on every edge).
+- Ambiguity reporting with top-N candidates.
+- Name-indexed O(1) symbol lookup (was O(N) linear scan) — ~50% extra speedup on framework pass.
+
+**9 framework resolvers (Phase 04):**
+- Express (`app.METHOD('/path', handler)`)
+- Laravel (5 patterns: `[Ctrl::class, 'method']`, `Model::scope()`, facades, `route('name')`, `view('blade.path')`)
+- NestJS (`@Inject(TOKEN)`)
+- React (JSX `<Component />`, custom hooks; built-in hooks like `useState` skip)
+- Vue (PascalCase + kebab-case template tags, composables)
+- Django (`path('url', view)`, Flask `@app.route`, FastAPI `@app.get`)
+- Rails (`get '/x' => 'controller#action'`, `before_action :method`, `resources :name`, `Model.find_by_X`)
+- Svelte (template `<Component />`, mustache `{fn()}`; Svelte 5 runes skipped)
+- Shopify Liquid (`{% render %}`, `{% include %}`, `{% section %}`)
+- Auto-detect via `package.json` / `composer.json` / `Gemfile` / `pyproject.toml`.
+- Override via `~/.hermit/frameworks.json` (`disable: [...]` and `override: [...]`).
+
+**Template-language extractors (Phase 07):**
+- Vue SFC parser — extracts component from `<script>` block, methods + computed from convention blocks.
+- Svelte SFC parser — extracts component, `export let` props, exported + internal functions.
+- Liquid parser — emits one component per `.liquid` file with directory-inferred kind (snippet/section/template/layout).
+- Framework post-pass adds RENDERS/CALLS edges across template languages.
+
+**Parallel indexer runtime (Phase 05):**
+- New `scripts/lib/code-intel/parse-pool.mjs` — multi-worker fan-out via `Promise.all`.
+- Stable-hash file routing keeps each file on the same worker across pass-1 + pass-2 (AST cache hit).
+- Default worker count `max(2, min(8, cpus()/2))`. Auto-enables at ≥ 50 files.
+- `preloadSymbols` sends global symbol map to each worker once between passes.
+- Recycle every 500 parses (`HERMIT_PARSE_RECYCLE`).
+- Per-request timeout, crash recovery (replay in-flight on respawn), `worker.unref()` for clean SIGINT.
+- Async batched file I/O (10 reads in parallel) — overlap I/O with parse.
+
+**Quick wins (Phase 01):**
+- `scripts/lib/code-intel/id-gen.mjs` — opt-in SHA256 IDs via `HERMIT_ID_MODE=sha256` (default `legacy` preserves v7 back-compat).
+- `scripts/lib/code-intel/strip-comments.mjs` — line-offset-preserving comment stripper (JS/TS/PHP/Python/Ruby).
+- `scripts/lib/code-intel/output-budget.mjs` — adaptive 4-tier response budget by project size.
+- Content-hash sync fallback in `incrementalIndex` (handles non-git dirs, force-pushes, rebase squash).
+
+**Other:**
+- `scripts/bench/` — reproducible bench harnesses for token, hard, functional, and framework-e2e measurement.
+- 4 new `npm run bench:*` scripts.
+- `docs/benchmarks/2026-Q2.md` — published measurement report.
+- `RENDERS` and `EXTENDS` edges now flow into caller/callee adjacency (impact analysis traverses them).
+- Framework provenance breakdown displayed in `hermit_impact` output ("Resolved by — framework:react: 7").
+- Brain-health checker now filters `_archived` entities (consolidation dupes no longer reappear in WARN list).
+
+**Tests:** 119 → 199 passing (+80), 0 failures.
+
+**No breaking changes** — `HERMIT_TOOL_PROFILE=full` restores the original 34-tool surface. All other defaults preserve existing behavior.
+
+---
+
 ## [7.0.0] — 2026-05-05
 
 ### Added — Multi-Tier Memory + MCP-Native Tool Bridging + SQLite Single Source of Truth
