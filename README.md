@@ -811,6 +811,28 @@ Run `hermit_index({cwd: "/path/to/project"})` to force a full reindex. The index
 
 ---
 
+## What's New in v7.1.0 — Token Diet + Framework Resolvers + Multi-Worker Indexer
+
+A capability + efficiency release on top of v7.0's SQLite foundation. **No breaking changes** — `HERMIT_TOOL_PROFILE=full` restores the original 34-tool surface.
+
+**Measured on real projects:**
+- Indexing **-84%** wall time (EduMVP 27.5s → 4.5s; Vue 2.6 enterprise app 167s → 30s)
+- Session tokens **-58.6%** via tool-surface diet (catalog 4,775 → 1,635 tokens)
+- `hermit_impact` payload **-92%** via counts-first default
+
+**Headline features:**
+- **9 framework resolvers** — Express, Laravel, NestJS, React, Vue, Django, Rails, Svelte, Shopify Liquid. Each auto-detects from project config, emits framework-resolved edges (JSX renders, route handlers, controller dispatches, etc.) that the AST extractor misses.
+- **Vue + Svelte + Liquid SFC extractors** — parse `<script>` blocks, extract component members, line-offset-preserving.
+- **Multi-strategy resolution cascade** — framework → import → name, with confidence scoring + provenance on every edge.
+- **Multi-worker parallel indexer** — auto-enables at ≥ 50 files. `Promise.all` fan-out across CPU cores with stable-hash routing so pass-2 hits cached AST. Name-indexed O(1) symbol lookup.
+- **Token-conscious defaults** — `HERMIT_TOOL_PROFILE=core` (10 tools), `HERMIT_AUTORECALL=smart` (skip on trivial prompts), 15K-char output cap, compact response format, container outline for class context, anti-pattern coaching in tool descriptions.
+- **`~/.hermit/frameworks.json`** override config (`disable: [...]` / `override: [...]`).
+- **4 reproducible bench harnesses** under `scripts/bench/` + `npm run bench:tokens|hard|functional|framework-e2e`.
+
+See `docs/project-changelog.md` for the full feature list and `docs/benchmarks/2026-Q2.md` for the measurement report.
+
+---
+
 ## What's New in v7.0 — SQLite Single Source of Truth
 
 **v7.0 is a breaking change in storage behavior**: `brain.jsonl` is no longer auto-written. SQLite (`brain.db`) + `sqlite-vec` are now the single source of truth for all reads and writes.
