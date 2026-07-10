@@ -98,7 +98,7 @@
     "smoke:vec": "node scripts/smoke-sqlite-vec.mjs"
   },
   "dependencies": {
-    "@ast-grep/napi": "^0.42.1",
+    "@ast-grep/napi": "^0.44.1",
     "@huggingface/transformers": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.9.0",
