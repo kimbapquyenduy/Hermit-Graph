@@ -101,7 +101,7 @@
     "@ast-grep/napi": "^0.42.1",
     "@huggingface/transformers": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.0.2",
     "dotenv": "^16.4.0",
     "sqlite-vec": "^0.1.9",
     "zod": "^4.3.6"
