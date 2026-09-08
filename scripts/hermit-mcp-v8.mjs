@@ -1,0 +1,23 @@
+import {registerV8Capabilities} from './lib/v8-capabilities.mjs';
+
+import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
+import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
+import {BrainStore} from './lib/storage/brain-store.mjs';
+import {resolvePaths} from './lib/storage/paths.mjs';
+import {MemoryService} from './lib/memory-service.mjs';
+import {registerV8Memory} from './lib/v8-memory-module.mjs';
+const paths=resolvePaths();
+const store=new BrainStore({dbPath:paths.dbPath});
+const service=new MemoryService({store});
+const cwd=process.env.HERMIT_PROJECT_CWD||process.env.CLAUDE_PROJECT_DIR||process.env.HERMIT_USER_CWD;
+if(cwd)service.startSession(cwd);
+const server=new McpServer({name:'hermit-graph-v8',version:'8.0.0-dev'});
+registerV8Memory(server,service);
+registerV8Capabilities(server,service,paths);
+const transport=new StdioServerTransport();
+await server.connect(transport);
+let closed=false;
+const close=()=>{if(!closed){closed=true;store.close();}};
+transport.onclose=close;
+process.once('SIGINT',()=>{close();process.exit(0);});
+process.once('SIGTERM',()=>{close();process.exit(0);});

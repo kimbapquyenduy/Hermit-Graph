@@ -28,6 +28,8 @@ const filteredArgs = args.filter(a => a !== '--code');
 
 if (codeMode) {
   launchCodeViewer(filteredArgs[0]);
+} else if(process.env.HERMIT_STORAGE !== 'legacy') {
+  await launchV8Viewer();
 } else {
   launchKGViewer(filteredArgs[0]);
 }
@@ -36,7 +38,7 @@ if (codeMode) {
 // Data priority: explicit arg → MEMORY_FILE_PATH env → <cwd>/data/brain.jsonl → empty (no data).
 // Viewer renders empty state when no data found — user can still load a file via the UI.
 function launchKGViewer(dataArg) {
-  const cwd = process.cwd();
+  const cwd = process.env.HERMIT_USER_CWD || process.cwd();
   const candidate = dataArg
     ? resolve(dataArg)
     : (process.env.MEMORY_FILE_PATH || join(cwd, 'data', 'brain.jsonl'));
@@ -83,7 +85,7 @@ function launchKGViewer(dataArg) {
 // Data priority: explicit arg → <cwd>/data/code-symbols.jsonl → empty (no data).
 // Viewer opens empty when no code graph is indexed for the current project.
 function launchCodeViewer(dataArg) {
-  const cwd = process.cwd();
+  const cwd = process.env.HERMIT_USER_CWD || process.cwd();
   const candidate = dataArg
     ? resolve(dataArg)
     : join(cwd, 'data', 'code-symbols.jsonl');
@@ -169,4 +171,16 @@ function openInBrowser(filePath) {
   } catch {
     console.log(`\nCould not auto-open browser. Open manually:\n  file://${filePath}`);
   }
+}
+
+async function launchV8Viewer(){
+ const {openRuntime,graphSnapshot}=await import('./lib/v8-cli-runtime.mjs');const r=openRuntime();
+ try{
+ const graph=graphSnapshot(r);const jsonl=[...graph.entities,...graph.relations].map(e=>JSON.stringify(e)).join('\n');
+ const html=readFileSync(join(ROOT,'viewer','index.html'),'utf8');
+ const injection='<script>window.__HERMIT_DATA__='+JSON.stringify(jsonl).replaceAll('<','\\u003c')+';window.addEventListener("DOMContentLoaded",()=>loadBrainData(window.__HERMIT_DATA__));</script>';
+ const output=html.replace('<title>','<title>Read-only snapshot — ').replace('<body>','<body><div style="position:fixed;bottom:4px;left:8px;z-index:9999;background:#111;color:#fff;padding:6px">Read-only snapshot — reopen to refresh</div>').replace('</body>',injection+'</body>');
+ const tmpFile=writeTempFile('v8-snapshot-'+process.pid+'.html',output);console.log('Read-only v8 snapshot: '+tmpFile);
+ if(!args.includes('--no-open'))openInBrowser(tmpFile);
+ }finally{r.store.close();}
 }

@@ -10,7 +10,6 @@
 
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { join, basename } from 'path';
-import { embedBatch, embed, cosineSimilarity } from '../embedding-service.mjs';
 import { readCodeGraph, codeGraphPath } from './code-io.mjs';
 
 const EMBEDDING_FILE = 'code-embeddings.json';
@@ -94,6 +93,7 @@ export async function buildCodeEmbeddings(dataDir, { onProgress } = {}) {
   }
 
   onProgress?.({ phase: 'embedding', total: texts.length });
+  const { embedBatch } = await import('../embedding-service.mjs');
   const embedded = await embedBatch(texts);
   if (!embedded) {
     throw new Error('Embedding model unavailable');
@@ -137,6 +137,7 @@ export async function searchCodeSemantic(query, dataDir, opts = {}) {
     }
   }
 
+  const { embed, cosineSimilarity } = await import('../embedding-service.mjs');
   const queryVec = await embed(query).catch(() => null);
   const useVector = queryVec !== null && vectors.size > 0;
 

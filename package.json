@@ -38,7 +38,14 @@
     "viewer/index.html",
     "viewer/code-viewer.html",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/hermit-mcp-v8.mjs",
+    "scripts/hermit-mcp-legacy.mjs",
+    "scripts/doctor.mjs",
+    "scripts/backup-brain.mjs",
+    "scripts/semantic-cli.mjs",
+    "scripts/hermit-hook.mjs",
+    "scripts/verify-hook-scanner-authority.mjs"
   ],
   "keywords": [
     "ai",
@@ -68,11 +75,11 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "serve": "node scripts/hermit-mcp-server.mjs",
-    "test": "node scripts/test-v4.mjs && node --test test/embedding-offline.test.mjs",
+    "test": "node scripts/test-v4.mjs && node --test test/embedding-offline.test.mjs test/v8-*.test.mjs && npm run verify:hooks",
     "setup": "node scripts/setup-project.mjs",
     "health": "node scripts/brain-health.mjs",
     "migrate": "node scripts/migrate-v3-to-v4.mjs",
@@ -90,14 +97,16 @@
     "build:index:force": "node scripts/build-embedding-index.mjs --force",
     "prepublishOnly": "node scripts/publish-preflight.mjs",
     "test:e2e": "node scripts/test-e2e-code-intel.mjs",
-    "test:all": "node scripts/test-v4.mjs && node scripts/test-e2e-code-intel.mjs",
+    "test:all": "npm test && npm run test:e2e",
     "bench:tokens": "node scripts/bench/run-token-bench.mjs",
     "bench:hard": "node scripts/bench/run-hard-bench.mjs",
     "bench:functional": "node scripts/bench/run-functional-bench.mjs",
     "bench:framework-e2e": "node scripts/bench/run-framework-e2e.mjs",
     "publish:dry": "npm pack --dry-run",
     "smoke:vec": "node scripts/smoke-sqlite-vec.mjs",
-    "doctor": "node scripts/hermit-doctor.mjs --sessions"
+    "doctor": "node scripts/hermit-doctor.mjs --sessions",
+    "test:v8": "node --test test/v8-*.test.mjs",
+    "verify:hooks": "node scripts/verify-hook-scanner-authority.mjs"
   },
   "dependencies": {
     "@ast-grep/napi": "^0.42.1",

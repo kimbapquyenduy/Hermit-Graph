@@ -36,6 +36,9 @@ const helpRequested = allArgv.includes('--help') || allArgv.includes('-h');
 const versionRequested = allArgv.includes('--version') || allArgv.includes('-v');
 
 const COMMANDS = {
+ model: {desc:'Manage the optional local model',usage:'hermit model status|install|backfill',run:()=>runScript('semantic-cli.mjs',args)},
+ doctor:{desc:'Read-only diagnostics',usage:'hermit doctor [--json]',run:()=>runScript('doctor.mjs',args)},
+ backup:{desc:'Verified SQLite backup',usage:'hermit backup <fresh-destination>',run:()=>runScript('backup-brain.mjs',args)},
   search: {
     desc: 'Hybrid semantic + keyword search',
     usage: 'hermit search <query>',
@@ -65,7 +68,7 @@ const COMMANDS = {
     desc: 'Run graph health checks',
     usage: 'hermit health',
     examples: ['hermit health'],
-    run: () => runScript('brain-health.mjs'),
+    run: () => runScript('brain-health.mjs',args),
   },
   index: {
     desc: 'Build/rebuild embedding index',
@@ -149,6 +152,14 @@ async function runSkills() {
 }
 
 async function runSearch() {
+ if(process.env.HERMIT_STORAGE !== 'legacy') {
+ const {openRuntime}=await import('./lib/v8-cli-runtime.mjs');const r=openRuntime();
+ try {const query=args.filter(a=>!a.startsWith('-')).join(' ');if(!query)throw new Error('Usage: hermit search <query>');
+ const results=r.store.search(query,{...r.scope,topK:10});
+ if(args.includes('--json'))console.log(JSON.stringify(results));else {console.log('Search mode: bm25');for(const e of results)console.log(e.score+'  '+e.name+' ('+e.entityType+') ['+e.id+']');if(!results.length)console.log('No results found.');}
+ }finally{r.store.close();}return;
+ }
+
   const query = args.filter(a => !a.startsWith('-')).join(' ');
   if (!query) {
     console.error('Usage: hermit search <query>');
@@ -172,17 +183,13 @@ async function runSearch() {
   console.log(`\n${results.length} results`);
 }
 
-function runView() {
-  const script = join(__dirname, 'view-graph.mjs');
-  const child = fork(script, args, { cwd: ROOT, stdio: 'inherit' });
-  child.on('exit', (code) => process.exit(code || 0));
-}
+function runView() {return runScript('view-graph.mjs',args);}
 
 function runScript(name, extraArgs = []) {
   const script = join(__dirname, name);
   // Preserve user's original cwd via env — some scripts (check-edit) need to
   // resolve against the caller's directory, not hermit-graph's install root.
-  const env = { ...process.env, HERMIT_USER_CWD: process.cwd() };
+  const env = { ...process.env, HERMIT_USER_CWD: process.env.HERMIT_USER_CWD || process.cwd() };
   const child = fork(script, extraArgs, { cwd: ROOT, stdio: 'inherit', env });
   child.on('exit', (code) => process.exit(code || 0));
 }
@@ -236,6 +243,8 @@ if (helpRequested) {
 }
 
 try {
+  if(process.env.HERMIT_STORAGE && !['legacy','v8'].includes(process.env.HERMIT_STORAGE))throw new Error('HERMIT_STORAGE must be v8 or legacy');
+  if(process.env.HERMIT_STORAGE !== 'legacy' && ['index','export','stale','migrate','setup'].includes(command))throw new Error(command+' is currently legacy-only; set HERMIT_STORAGE=legacy explicitly. Use backup for a verified v8 snapshot.');
   await COMMANDS[command].run();
 } catch (err) {
   console.error(`Error: ${err.message}`);

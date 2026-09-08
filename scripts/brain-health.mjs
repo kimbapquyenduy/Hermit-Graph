@@ -46,15 +46,15 @@ export {
 
 // CLI entry
 const args = process.argv.slice(2);
-const brainPath = args[0] || join(process.cwd(), 'data', 'brain.jsonl');
-
-if (!existsSync(brainPath)) {
-  console.error(`File not found: ${brainPath}`);
-  console.error('Usage: node scripts/brain-health.mjs [path-to-brain.jsonl]');
-  process.exit(1);
+let entities,relations,archivedNames=new Set();
+if(process.env.HERMIT_STORAGE==='legacy'){
+ const brainPath=args[0]||join(process.env.HERMIT_USER_CWD||process.cwd(),'data','brain.jsonl');
+ if(!existsSync(brainPath))throw new Error('File not found: '+brainPath);
+ ({entities,relations,archivedNames}=loadBrain(brainPath));
+}else{
+ const {openRuntime,graphSnapshot}=await import('./lib/v8-cli-runtime.mjs');const r=openRuntime();
+ try{const graph=graphSnapshot(r);entities=graph.entities.map(e=>({...e,name:e.name+' ['+e.id+']'}));const names=new Map(entities.map(e=>[e.id,e.name]));relations=graph.relations.map(e=>({...e,from:names.get(e.from),to:names.get(e.to)}));}finally{r.store.close();}
 }
-
-const { entities, relations, archivedNames } = loadBrain(brainPath);
 
 const checks = [
   checkStale(entities),

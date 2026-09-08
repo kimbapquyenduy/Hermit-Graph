@@ -7,8 +7,10 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join, basename, extname, relative } from 'path';
-import { execSync } from 'child_process';
-import { readBrain } from './brain-io.mjs';
+import { execSync, execFileSync } from 'child_process';
+import {BrainStore} from './storage/brain-store.mjs';
+import {resolvePaths} from './storage/paths.mjs';
+import {MemoryService} from './memory-service.mjs';
 
 // ── Helpers ──
 
@@ -106,7 +108,7 @@ function findFiles(dir, patterns, maxDepth = 3, _depth = 0) {
 
 function gitLog(cwd, since) {
   try {
-    return execSync(`git log --since="${since}" --stat --pretty=format:"%H"`, {
+    return execFileSync('git', ['log','--since='+since,'--stat','--pretty=format:%H'], {
       cwd, encoding: 'utf-8', timeout: 10000,
     }).trim();
   } catch { return ''; }
@@ -149,7 +151,8 @@ function matchDeps(deps, map) {
 // Phase 0: Change Detection
 // ══════════════════════════════════════════════════════════════════════════
 
-export function phaseZero(cwd, brainPath, force = false) {
+export function phaseZero(cwd, options = {}, force = options?.force ?? false) {
+  if(!options || typeof options !== 'object')throw new Error('phaseZero requires an options object; legacy path arguments are not supported');
   // Detect project name
   const pkg = safeJsonRead(join(cwd, 'package.json'));
   const pyproject = safeTextRead(join(cwd, 'pyproject.toml'), 1000);
@@ -167,7 +170,7 @@ export function phaseZero(cwd, brainPath, force = false) {
   }
 
   // Check ScanMeta in brain
-  const { entities } = readBrain(brainPath);
+  const entities = readScanEntities(cwd,options);
   const metaKey = `TECH:${projectName}:ScanMeta`;
   const meta = entities.get(metaKey);
 
@@ -198,7 +201,7 @@ export function phaseZero(cwd, brainPath, force = false) {
   if (currentHead && storedHead && currentHead !== storedHead) {
     // Check if it's a rebase/force-push (stored head not in history)
     try {
-      execSync(`git merge-base --is-ancestor ${storedHead} ${currentHead}`, {
+      execFileSync('git', ['merge-base','--is-ancestor',storedHead,currentHead], {
         cwd, encoding: 'utf-8', timeout: 5000,
       });
     } catch {
@@ -656,13 +659,14 @@ export function phaseFourFiveSixHints(cwd) {
 /**
  * Run deterministic Phase 0-3 and return structured scan data.
  * @param {string} cwd — project root
- * @param {string} brainPath — path to brain.jsonl
+ * @param {object} opts — optional injected SQLite store and force flag
  * @param {object} [opts]
  * @param {boolean} [opts.force] — force full rescan
  * @returns {object} Structured scan result for AI Phase 4-8
  */
-export function collectScanData(cwd, brainPath, opts = {}) {
-  const phase0 = phaseZero(cwd, brainPath, opts.force);
+export function collectScanData(cwd, opts = {}) {
+  if(!opts || typeof opts !== 'object')throw new Error('collectScanData requires an options object; legacy path arguments are not supported');
+  const phase0 = phaseZero(cwd, opts, opts.force);
 
   if (phase0.noChanges) {
     return {
@@ -710,4 +714,12 @@ export function collectScanData(cwd, brainPath, opts = {}) {
     dataOutput: dataOutput.dirs.length > 0 ? dataOutput : null,
     bizHints,
   };
+}
+
+function readScanEntities(cwd,options){
+  const path=resolvePaths().dbPath;
+  if(!options.store&&!existsSync(path))return new Map();
+  const store=options.store??new BrainStore({dbPath:path,readOnly:true});
+  try {const service=new MemoryService({store});return new Map(service.readGraph({cwd}).entities.map(e=>[e.name,e]));}
+  finally {if(!options.store)store.close();}
 }

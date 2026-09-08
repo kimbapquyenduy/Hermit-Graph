@@ -180,16 +180,10 @@ function filterByChangedLines(symbols, changedLines) {
 }
 
 /**
- * Load business-rule index from brain.jsonl. Returns a Map<normalizedFilePath, rule[]>.
- * Minimal re-implementation of biz-linker.buildFileRuleIndex, inlined here because
- * the hook is .cjs and biz-linker is .mjs. Returns empty map if brain missing or
- * no matching rules/flows.
+ * Load active scoped business rules from the canonical SQLite hook bridge.
+ * Returns a Map<normalizedFilePath, rule[]>; no legacy knowledge-file fallback.
  */
 function loadBizIndex(projectCwd) {
-  const brainPath = process.env.MEMORY_FILE_PATH
-    || path.join(projectCwd, 'data', 'brain.jsonl');
-  if (!fs.existsSync(brainPath)) return new Map();
-
   const norm = (p) => (p || '').trim()
     .replace(/:\d+(-\d+)?$/, '')
     .replace(/\\/g, '/')
@@ -204,12 +198,8 @@ function loadBizIndex(projectCwd) {
 
   const index = new Map();
   try {
-    const raw = fs.readFileSync(brainPath, 'utf-8');
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      let e;
-      try { e = JSON.parse(line); } catch { continue; }
-      if (e.type !== 'entity') continue;
+    const { entities } = require('./lib/sqlite-bridge.cjs').readGraph({ cwd: projectCwd });
+    for (const e of entities) {
       if (e.entityType !== 'biz-rule' && e.entityType !== 'biz-flow') continue;
       for (const obs of (e.observations || [])) {
         const text = obsText(obs).replace(/^\[[\d.]+\|\d{4}-\d{2}-\d{2}\]\s*/, '');
@@ -219,7 +209,9 @@ function loadBizIndex(projectCwd) {
         }
       }
     }
-  } catch { /* empty brain — fine */ }
+  } catch (error) {
+    process.stderr.write(`[hermit pre-edit-impact] SQLite rules unavailable: ${error.message}\n`);
+  }
   return index;
 }
 
