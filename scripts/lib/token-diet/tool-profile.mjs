@@ -1,9 +1,9 @@
 /**
  * Tool surface diet — registers only CORE tools by default, slashing the MCP
- * tool-catalog size in the agent's system prompt from ~4775 → ~1400 tokens.
+ * tool-catalog size in the agent's system prompt.
  *
  * Profile selection via env var HERMIT_TOOL_PROFILE:
- *   - 'core' (default)  — 10 tools covering 95% of agent flows
+ *   - 'core' (default)  — 14 tools covering 95% of agent flows (read + minimal write)
  *   - 'full'            — all 34 tools (back-compat / power users)
  *
  * Skipped tools still exist in the codebase — they're just not advertised
@@ -13,7 +13,10 @@
 /**
  * The agent-facing core. Picked to cover:
  *   - Code intel: query, context, impact, detect_changes, index
- *   - Brain recall: semantic_search, search_nodes
+ *   - Brain recall: semantic_search, search_nodes, open_nodes
+ *   - Brain write: create_entities, add_observations, create_relations
+ *     (without these, "core" profile can recall but never grow the brain —
+ *      session_start instructions still advertise the save flow)
  *   - Cross-domain: unified_search
  *   - Bootstrap: session_start
  *   - Health: health
@@ -28,6 +31,10 @@ export const CORE_TOOLS = new Set([
   'hermit_index',
   'hermit_semantic_search',
   'hermit_search_nodes',
+  'hermit_open_nodes',
+  'hermit_create_entities',
+  'hermit_add_observations',
+  'hermit_create_relations',
   'hermit_unified_search',
   'hermit_session_start',
   'hermit_health',

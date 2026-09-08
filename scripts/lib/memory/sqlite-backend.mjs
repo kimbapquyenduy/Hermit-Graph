@@ -8,7 +8,7 @@
  */
 
 import { createRequire } from 'module';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as sqliteVec from 'sqlite-vec';
@@ -40,6 +40,12 @@ export class SqliteProvider extends MemoryProvider {
     super();
     const Database = require('better-sqlite3');
     this._dbPath = dbPath || DEFAULT_DB_PATH;
+
+    // better-sqlite3 creates the FILE but not its directory, and fails with
+    // "Cannot open database because the directory does not exist" — which on a
+    // fresh consumer install crashes the server at import time, before any
+    // tool can report a useful message. Create the parent first.
+    mkdirSync(dirname(this._dbPath), { recursive: true });
 
     // Open (creates file if absent). WAL mode for concurrency headroom.
     this._db = Database(this._dbPath);
@@ -173,6 +179,11 @@ export class SqliteProvider extends MemoryProvider {
   async getEntity(name) {
     if (!name) return null;
     return readEntityFromDb(this._stmts, name);
+  }
+
+  /** Legacy SQLite rows use name as their stable ID. */
+  async getEntityById(id) {
+    return this.getEntity(id);
   }
 
   /**

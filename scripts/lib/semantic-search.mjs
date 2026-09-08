@@ -14,6 +14,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { embed, cosineSimilarity } from './embedding-service.mjs';
 import { obsText } from './parse-observation.mjs';
+import { entityId } from './memory/entity-identity.mjs';
 
 // Phase 04b: hybrid retrieval context (injected by hermit-mcp-server at boot)
 /** @type {{ memoryProvider: object, vectorBackend: object, mode: string, log: Function|null }|null} */
@@ -37,7 +38,7 @@ const BRAIN_PATH = join(PROJECT_ROOT, 'data', 'brain.jsonl');
 /** @type {import('./memory/vector-backend.mjs').VectorBackend|null} */
 let _vectorBackend = null;
 
-// Track lazy-embed in-flight to avoid duplicate queues (name → true)
+// Track lazy-embed in-flight to avoid duplicate queues (entity ID → true)
 const _lazyEmbedPending = new Set();
 
 /**
@@ -62,7 +63,7 @@ function loadIndex() {
 
 /**
  * Load entities from brain.jsonl for keyword matching and hydration.
- * @returns {Map<string, object>} name → entity
+ * @returns {Map<string, object>} stable entity ID → entity
  */
 function loadEntities() {
   if (!existsSync(BRAIN_PATH)) return new Map();
@@ -71,7 +72,7 @@ function loadEntities() {
   for (const line of lines) {
     try {
       const obj = JSON.parse(line);
-      if (obj.type === 'entity') map.set(obj.name, obj);
+      if (obj.type === 'entity') map.set(entityId(obj), obj);
     } catch { /* skip */ }
   }
   return map;
@@ -103,16 +104,16 @@ function entitySearchText(entity) {
 /**
  * Schedule a lazy embed+upsert for an entity missing from the vector backend.
  * Non-blocking: fires via setImmediate, never awaited in the search hot path.
- * Uses _lazyEmbedPending to prevent duplicate concurrent embeds for the same name.
+ * Uses _lazyEmbedPending to prevent duplicate concurrent embeds for the same ID.
  * Vector writes go directly to SQLite — no JSONL lock needed.
  * Latency note: embedding takes ~100ms/entity; runs out-of-band so search is unaffected.
  *
- * @param {string} name
+ * @param {string} id
  * @param {object} entity
  */
-function scheduleLazyEmbed(name, entity) {
-  if (!_vectorBackend || _lazyEmbedPending.has(name)) return;
-  _lazyEmbedPending.add(name);
+function scheduleLazyEmbed(id, entity) {
+  if (!_vectorBackend || _lazyEmbedPending.has(id)) return;
+  _lazyEmbedPending.add(id);
 
   setImmediate(async () => {
     try {
@@ -120,12 +121,12 @@ function scheduleLazyEmbed(name, entity) {
       const vec = await embed(text);
       if (!vec) return; // model unavailable
 
-      await _vectorBackend.upsert(name, vec);
+      await _vectorBackend.upsert(id, vec);
     } catch (_err) {
       // Non-fatal: lazy embed failure is expected (model error, DB locked transiently).
       // The pending flag is cleared so the next query can retry.
     } finally {
-      _lazyEmbedPending.delete(name);
+      _lazyEmbedPending.delete(id);
     }
   });
 }
@@ -159,14 +160,14 @@ async function searchViaBackend(query, entities, opts) {
   }
 
   // Build a map from vec results for O(1) lookup
-  const vecDistMap = new Map(vecResults.map(r => [r.name, r.distance]));
+  const vecDistMap = new Map(vecResults.map(r => [r.id || r.name, r.distance]));
 
   // Schedule lazy embeds for entities NOT in backend
   const backendCount = await _vectorBackend.count();
   if (backendCount > 0) {
-    for (const [name, entity] of entities) {
-      if (!vecDistMap.has(name)) {
-        scheduleLazyEmbed(name, entity);
+    for (const [id, entity] of entities) {
+      if (!vecDistMap.has(id)) {
+        scheduleLazyEmbed(id, entity);
       }
     }
   }
@@ -174,8 +175,10 @@ async function searchViaBackend(query, entities, opts) {
   const results = [];
 
   // Score entities that appeared in vector results
-  for (const { name, distance } of vecResults) {
-    const entity = entities.get(name);
+  for (const result of vecResults) {
+    const id = result.id || result.name;
+    const distance = result.distance;
+    const entity = entities.get(id);
     if (!entity) continue; // not in current brain (stale vector entry)
 
     // Convert distance to similarity: distance=0 → sim=1, distance=2 → sim=0
@@ -186,7 +189,8 @@ async function searchViaBackend(query, entities, opts) {
 
     if (score >= minScore) {
       results.push({
-        name,
+        id,
+        name: entity.name,
         entityType: entity.entityType,
         score: Math.round(score * 1000) / 1000,
         vectorScore: Math.round(vecScore * 1000) / 1000,
@@ -216,13 +220,14 @@ async function searchBruteForce(query, entities, opts) {
 
   const results = [];
 
-  for (const [name, entity] of entities) {
+  for (const [id, entity] of entities) {
     const searchText = entitySearchText(entity);
     const kwScore = keywordScore(query, searchText);
 
     let vecScore = 0;
-    if (useVector && index.entities[name]?.vector) {
-      const entityVec = new Float32Array(index.entities[name].vector);
+    const cached = index?.entities[id] || index?.entities[entity.name];
+    if (useVector && cached?.vector) {
+      const entityVec = new Float32Array(cached.vector);
       vecScore = Math.max(0, cosineSimilarity(queryVector, entityVec));
     }
 
@@ -232,7 +237,8 @@ async function searchBruteForce(query, entities, opts) {
 
     if (score >= minScore) {
       results.push({
-        name,
+        id,
+        name: entity.name,
         entityType: entity.entityType,
         score: Math.round(score * 1000) / 1000,
         vectorScore: Math.round(vecScore * 1000) / 1000,

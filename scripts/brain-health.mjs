@@ -12,7 +12,23 @@ import { join } from 'path';
 import {
   loadBrain, checkStale, checkDuplicates, checkOrphans,
   checkLowConfidence, checkMissingRelations, calculateHealth,
+  checkSchemaConformance, checkDanglingRelations, checkRelationVocabulary,
 } from './lib/brain-health-checks.mjs';
+
+/** Render one check finding — item shapes differ per check. */
+function describeItem(item) {
+  if (item.relationType && item.count !== undefined) {
+    return `"${item.relationType}" × ${item.count} (not in canonical vocabulary)`;
+  }
+  if (item.from && item.to) {
+    const detail = item.reasons ? item.reasons.join(', ')
+      : item.confidence !== undefined ? `confidence ${item.confidence}; shared: ${(item.shared || []).join(', ')}`
+      : item.relationType || '';
+    return `${item.from} ↔ ${item.to}${detail ? ` (${detail})` : ''}`;
+  }
+  if (item.problems) return `${item.name} — ${item.problems.join('; ')}`;
+  return item.name || item.entity || JSON.stringify(item);
+}
 
 function statusLabel(score) {
   if (score >= 90) return 'Excellent';
@@ -22,7 +38,11 @@ function statusLabel(score) {
 }
 
 // Re-export for backward compatibility (tests import from here)
-export { loadBrain, checkStale, checkDuplicates, checkOrphans, checkLowConfidence, checkMissingRelations, calculateHealth };
+export {
+  loadBrain, checkStale, checkDuplicates, checkOrphans, checkLowConfidence,
+  checkMissingRelations, calculateHealth,
+  checkSchemaConformance, checkDanglingRelations, checkRelationVocabulary,
+};
 
 // CLI entry
 const args = process.argv.slice(2);
@@ -34,14 +54,17 @@ if (!existsSync(brainPath)) {
   process.exit(1);
 }
 
-const { entities, relations } = loadBrain(brainPath);
+const { entities, relations, archivedNames } = loadBrain(brainPath);
 
 const checks = [
   checkStale(entities),
   checkDuplicates(entities),
   checkOrphans(entities, relations),
   checkLowConfidence(entities),
-  checkMissingRelations(entities, relations)
+  checkMissingRelations(entities, relations),
+  checkSchemaConformance(entities),
+  checkDanglingRelations(entities, relations, archivedNames),
+  checkRelationVocabulary(relations),
 ];
 
 const score = calculateHealth(checks);
@@ -53,20 +76,17 @@ console.log(`Score: ${score}/100 (${statusLabel(score)})\n`);
 
 for (let i = 0; i < checks.length; i++) {
   const c = checks[i];
+  const pct = c.totalCount > 0 ? Math.round(c.violationCount / c.totalCount * 100) : 0;
   if (c.skipped) {
     console.log(`Check ${i + 1}: ${c.name} — SKIP (${c.reason})`);
-  } else if (c.passed) {
-    const pct = c.totalCount > 0 ? Math.round(c.violationCount / c.totalCount * 100) : 0;
-    console.log(`Check ${i + 1}: ${c.name} — PASS (${c.violationCount}/${c.totalCount}, ${pct}%)`);
-  } else {
-    const pct = c.totalCount > 0 ? Math.round(c.violationCount / c.totalCount * 100) : 0;
-    console.log(`Check ${i + 1}: ${c.name} — WARN (${c.violationCount}/${c.totalCount}, ${pct}%)`);
-    if (c.items && c.items.length > 0) {
-      for (const item of c.items.slice(0, 5)) {
-        const desc = item.name || item.entity || `${item.from} ↔ ${item.to}`;
-        console.log(`  → ${desc}`);
-      }
-    }
+    continue;
+  }
+  // Informational checks report findings but don't affect the score.
+  const status = c.informational ? 'INFO' : c.passed ? 'PASS' : 'WARN';
+  console.log(`Check ${i + 1}: ${c.name} — ${status} (${c.violationCount}/${c.totalCount}, ${pct}%)`);
+  if (status === 'PASS') continue;
+  for (const item of (c.items || []).slice(0, 5)) {
+    console.log(`  → ${describeItem(item)}`);
   }
 }
 
@@ -89,8 +109,20 @@ if (!dupeCheck.skipped && !dupeCheck.passed) {
   recs.push(`Merge ${dupeCheck.violationCount} duplicate entities`);
 }
 const missingCheck = checks[4];
-if (!missingCheck.skipped && !missingCheck.passed) {
-  recs.push(`Add relations for ${missingCheck.violationCount} potentially unlinked entity pairs`);
+if (!missingCheck.skipped && missingCheck.items?.length) {
+  recs.push(`Review ${missingCheck.items.length} suggested relations above (highest-confidence pairs only)`);
+}
+const schemaCheck = checks[5];
+if (!schemaCheck.passed) {
+  recs.push(`Fix ${schemaCheck.violationCount} entities violating the schema registry (naming / min observations / required keys)`);
+}
+const danglingCheck = checks[6];
+if (!danglingCheck.passed) {
+  recs.push(`Repair ${danglingCheck.violationCount} dangling relations — endpoints missing or archived`);
+}
+const vocabCheck = checks[7];
+if (vocabCheck.violationCount > 0) {
+  recs.push(`${vocabCheck.violationCount} relations use ${vocabCheck.distinctOffenders} relationTypes outside the registry — adopt or rename (do not bulk-delete)`);
 }
 
 if (recs.length > 0) {

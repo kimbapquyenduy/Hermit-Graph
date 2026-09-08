@@ -4,6 +4,8 @@
  * Relations: CALLS, IMPORTS, EXTENDS, MEMBER_OF.
  */
 
+import { shouldResolveMemberCall } from './resolution/known-names.mjs';
+
 // ── Symbol extraction ──
 
 /**
@@ -84,12 +86,15 @@ export function extractRelationsPy(root, file, symbolMap) {
         relations.push({ _v: 1, _type: 'relation', from: callerSymId, to: targetId, kind: 'CALLS', line: line(node) });
       }
     }
-    // Method call: obj.method()
+    // Method call: obj.method() — guarded so `d.get(k)` / `os.path.join(...)`
+    // don't resolve to unrelated user symbols named get / join.
     if (callee.kind() === 'attribute') {
       const method = callee.field('attribute')?.text();
       if (method) {
         const targetId = symbolMap.get(method);
-        if (targetId && targetId !== callerSymId) {
+        const receiver = callee.field('object')?.text();
+        if (targetId && targetId !== callerSymId
+            && shouldResolveMemberCall(receiver, method, targetId, file)) {
           relations.push({ _v: 1, _type: 'relation', from: callerSymId, to: targetId, kind: 'CALLS', line: line(node) });
         }
       }

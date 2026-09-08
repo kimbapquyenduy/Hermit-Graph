@@ -20,6 +20,8 @@ import { DualWriter } from './lib/memory/dual-writer.mjs';
 import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
 import { BruteForceVectorBackend } from './lib/memory/brute-force-vector-fallback.mjs';
 import { setVectorBackend, setHybridContext } from './lib/semantic-search.mjs';
+import { warmup as warmupEmbeddings } from './lib/embedding-service.mjs';
+import { ensureIndexParity } from './lib/memory/index-parity-guard.mjs';
 import { detectVaultState, autoMigrate } from './lib/memory/v6-detect-and-migrate.mjs';
 import { makeProfileProxy, getProfile } from './lib/token-diet/tool-profile.mjs';
 import { SERVER_INSTRUCTIONS } from './lib/token-diet/server-instructions.mjs';
@@ -50,7 +52,14 @@ if (_vaultState === 'v6-needs-migrate') {
   }
 }
 
-// Phase 08: providers — SQLite is now authoritative
+// brain.jsonl is the source of truth; brain.db is a derived index (see
+// lib/memory/index-parity-guard.mjs for the decision and its rationale).
+// Detect drift and rebuild the index from truth BEFORE any provider opens a
+// handle, so a missed mirror write can never silently serve stale reads again.
+const _parity = ensureIndexParity({ brainPath: _brainPath, dbPath: _dbPath, log });
+if (_parity.healed) log('Index rebuilt from brain.jsonl (source of truth)');
+
+// Phase 08: providers — SQLite serves indexed reads (FTS + vector)
 const _jsonlProvider = new JsonlProvider({ brainPath: _brainPath });
 const _sqliteProvider = new SqliteProvider({ dbPath: _dbPath });
 
@@ -141,6 +150,16 @@ const _retrievalLog  = process.env.HERMIT_RETRIEVAL_LOG === '1';
 log(`Retrieval mode: ${_retrievalMode}${_retrievalLog ? ' (logging enabled)' : ''}`);
 setHybridContext({ memoryProvider: _readProvider, vectorBackend: _vectorBackend, mode: _retrievalMode, log: _retrievalLog ? log : null });
 
+// Pre-load the embedding model when this session will actually use vectors, so
+// the ~23MB model load lands at startup instead of inside the first user-facing
+// tool call. Fire-and-forget: a failure is cached and degrades to keyword
+// search. Skipped for the default bm25 mode, which never embeds.
+if (_retrievalMode !== 'bm25') {
+  warmupEmbeddings()
+    .then((ready) => log(`Embedding model ${ready ? 'warm' : 'unavailable (keyword fallback)'}`))
+    .catch((err) => log(`Embedding warmup failed: ${err.message}`));
+}
+
 /** Shared context passed to all modules. */
 const context = {
   brainPath: _brainPath,
@@ -174,7 +193,7 @@ const server = new McpServer({
 // register all 34 tools (back-compat / power users).
 const profile = getProfile();
 const registrationTarget = makeProfileProxy(server, log);
-log(`Tool profile: ${profile}${profile === 'core' ? ' (10 core tools; set HERMIT_TOOL_PROFILE=full for all 34)' : ''}`);
+log(`Tool profile: ${profile}${profile === 'core' ? ' (14 core tools; set HERMIT_TOOL_PROFILE=full for all 34)' : ''}`);
 
 /**
  * Register hermit_tap_traces — introspection tool for the trace ring buffer.

@@ -19,21 +19,21 @@ export class VectorBackend {
   }
 
   /**
-   * Upsert an entity's embedding vector. Creates or replaces by name.
-   * @param {string} name - Entity name (primary key)
+   * Upsert an entity's embedding vector. Creates or replaces by stable ID.
+   * @param {string} entityId - Stable entity ID (primary key)
    * @param {Float32Array} vec - 384-dim embedding vector
    * @returns {Promise<void>}
    */
-  async upsert(name, vec) { // eslint-disable-line no-unused-vars
+  async upsert(entityId, vec) { // eslint-disable-line no-unused-vars
     throw new Error('VectorBackend.upsert() not implemented');
   }
 
   /**
-   * Delete an entity's embedding by name. No-op if not found.
-   * @param {string} name
+   * Delete an entity's embedding by stable ID. No-op if not found.
+   * @param {string} entityId
    * @returns {Promise<void>}
    */
-  async delete(name) { // eslint-disable-line no-unused-vars
+  async delete(entityId) { // eslint-disable-line no-unused-vars
     throw new Error('VectorBackend.delete() not implemented');
   }
 
@@ -51,7 +51,7 @@ export class VectorBackend {
    *
    * @param {Float32Array} queryVec - 384-dim query vector
    * @param {number} topK - Number of nearest neighbours to return
-   * @returns {Promise<Array<{ name: string, distance: number }>>}
+   * @returns {Promise<Array<{ id: string, name?: string, distance: number }>>}
    */
   async search(queryVec, topK) { // eslint-disable-line no-unused-vars
     throw new Error('VectorBackend.search() not implemented — available in Phase 03c');

@@ -10,6 +10,8 @@
  * - Framework annotations (@Service, @Controller, @RestController) captured as `annotations: string[]` on the class symbol for downstream framework-bound detection
  */
 
+import { shouldResolveMemberCall } from './resolution/known-names.mjs';
+
 // ── Symbol extraction ──
 
 /**
@@ -78,7 +80,11 @@ export function extractRelationsJava(root, file, symbolMap) {
     if (!callerId) continue;
 
     const targetId = symbolMap.get(methodName);
-    if (targetId && targetId !== callerId) {
+    // Guarded: `list.add(x)` / `System.out.println(...)` must not resolve to a
+    // user symbol that merely shares the method name.
+    const receiver = node.field('object')?.text();
+    if (targetId && targetId !== callerId
+        && shouldResolveMemberCall(receiver, methodName, targetId, file)) {
       relations.push({
         _v: 1, _type: 'relation', from: callerId, to: targetId, kind: 'CALLS', line: line(node),
       });

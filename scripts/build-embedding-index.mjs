@@ -13,6 +13,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { embed, isAvailable, MODEL_ID } from './lib/embedding-service.mjs';
 import { obsText } from './lib/parse-observation.mjs';
+import { entityId } from './lib/memory/entity-identity.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -90,32 +91,36 @@ async function main() {
   // Load existing index for incremental update
   const existing = forceRebuild ? null : loadExistingIndex();
   const existingEntities = existing?.entities || {};
+  const newEntities = { ...existingEntities };
 
   // Determine which entities need (re-)embedding
   let toEmbed = [];
   let skipped = 0;
   for (const entity of entities) {
     const hash = entityHash(entity);
-    if (!forceRebuild && existingEntities[entity.name]?.hash === hash) {
+    const id = entityId(entity);
+    const previous = existingEntities[id] || existingEntities[entity.name];
+    if (!forceRebuild && previous?.hash === hash) {
       skipped++;
+      // Promote a legacy name-keyed entry to the stable ID key while keeping
+      // incremental builds from re-running the model unnecessarily.
+      if (!existingEntities[id]) {
+        newEntities[id] = { ...previous, name: entity.name };
+        if (id !== entity.name) delete newEntities[entity.name];
+      }
     } else {
-      toEmbed.push({ entity, hash });
+      toEmbed.push({ entity, id, hash });
     }
   }
 
   console.log(`To embed: ${toEmbed.length} | Unchanged (skip): ${skipped}`);
 
-  if (toEmbed.length === 0) {
-    console.log('\nIndex is up to date. Use --force to rebuild all.');
-    return;
-  }
+  if (toEmbed.length === 0) console.log('\nIndex is up to date. Use --force to rebuild all.');
 
   // Build embeddings
   const startTime = Date.now();
-  const newEntities = { ...existingEntities };
-
   for (let i = 0; i < toEmbed.length; i++) {
-    const { entity, hash } = toEmbed[i];
+    const { entity, id, hash } = toEmbed[i];
     const text = entityToText(entity);
     const vector = await embed(text);
 
@@ -124,10 +129,11 @@ async function main() {
       continue;
     }
 
-    newEntities[entity.name] = {
+    newEntities[id] = {
       vector: Array.from(vector), // JSON-serializable
       hash,
       entityType: entity.entityType,
+      name: entity.name,
     };
 
     // Progress indicator
@@ -139,10 +145,10 @@ async function main() {
   console.log(); // newline after progress
 
   // Remove entities that no longer exist in brain.jsonl
-  const currentNames = new Set(entities.map(e => e.name));
-  for (const name of Object.keys(newEntities)) {
-    if (!currentNames.has(name)) {
-      delete newEntities[name];
+  const currentIds = new Set(entities.map(e => entityId(e)));
+  for (const id of Object.keys(newEntities)) {
+    if (!currentIds.has(id)) {
+      delete newEntities[id];
     }
   }
 
