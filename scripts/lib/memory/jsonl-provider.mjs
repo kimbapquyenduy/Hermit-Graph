@@ -10,6 +10,7 @@
 import { readBrain, writeBrain, withBrainLock } from '../brain-io.mjs';
 import { search as semanticSearch } from '../semantic-search.mjs';
 import { MemoryProvider } from './provider-interface.mjs';
+import { entityId } from './entity-identity.mjs';
 
 export class JsonlProvider extends MemoryProvider {
   /**
@@ -103,6 +104,15 @@ export class JsonlProvider extends MemoryProvider {
     return null;
   }
 
+  /** Look up by stable ID; falls back to the display name for legacy records. */
+  async getEntityById(id) {
+    const { entities } = readBrain(this._brainPath);
+    for (const entity of entities.values()) {
+      if (entityId(entity) === String(id)) return entity;
+    }
+    return null;
+  }
+
   /**
    * Keyword search — delegates to memory-module's inline keywordMatch logic.
    * Re-implemented here so provider is self-contained; same algorithm.
@@ -125,7 +135,7 @@ export class JsonlProvider extends MemoryProvider {
       let hits = 0;
       for (const t of terms) { if (text.includes(t)) hits++; }
       const score = hits / terms.length;
-      if (score > minScore) results.push({ name: entity.name, entityType: entity.entityType, score });
+      if (score > minScore) results.push({ id: entityId(entity), name: entity.name, entityType: entity.entityType, score });
     }
 
     results.sort((a, b) => b.score - a.score);

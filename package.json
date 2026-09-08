@@ -22,6 +22,7 @@
     "scripts/migrate-embeddings-to-vec.mjs",
     "scripts/verify-parity.mjs",
     "scripts/hermit-mcp-server.mjs",
+    "scripts/hermit-doctor.mjs",
     "scripts/merge-brain-jsonl.mjs",
     "scripts/migrate-v3-to-v4.mjs",
     "scripts/setup-conventions.mjs",
@@ -71,7 +72,7 @@
   },
   "scripts": {
     "serve": "node scripts/hermit-mcp-server.mjs",
-    "test": "node scripts/test-v4.mjs",
+    "test": "node scripts/test-v4.mjs && node --test test/embedding-offline.test.mjs",
     "setup": "node scripts/setup-project.mjs",
     "health": "node scripts/brain-health.mjs",
     "migrate": "node scripts/migrate-v3-to-v4.mjs",
@@ -95,7 +96,8 @@
     "bench:functional": "node scripts/bench/run-functional-bench.mjs",
     "bench:framework-e2e": "node scripts/bench/run-framework-e2e.mjs",
     "publish:dry": "npm pack --dry-run",
-    "smoke:vec": "node scripts/smoke-sqlite-vec.mjs"
+    "smoke:vec": "node scripts/smoke-sqlite-vec.mjs",
+    "doctor": "node scripts/hermit-doctor.mjs --sessions"
   },
   "dependencies": {
     "@ast-grep/napi": "^0.42.1",

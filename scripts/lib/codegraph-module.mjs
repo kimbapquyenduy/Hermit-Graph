@@ -11,6 +11,8 @@ import * as codeIntel from './code-intel/index.mjs';
 import { formatSymbolCompact, formatRefCompact, topNWithTail } from './token-diet/compact-format.mjs';
 import { truncateOutput } from './token-diet/output-cap.mjs';
 import { featureRequestReminder } from './token-diet/feature-detect.mjs';
+import { zNumber } from './zod-coerce.mjs';
+import { withTimeout, DEFAULT_TOOL_TIMEOUT_MS } from './with-timeout.mjs';
 
 const RO = { readOnlyHint: true };
 const IDEM = { idempotentHint: true };
@@ -154,11 +156,20 @@ export function register(server, ctx) {
   tracedServer.tool('hermit_query', 'Semantic code search — finds symbols by CONCEPT, not literal substring (e.g. "authentication middleware" matches `authenticate`, `authMiddleware`, `tokenAuth`). Hybrid vector + keyword rank. Exported symbols carry [d1:N] tag showing direct-caller count. DON\'T: chain query→read for each result — call hermit_context once on the top hit instead. DON\'T grep first when you have a concept — query is faster and ranked.', {
     query: z.string().min(1).max(500).describe('Concept to search for in code (natural language OK)'),
     cwd: z.string().optional().describe('Project root. Defaults to CLAUDE_PROJECT_DIR env or process.cwd()'),
-  }, RO, async ({ query, cwd }) => {
+    timeout_ms: zNumber().int().min(1000).max(300000).optional().describe('Search budget; on overrun returns a timeout notice instead of hanging'),
+  }, RO, async ({ query, cwd, timeout_ms }) => {
     try {
       const projectCwd = resolveProjectCwd(cwd);
       const dataDir = await ensureIndex(projectCwd, log);
-      const result = await codeIntel.semanticQuery(query, dataDir);
+      // Session telemetry measured a 262s p95 here — bound it and say so
+      // rather than leaving the agent to hit its own hard timeout.
+      const { value: result, timedOut, elapsedMs } = await withTimeout(
+        () => codeIntel.semanticQuery(query, dataDir),
+        { ms: timeout_ms ?? DEFAULT_TOOL_TIMEOUT_MS, fallback: null },
+      );
+      if (timedOut || !result) {
+        return ok(`_Project: ${projectCwd}_\n\nSearch exceeded its ${Math.round((timeout_ms ?? DEFAULT_TOOL_TIMEOUT_MS) / 1000)}s budget (${elapsedMs}ms elapsed) and was abandoned.\n\nTry: a narrower query, \`hermit_context\` if you already know the symbol name, or raise \`timeout_ms\`.`);
+      }
       // Annotate symbols with direct-caller count for refactor awareness (Phase 1 of v6.5.0).
       // Include methods (parent-class members) and top-level exports, not just `exported=true` symbols.
       const graph = codeIntel.readCodeGraph(dataDir);

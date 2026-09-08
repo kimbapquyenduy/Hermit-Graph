@@ -158,7 +158,10 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   }
 
   // Pass 2: extract relations with global symbol map for cross-file call resolution.
-  if (useWorker) {
+  // _pool exists only if at least one AST-parseable file was collected. A repo of
+  // >=50 files that is 100% XML/Vue/Svelte/Liquid enables useWorker but never
+  // allocates the pool — guard on _pool or pass-2 null-derefs on preloadSymbols.
+  if (useWorker && _pool) {
     // Preload the symbol map into every worker once (saves serializing the
     // full map per file — big win on large repos with many symbols).
     await _pool.preloadSymbols(globalSymbolMap);

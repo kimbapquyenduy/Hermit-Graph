@@ -16,6 +16,7 @@
  */
 
 import { embed } from '../embedding-service.mjs';
+import { entityId } from './entity-identity.mjs';
 
 /**
  * @typedef {import('./provider-interface.mjs').MemoryProvider} MemoryProvider
@@ -104,7 +105,7 @@ export class DualWriter {
             const text = `${entity.name}\n${obsText}`.trim();
             const vec = await embed(text);
             if (vec) {
-              await this._vectorBackend.upsert(entity.name, vec);
+              await this._vectorBackend.upsert(entityId(entity), vec);
             }
           }
         } catch (err) {

@@ -8,8 +8,9 @@
 
 import assert from 'assert';
 import { spawn } from 'child_process';
-import { existsSync, unlinkSync, readFileSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { existsSync, unlinkSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import * as codeIntel from './lib/code-intel/index.mjs';
@@ -410,6 +411,55 @@ testSync('SCENARIO 13: code-symbols.jsonl file format', () => {
   info(`  - Meta: 1`);
   info(`  - Symbols: ${symbols.length}`);
   info(`  - Relations: ${relations.length}`);
+});
+
+// ── Regression: worker mode with zero AST-parseable files ──
+// A repo of >=50 files that contains no JS/TS/PY (only XML / Vue / Svelte /
+// Liquid) enables the parse worker but never allocates the pool. Pass-2 used to
+// call _pool.preloadSymbols() unconditionally and threw
+// "Cannot read properties of null (reading 'preloadSymbols')".
+
+function makeTempRepo(prefix, count, name, content) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  for (let i = 0; i < count; i++) {
+    writeFileSync(join(dir, name(i)), content(i), 'utf-8');
+  }
+  return dir;
+}
+
+await test('Regression: fullIndex on 60 non-MyBatis XML files (worker mode, no AST files)', async () => {
+  const repo = makeTempRepo('hermit-xml-', 60,
+    (i) => `config-${i}.xml`,
+    (i) => `<?xml version="1.0"?>
+<beans><bean id="b${i}" class="com.example.Bean${i}"/></beans>
+`);
+  const data = mkdtempSync(join(tmpdir(), 'hermit-xml-data-'));
+  try {
+    const result = await fullIndex(repo, data);
+    assert_has_property(result, 'graph', 'fullIndex should return a graph');
+    assert_has_property(result, 'stats', 'fullIndex should return stats');
+    info(`  indexed ${result.stats.files} XML files without crashing`);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(data, { recursive: true, force: true });
+  }
+});
+
+await test('Regression: fullIndex on 60 Vue SFC files (worker mode, no AST files)', async () => {
+  const repo = makeTempRepo('hermit-vue-', 60,
+    (i) => `Comp${i}.vue`,
+    (i) => `<template><div>c${i}</div></template>
+<script>export default { name: 'Comp${i}' }</script>
+`);
+  const data = mkdtempSync(join(tmpdir(), 'hermit-vue-data-'));
+  try {
+    const result = await fullIndex(repo, data);
+    assert_has_property(result, 'graph', 'fullIndex should return a graph');
+    info(`  indexed ${result.stats.files} Vue files without crashing`);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(data, { recursive: true, force: true });
+  }
 });
 
 // ── Summary ──

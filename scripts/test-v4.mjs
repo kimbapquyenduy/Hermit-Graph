@@ -183,7 +183,8 @@ async function auditTrailTests() {
 
 async function branchContextTests() {
   console.log('\n🌿 Branch Context Tests');
-  const { detectBranch, getBranchFilter, setBranchFilter, clearBranchFilter, isObservationVisible } = await import('./lib/branch-context.mjs');
+  const branchMod = await import('./lib/branch-context.mjs');
+  const { detectBranch } = branchMod;
 
   await test('detectBranch: returns branch name', () => {
     const branch = detectBranch(ROOT);
@@ -196,26 +197,74 @@ async function branchContextTests() {
     assert(branch === 'unknown', `Expected unknown, got: ${branch}`);
   });
 
-  await test('setBranchFilter + getBranchFilter', () => {
-    setBranchFilter('feature/test');
-    assert(getBranchFilter() === 'feature/test');
-    clearBranchFilter();
-    assert(getBranchFilter() === null);
+  await test('branch filter removed (was a no-op that hid memory)', () => {
+    // The filter was set by session_start but never read by any search path,
+    // and no observation was ever branch-tagged. Removed rather than finished:
+    // branch-scoped recall would silently drop knowledge on branch switches.
+    for (const gone of ['setBranchFilter', 'getBranchFilter', 'clearBranchFilter', 'isObservationVisible']) {
+      assert(!(gone in branchMod), `${gone} should no longer be exported`);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SESSION RECORDS (append-only, per-session)
+// ══════════════════════════════════════════════════════════════════════════
+
+async function sessionRecordTests() {
+  console.log('\n🗂  Session Record Tests');
+  const require_ = (await import('module')).createRequire(import.meta.url);
+  const sc = require_('../catalog/hooks/lib/session-core.cjs');
+  const dir = join(TMP, 'sessroot');
+  mkdirSync(dir, { recursive: true });
+
+  await test('session: start writes a per-session record with pid', () => {
+    const s = sc.startSession(dir, 'codex');
+    assert(s.sessionId.includes('codex'), 'id carries the agent');
+    assert(s.pid === process.pid, 'id carries the pid');
+    assert(existsSync(join(dir, '.hermit', 'sessions', `${s.sessionId}.json`)), 'record file written');
   });
 
-  await test('isObservationVisible: no filter shows all', () => {
-    assert(isObservationVisible('string obs', null) === true);
-    assert(isObservationVisible({ content: 'x', _branch: 'other' }, null) === true);
+  await test('session: index is append-only (no clobbering)', () => {
+    const before = readFileSync(join(dir, '.hermit', 'sessions', 'index.jsonl'), 'utf-8').trim().split('\n').length;
+    sc.startSession(dir, 'gemini');
+    const after = readFileSync(join(dir, '.hermit', 'sessions', 'index.jsonl'), 'utf-8').trim().split('\n').length;
+    assert(after > before, `index grew: ${before} → ${after}`);
   });
 
-  await test('isObservationVisible: filter matches branch', () => {
-    assert(isObservationVisible({ content: 'x', _branch: 'main' }, 'main') === true);
-    assert(isObservationVisible({ content: 'x', _branch: null }, 'main') === true);
-    assert(isObservationVisible({ content: 'x', _branch: 'other' }, 'main') === false);
+  await test('session: concurrent agents both keep their record', () => {
+    const all = sc.listSessions(dir);
+    const agents = new Set(all.map(r => r.agent));
+    assert(agents.has('codex') && agents.has('gemini'), `both retained: ${[...agents].join(',')}`);
   });
 
-  await test('isObservationVisible: string obs always visible with filter', () => {
-    assert(isObservationVisible('plain string', 'feature/x') === true);
+  await test('session: a dead session never masquerades as current', () => {
+    // Simulate a finished session from another process, newest by timestamp.
+    const stale = {
+      sessionId: '99991231-235959-ghost-999999',
+      startedAt: '9999-12-31T23:59:59.000Z',
+      cwd: dir, agent: 'ghost', pid: 999999,
+    };
+    writeFileSync(join(dir, '.hermit', 'sessions', `${stale.sessionId}.json`), JSON.stringify(stale), 'utf-8');
+    const current = sc.getSessionInfo(dir);
+    assert(current.pid === process.pid, `live session wins, got pid ${current.pid} (${current.agent})`);
+    assert(sc.isAlive(999999) === false, 'dead pid detected as dead');
+  });
+
+  await test('session: end closes only this process own session', () => {
+    const ended = sc.endSession(dir);
+    assert(ended && ended.pid === process.pid, 'ended our own session');
+    assert(ended.endedAt, 'endedAt recorded');
+  });
+
+  await test('session: prune drops records past retention', () => {
+    const old = {
+      sessionId: '20200101-000000-old-1', startedAt: '2020-01-01T00:00:00.000Z',
+      cwd: dir, agent: 'old', pid: 1, endedAt: '2020-01-01T01:00:00.000Z',
+    };
+    writeFileSync(join(dir, '.hermit', 'sessions', `${old.sessionId}.json`), JSON.stringify(old), 'utf-8');
+    assert(sc.pruneSessions(dir, 14) >= 1, 'old record pruned');
+    assert(!sc.listSessions(dir).some(r => r.sessionId === old.sessionId), 'pruned record gone');
   });
 }
 
@@ -1707,6 +1756,559 @@ async function parsePoolTests() {
   });
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// DOCTOR — redaction, session parsing, call stats, timeout guard
+// ══════════════════════════════════════════════════════════════════════════
+
+async function doctorTests() {
+  console.log('\n🩹 Doctor / Observability Tests');
+  const { redact, redactText, hasSecret } = await import('./lib/redact-secrets.mjs');
+  const { parseSessionFile, detectError, errorFingerprint } =
+    await import('./lib/session-audit/session-jsonl-parser.mjs');
+  const { summarize, dedupeByCallId } = await import('./lib/session-audit/call-stats.mjs');
+  const { withTimeout } = await import('./lib/with-timeout.mjs');
+
+  // ── Redaction is a hard gate ──
+  await test('redact: provider keys, tokens and connection strings masked', () => {
+    const samples = [
+      'ANTHROPIC_API_KEY=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'export OPENAI_KEY=sk-proj-BBBBBBBBBBBBBBBBBBBBBBBB',
+      'token: ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+      'GOOGLE=AIzaDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+      'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345',
+      'Server=db;Password=Sup3rS3cret!;',
+      'postgres://admin:hunter2@db.internal:5432/app',
+      'aws AKIAIOSFODNN7EXAMPLE',
+      'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop',
+    ];
+    for (const s of samples) {
+      const out = redactText(s);
+      assert(out.includes('[REDACTED]'), `not masked: ${s} → ${out}`);
+      assert(!hasSecret(out), `still leaks after redaction: ${out}`);
+    }
+  });
+
+  await test('redact: assignment key stays visible so reports stay useful', () => {
+    const out = redactText('api_key = abcdef123456');
+    assert(/api_key/i.test(out), `key label preserved: ${out}`);
+    assert(out.includes('[REDACTED]'), 'value masked');
+  });
+
+  await test('redact: ordinary text untouched', () => {
+    const plain = 'checkMissingRelations flagged 110 of 190 pairs';
+    assert(redactText(plain) === plain, 'no false rewrite');
+    assert(Object.keys(redact(plain).hits).length === 0, 'no hits on clean text');
+  });
+
+  // ── Error detection precision ──
+  await test('doctor: error markers only count near the start of output', () => {
+    assert(detectError("Error: Cannot read properties of null (reading 'preloadSymbols')"), 'real failure detected');
+    // A successful session_start echoes INCIDENT observations that contain
+    // words like "timed out" — those must not be read as failures.
+    const healthy = '## Hermit Session Context\n' + 'x'.repeat(500) + '\nSYMPTOM: request timed out after 30s';
+    assert(detectError(healthy) === null, 'recalled incident text is not a failure');
+  });
+
+  await test('doctor: fingerprints normalize paths, hashes and numbers', () => {
+    const a = errorFingerprint("Error: ENOENT: no such file 'D:\\Project\\a\\b.mjs' (code 12345)");
+    const b = errorFingerprint("Error: ENOENT: no such file 'C:\\Other\\x\\y.mjs' (code 999)");
+    assert(a === b, `same fault groups: \n${a}\n${b}`);
+  });
+
+  // ── Parsing + stats ──
+  await test('doctor: parses mcp_tool_call_end telemetry with duration + isError', () => {
+    const file = join(TMP, 'sess.jsonl');
+    const lines = [
+      JSON.stringify({
+        timestamp: '2026-07-29T05:13:01.358Z', type: 'event_msg',
+        payload: {
+          type: 'mcp_tool_call_end', call_id: 'call_A',
+          invocation: { server: 'hermit-graph', tool: 'hermit_impact', arguments: {} },
+          duration: { secs: 1, nanos: 500000000 },
+          result: { Ok: { content: [{ type: 'text', text: "Error: Cannot read properties of null (reading 'preloadSymbols')" }], isError: true } },
+        },
+      }),
+      JSON.stringify({
+        timestamp: '2026-07-29T05:14:01.000Z', type: 'event_msg',
+        payload: {
+          type: 'mcp_tool_call_end', call_id: 'call_B',
+          invocation: { server: 'hermit-graph', tool: 'hermit_search_nodes', arguments: {} },
+          duration: { secs: 0, nanos: 26000000 },
+          result: { Ok: { content: [{ type: 'text', text: '3 results' }], isError: false } },
+        },
+      }),
+      'not json at all',
+    ];
+    writeFileSync(file, lines.join('\n'));
+    const { calls, badLines } = parseSessionFile(file, { toolPrefix: 'hermit_' });
+    assert(badLines === 1, `malformed line counted, not thrown: ${badLines}`);
+    assert(calls.length === 2, `both calls parsed: ${calls.length}`);
+    const impact = calls.find(c => c.tool === 'hermit_impact');
+    assert(impact.ok === false, 'isError respected');
+    assert(impact.durationMs === 1500, `duration from telemetry: ${impact.durationMs}`);
+    assert(impact.fingerprint.includes('preloadSymbols'), 'fingerprint captured');
+    assert(calls.find(c => c.tool === 'hermit_search_nodes').ok === true, 'success respected');
+  });
+
+  await test('doctor: Err result shape (agent-side timeout) counted as failure', () => {
+    const file = join(TMP, 'sess-err.jsonl');
+    writeFileSync(file, JSON.stringify({
+      timestamp: '2026-08-13T07:01:53.264Z', type: 'event_msg',
+      payload: {
+        type: 'mcp_tool_call_end', call_id: 'call_T',
+        invocation: { server: 'hermit-graph', tool: 'hermit_open_nodes', arguments: {} },
+        duration: { secs: 300, nanos: 0 },
+        result: { Err: 'tool call error: timed out awaiting tools/call after 300s' },
+      },
+    }));
+    const { calls } = parseSessionFile(file, { toolPrefix: 'hermit_' });
+    assert(calls[0].ok === false, 'Err counted as failure');
+    assert(calls[0].durationMs === 300000, 'timeout duration recorded');
+  });
+
+  await test('doctor: dedupe by call_id prefers MCP telemetry over inferred', () => {
+    const inferred = { callId: 'x', tool: 't', ok: true, durationMs: null };
+    const telemetry = { callId: 'x', tool: 't', ok: false, durationMs: 1500, source: 'mcp_tool_call_end' };
+    const kept = dedupeByCallId([inferred, telemetry]);
+    assert(kept.length === 1, 'deduped to one');
+    assert(kept[0].source === 'mcp_tool_call_end', 'telemetry record wins');
+  });
+
+  await test('doctor: stats compute error rate and percentiles', () => {
+    const calls = [
+      { callId: '1', tool: 'a', ok: true, durationMs: 10 },
+      { callId: '2', tool: 'a', ok: true, durationMs: 20 },
+      { callId: '3', tool: 'a', ok: false, durationMs: 30, fingerprint: 'boom' },
+      { callId: '4', tool: 'b', ok: true, durationMs: 100 },
+    ];
+    const s = summarize(calls);
+    assert(s.totalCalls === 4 && s.totalErrors === 1, 'totals');
+    assert(Math.abs(s.errorRate - 0.25) < 1e-9, `error rate: ${s.errorRate}`);
+    const a = s.perTool.find(t => t.tool === 'a');
+    assert(a.p50Ms === 20 && a.maxMs === 30, `percentiles: p50=${a.p50Ms} max=${a.maxMs}`);
+    assert(s.fingerprints[0].fingerprint === 'boom', 'fingerprint aggregated');
+  });
+
+  // ── Split-brain regression (found by the consumer-project install test) ──
+  await test('mirror gate: SqliteWriter must not be treated as disabled', async () => {
+    // The old gate was `ctx.dualWriter.getStats().enabled`. DualWriter reports
+    // `enabled`; SqliteWriter — the DEFAULT writer — does not, so the gate was
+    // undefined/falsy and NOTHING was written to SQLite while reads came FROM
+    // SQLite. Result: every new entity was invisible to hermit_search_nodes /
+    // hermit_open_nodes. Measured on the real vault: JSONL 878 vs SQLite 620.
+    const { SqliteWriter } = await import('./lib/memory/sqlite-writer.mjs');
+    const stats = new SqliteWriter({ sqliteProvider: { }, vectorBackend: null }).getStats();
+    assert(stats.enabled === undefined, 'precondition: SqliteWriter has no `enabled` field');
+
+    // The shipped gate must key off the writer's `_sqlite` handle instead.
+    const src = readFileSync(join(ROOT, 'scripts', 'lib', 'memory-module.mjs'), 'utf-8');
+    const gate = src.slice(src.indexOf('async function mirrorToSqlite'), src.indexOf('async function mirrorToSqlite') + 1400);
+    // Match the old EXECUTABLE gate, not the phrase in the explanatory comment.
+    assert(!/if \(!ctx\.dualWriter\?\.getStats\(\)\.enabled\)/.test(gate),
+      'mirror must not early-return on the DualWriter-only `enabled` field');
+    assert(/_sqlite/.test(gate) && /if \(!sqlite\) return/.test(gate), 'mirror gates on the _sqlite handle');
+  });
+
+  await test('mirror gate: both writer shapes expose the _sqlite handle', async () => {
+    const { SqliteWriter } = await import('./lib/memory/sqlite-writer.mjs');
+    const { DualWriter } = await import('./lib/memory/dual-writer.mjs');
+    const marker = { tag: 'provider' };
+    assert(new SqliteWriter({ sqliteProvider: marker })._sqlite === marker, 'SqliteWriter._sqlite');
+    assert(new DualWriter({ jsonlProvider: {}, sqliteProvider: marker, enabled: true })._sqlite === marker, 'DualWriter._sqlite');
+  });
+
+  // ── Embedding singleton: model-load stampede ──
+  await test('embedding: singleton is the PROMISE, so concurrent cold calls share one load', async () => {
+    // getExtractor() used to assign _extractor only AFTER `await pipeline(...)`
+    // resolved, so N concurrent callers each started their own ~23MB model load.
+    // Session telemetry showed the signature: parallel calls finishing together
+    // with a tiny spread (74.8s/74.4s, 262.2s/262.2s, 96.5s/96.4s).
+    const src = readFileSync(join(ROOT, 'scripts', 'lib', 'embedding-service.mjs'), 'utf-8');
+    assert(/let _loadPromise/.test(src), 'an in-flight load promise is tracked');
+    assert(/if \(_loadPromise\) return _loadPromise;/.test(src), 'concurrent callers reuse the in-flight load');
+    assert(/LOAD_TIMEOUT_MS/.test(src), 'a hung model load cannot block callers forever');
+    const mod = await import('./lib/embedding-service.mjs');
+    assert(typeof mod.warmup === 'function', 'warmup() exported for boot-time preload');
+  });
+
+  await test('embedding: server warms the model only when vectors are used', () => {
+    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-server.mjs'), 'utf-8');
+    assert(/warmupEmbeddings\(\)/.test(src), 'boot warms embeddings');
+    assert(/_retrievalMode !== 'bm25'/.test(src), 'skipped in the default bm25 mode (never embeds)');
+  });
+
+  // ── Index parity guard (JSONL = truth, SQLite = derived index) ──
+  await test('parity: counts all records so archived entries are not false drift', async () => {
+    const { countJsonl } = await import('./lib/memory/index-parity-guard.mjs');
+    const p = writeTempBrain('parity.jsonl', [
+      { name: 'BIZ:A', entityType: 'biz-domain', observations: ['[1|2026-01-01] WHAT: a'] },
+      { name: 'BIZ:B', entityType: 'biz-domain', observations: ['[1|2026-01-01] WHAT: b'], _archived: true },
+    ], [{ from: 'BIZ:A', to: 'BIZ:B', relationType: 'uses' }]);
+    const c = countJsonl(p);
+    assert(c.entities === 2, `archived counted too (index mirrors the file), got ${c.entities}`);
+    assert(c.relations === 1, `relations counted, got ${c.relations}`);
+  });
+
+  await test('parity: drift is detected and reported with a reason', async () => {
+    const { checkIndexParity } = await import('./lib/memory/index-parity-guard.mjs');
+    const p = writeTempBrain('parity2.jsonl', [
+      { name: 'BIZ:A', entityType: 'biz-domain', observations: ['[1|2026-01-01] WHAT: a'] },
+    ]);
+    // No DB at that path → index looks empty → drift against 1 JSONL entity.
+    const r = checkIndexParity({ brainPath: p, dbPath: join(TMP, 'absent.db') });
+    assert(r.inSync === false, 'drift detected');
+    assert(/entities 1 vs 0/.test(r.reason), `reason states the counts: ${r.reason}`);
+  });
+
+  await test('parity: a fresh vault with no JSONL is not treated as drift', async () => {
+    const { ensureIndexParity } = await import('./lib/memory/index-parity-guard.mjs');
+    const r = ensureIndexParity({
+      brainPath: join(TMP, 'nope.jsonl'),
+      dbPath: join(TMP, 'nope.db'),
+    });
+    assert(r.healed === false && r.checked.inSync === true, 'no rebuild attempted on a fresh vault');
+  });
+
+  await test('parity: guard runs before providers open a handle', () => {
+    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-server.mjs'), 'utf-8');
+    const guardAt = src.indexOf('ensureIndexParity({');
+    const providerAt = src.indexOf('new SqliteProvider(');
+    assert(guardAt > 0 && providerAt > 0, 'both present');
+    assert(guardAt < providerAt, 'parity check precedes SqliteProvider construction (no stale handle)');
+  });
+
+  // ── Timeout guard ──
+  await test('timeout: slow work returns the fallback instead of hanging', async () => {
+    const slow = new Promise(res => setTimeout(() => res('late'), 500));
+    const r = await withTimeout(slow, { ms: 30, fallback: 'partial' });
+    assert(r.timedOut === true, 'timeout reported');
+    assert(r.value === 'partial', 'fallback returned');
+  });
+
+  await test('timeout: fast work passes through untouched', async () => {
+    const r = await withTimeout(Promise.resolve('done'), { ms: 5000, fallback: null });
+    assert(r.timedOut === false && r.value === 'done', 'no interference');
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MEMBER-CALL RESOLUTION GATE (false call-graph edges)
+// ══════════════════════════════════════════════════════════════════════════
+
+async function memberCallGateTests() {
+  console.log('\n🎯 Member Call Resolution Gate Tests');
+  const { shouldResolveMemberCall, BUILTIN_RECEIVERS, GENERIC_MEMBER_METHODS } =
+    await import('./lib/code-intel/resolution/known-names.mjs');
+
+  await test('gate: builtin receiver never resolves to a user symbol', () => {
+    assert(!shouldResolveMemberCall('Set', 'add', 'a/b.mjs::Pool.add', 'c/d.mjs'), 'Set.add dropped');
+    assert(!shouldResolveMemberCall('console', 'log', 'a/b.mjs::log', 'c/d.mjs'), 'console.log dropped');
+    assert(!shouldResolveMemberCall('Math', 'round', 'a/b.mjs::round', 'c/d.mjs'), 'Math.round dropped');
+    assert(!shouldResolveMemberCall('Object', 'fromEntries', 'a/b.mjs::G.fromEntries', 'c/d.mjs'), 'Object.fromEntries dropped');
+  });
+
+  await test('gate: generic method on unknown receiver needs corroboration', () => {
+    // `relationSet.add(x)` — receiver is a plain local, target lives elsewhere.
+    assert(!shouldResolveMemberCall('relationSet', 'add', 'a/pool.mjs::McpClientPool.add', 'b/health.mjs'),
+      'cross-file generic member call dropped');
+  });
+
+  await test('gate: non-generic method still resolves cross-file', () => {
+    assert(shouldResolveMemberCall('pool', 'extractSymbols', 'a/pool.mjs::ParsePool.extractSymbols', 'b/idx.mjs'),
+      'domain method kept');
+  });
+
+  await test('gate: this/self receiver always resolves', () => {
+    assert(shouldResolveMemberCall('this', 'get', 'a/b.mjs::Cache.get', 'c/d.mjs'), 'this.get kept');
+    assert(shouldResolveMemberCall('self', 'get', 'a/b.py::Cache.get', 'c/d.py'), 'self.get kept');
+  });
+
+  await test('gate: receiver naming the owning class resolves', () => {
+    assert(shouldResolveMemberCall('parsePool', 'add', 'a/b.mjs::ParsePool.add', 'c/d.mjs'), 'instance of class kept');
+    assert(shouldResolveMemberCall('ParsePool', 'add', 'a/b.mjs::ParsePool.add', 'c/d.mjs'), 'class itself kept');
+  });
+
+  await test('gate: same-file generic call resolves', () => {
+    assert(shouldResolveMemberCall('cache', 'get', 'a/b.mjs::Cache.get', 'a/b.mjs'), 'same-file match kept');
+  });
+
+  await test('gate: vocabulary sets cover JS + Python + Java receivers', () => {
+    for (const r of ['Set', 'console', 'os', 'json', 'System', 'Collections']) {
+      assert(BUILTIN_RECEIVERS.has(r), `${r} listed as builtin receiver`);
+    }
+    for (const m of ['add', 'log', 'append', 'put', 'items']) {
+      assert(GENERIC_MEMBER_METHODS.has(m), `${m} listed as generic member`);
+    }
+    // Domain-ish names must NOT be blocklisted — dropping those costs real edges.
+    for (const m of ['run', 'init', 'close', 'save', 'load', 'validate']) {
+      assert(!GENERIC_MEMBER_METHODS.has(m), `${m} must stay resolvable`);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// HEALTH v2 — relation suggestions, schema conformance, integrity
+// ══════════════════════════════════════════════════════════════════════════
+
+async function healthV2Tests() {
+  console.log('\n🩺 Health v2 Tests');
+  const {
+    loadBrain, checkMissingRelations, checkSchemaConformance,
+    checkDanglingRelations, checkRelationVocabulary, checkLowConfidence,
+    checkStale, activeObservations, calculateHealth,
+  } = await import('./lib/brain-health-checks.mjs');
+  const { archiveRelationsFor, repointRelations } = await import('./lib/audit-trail.mjs');
+
+  // ── Missing Relations: precision ──
+  await test('health: generic shared words no longer suggest a relation', () => {
+    const entities = [
+      { name: 'BIZ:ProjectAlpha', entityType: 'biz-domain', observations: ['[0.8|2026-01-01] WHAT: biz platform 2026'] },
+      { name: 'TECH:Person:MentorX', entityType: 'tech-person', observations: ['[0.8|2026-01-01] ROLE: biz advisor 2026'] },
+    ];
+    const r = checkMissingRelations(entities, []);
+    assert(r.items.length === 0, `expected no suggestion, got ${JSON.stringify(r.items)}`);
+  });
+
+  await test('health: same-project entities sharing rare tokens are suggested', () => {
+    const entities = [
+      { name: 'PATTERN:WebCash:GridView', entityType: 'pattern-code', observations: ['[0.8|2026-01-01] WHAT: uses loaddatalist and calculateheight helpers'] },
+      { name: 'PATTERN:WebCash:PageShell', entityType: 'pattern-arch', observations: ['[0.8|2026-01-01] WHAT: calls loaddatalist then calculateheight'] },
+    ];
+    const r = checkMissingRelations(entities, []);
+    assert(r.items.length === 1, `expected 1 suggestion, got ${r.items.length}`);
+    assert(r.items[0].confidence > 0, 'suggestion carries a confidence');
+  });
+
+  await test('health: existing relation is not re-suggested', () => {
+    const entities = [
+      { name: 'PATTERN:WebCash:GridView', entityType: 'pattern-code', observations: ['[0.8|2026-01-01] WHAT: uses loaddatalist and calculateheight helpers'] },
+      { name: 'PATTERN:WebCash:PageShell', entityType: 'pattern-arch', observations: ['[0.8|2026-01-01] WHAT: calls loaddatalist then calculateheight'] },
+    ];
+    const rels = [{ from: 'PATTERN:WebCash:GridView', to: 'PATTERN:WebCash:PageShell', relationType: 'uses' }];
+    assert(checkMissingRelations(entities, rels).items.length === 0, 'linked pair must not be suggested');
+  });
+
+  await test('health: Missing Relations is informational (weight 0)', () => {
+    const r = checkMissingRelations([], []);
+    assert(r.weight === 0 && r.informational === true, 'must not drag the score');
+    assert(calculateHealth([r]) === 100, 'informational check contributes no penalty');
+  });
+
+  await test('health: relation suggestion scan is fast on 500 entities', () => {
+    const entities = Array.from({ length: 500 }, (_, i) => ({
+      name: `RULE:Proj${i % 10}:Rule${i}`,
+      entityType: 'biz-rule',
+      observations: [`[0.8|2026-01-01] RULE: rule ${i} about topic${i % 40} and widget${i % 37}`],
+    }));
+    const t = Date.now();
+    checkMissingRelations(entities, []);
+    const ms = Date.now() - t;
+    assert(ms < 1500, `expected < 1500ms, took ${ms}ms`);
+  });
+
+  // ── Archived observation accounting ──
+  await test('health: archived observations excluded from denominators', () => {
+    const e = {
+      name: 'BIZ:X', entityType: 'biz-domain',
+      observations: [
+        { content: '[0.8|2026-01-01] WHAT: live' },
+        { content: '[0.8|2020-01-01] WHAT: superseded', _archived: true },
+      ],
+    };
+    assert(activeObservations(e).length === 1, 'only live observations counted');
+    assert(checkStale([e]).totalCount === 1, 'stale denominator excludes archived');
+    assert(checkLowConfidence([e]).totalCount === 1, 'confidence denominator excludes archived');
+  });
+
+  // ── Schema conformance ──
+  await test('health: schema flags wrong prefix, short observations, missing keys', () => {
+    const bad = { name: 'PROJECT:Foo:Flow', entityType: 'biz-flow', observations: ['[0.8|2026-01-01] FLOW: a → b'] };
+    const r = checkSchemaConformance([bad]);
+    assert(r.violationCount === 1, 'entity flagged');
+    const problems = r.items[0].problems.join(' | ');
+    assert(/prefix/.test(problems), `prefix problem reported: ${problems}`);
+    assert(/observations/.test(problems), `min-observation problem reported: ${problems}`);
+    assert(/missing keys/.test(problems), `required keys reported: ${problems}`);
+  });
+
+  await test('health: conforming entity passes schema check', () => {
+    const good = {
+      name: 'GOTCHA:Foo:Thing', entityType: 'incident-gotcha',
+      observations: [
+        '[0.8|2026-01-01] WHAT: a thing',
+        '[0.8|2026-01-01] IMPACT: breaks x',
+        '[0.8|2026-01-01] FIX: do y',
+        '[0.8|2026-01-01] APPLIES_TO: all',
+      ],
+    };
+    assert(checkSchemaConformance([good]).violationCount === 0, 'clean entity not flagged');
+  });
+
+  // ── Dangling relations ──
+  await test('health: dangling relations detect missing vs archived endpoints', () => {
+    const entities = [{ name: 'BIZ:Alive', entityType: 'biz-domain', observations: [] }];
+    const relations = [
+      { from: 'BIZ:Alive', to: 'BIZ:Ghost', relationType: 'uses' },
+      { from: 'BIZ:Alive', to: 'BIZ:Gone', relationType: 'uses' },
+    ];
+    const r = checkDanglingRelations(entities, relations, new Set(['BIZ:Gone']));
+    assert(r.violationCount === 2, 'both flagged');
+    assert(r.items.some(i => i.reasons.join().includes('does not exist')), 'missing endpoint reported');
+    assert(r.items.some(i => i.reasons.join().includes('archived')), 'archived endpoint reported');
+    assert(r.weight > 0, 'dangling relations count toward the score');
+  });
+
+  // ── Relation vocabulary ──
+  await test('health: off-registry relation types reported, not deleted', () => {
+    const r = checkRelationVocabulary([
+      { from: 'a', to: 'b', relationType: 'uses' },
+      { from: 'a', to: 'c', relationType: 'frobnicates' },
+    ]);
+    assert(r.violationCount === 1, 'only the off-registry one counted');
+    assert(r.informational === true && r.weight === 0, 'informational, does not punish the score');
+  });
+
+  // ── Archive cascade ──
+  await test('archive: cascades to relations touching the entity', () => {
+    const relations = [
+      { from: 'A', to: 'B', relationType: 'uses' },
+      { from: 'C', to: 'D', relationType: 'uses' },
+    ];
+    assert(archiveRelationsFor(relations, ['B']) === 1, 'one relation archived');
+    assert(relations[0]._archived === true, 'touching relation archived');
+    assert(!relations[1]._archived, 'unrelated relation untouched');
+  });
+
+  await test('dedup: relations repoint to the surviving entity', () => {
+    const relations = [{ from: 'X', to: 'OldName', relationType: 'uses' }];
+    assert(repointRelations(relations, 'OldName', 'NewName') === 1, 'one relation repointed');
+    assert(relations[0].to === 'NewName', 'edge follows the merged entity');
+  });
+
+  await test('dedup: repointing drops self-loops instead of creating them', () => {
+    const relations = [{ from: 'Primary', to: 'Secondary', relationType: 'uses' }];
+    repointRelations(relations, 'Secondary', 'Primary');
+    assert(relations[0]._archived === true, 'self-loop archived rather than kept');
+  });
+
+  // ── Real graph regression ──
+  await test('health: real brain graph passes all checks without throwing', () => {
+    if (!existsSync(REAL_BRAIN)) { skipped++; return; }
+    const { entities, relations, archivedNames } = loadBrain(REAL_BRAIN);
+    const checks = [
+      checkStale(entities), checkLowConfidence(entities),
+      checkMissingRelations(entities, relations),
+      checkSchemaConformance(entities),
+      checkDanglingRelations(entities, relations, archivedNames),
+      checkRelationVocabulary(relations),
+    ];
+    const score = calculateHealth(checks);
+    assert(score >= 0 && score <= 100, `score in range, got ${score}`);
+    const missing = checks[2];
+    assert(missing.items.length <= 10, `at most 10 suggestions, got ${missing.items.length}`);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MEMORY SEARCH SCORING + PROJECT-SCOPED RECALL
+// ══════════════════════════════════════════════════════════════════════════
+
+async function memorySearchScopingTests() {
+  console.log('\n🔎 Memory Search Scoring + Scoped Recall Tests');
+  const { tokenize, tokenizeQuery, scoreEntity, isIdentifierToken } =
+    await import('./lib/memory-search-scoring.mjs');
+  const { recallEntities, extractKeywords } = await import('./lib/session-recall.mjs');
+  const id = (o) => o;
+
+  const incident = {
+    name: 'INCIDENT:InfoERP:ACPS10610000SaveMissingLoadingIndicator',
+    entityType: 'incident-bug',
+    observations: ['[0.9|2026-08-11] SYMPTOM: invoice save flow has no loading indicator'],
+  };
+
+  // ── tokenizing ──
+  await test('scoring: identifier shapes detected', () => {
+    assert(isIdentifierToken('ACPS10610000'), 'screen code is an identifier');
+    assert(isIdentifierToken('btnVerify'), 'camelCase is an identifier');
+    assert(isIdentifierToken('MEMB_SLIP_NO'), 'snake/upper is an identifier');
+    assert(!isIdentifierToken('invoice'), 'plain word is not an identifier');
+  });
+
+  await test('scoring: stopwords dropped (English + Vietnamese)', () => {
+    const t = tokenize('the invoice is in of và của với');
+    assert(!t.has('the') && !t.has('in') && !t.has('of'), 'English stopwords dropped');
+    assert(!t.has('và') && !t.has('của') && !t.has('với'), 'Vietnamese stopwords dropped');
+    assert(t.has('invoice'), 'content word kept');
+  });
+
+  await test('scoring: glued entity names expand into parts', () => {
+    const t = tokenize('ACPS10610000SaveMissingLoadingIndicator');
+    assert(t.has('acps'), 'prefix part indexed');
+    assert(t.has('10610000'), 'digit part indexed');
+    assert(t.has('loading'), 'word part indexed');
+  });
+
+  // ── the actual regression: substring matching ──
+  await test('scoring: short terms no longer substring-match (in/out/api)', () => {
+    const { score } = scoreEntity(tokenizeQuery('in out api'), incident, id);
+    assert(score === 0, `expected 0 for pure-noise query, got ${score}`);
+  });
+
+  await test('scoring: identifier query matches glued name', () => {
+    const { score, matched } = scoreEntity(tokenizeQuery('ACPS10610000'), incident, id);
+    assert(score > 0.5, `expected strong match, got ${score}`);
+    assert(matched.includes('10610000'), 'reports which tokens matched');
+  });
+
+  await test('scoring: unrelated entity scores zero', () => {
+    const wuxia = {
+      name: 'BIZ:Wuxia', entityType: 'biz-domain',
+      observations: ['[1|2026-01-01] Web novel generator'],
+    };
+    const { score } = scoreEntity(tokenizeQuery('ACPS10610000 invoice'), wuxia, id);
+    assert(score === 0, `expected 0 for unrelated entity, got ${score}`);
+  });
+
+  // ── project scoping ──
+  const scopedBrain = writeTempBrain('scoped.jsonl', [
+    { name: 'BIZ:ProjAlpha', entityType: 'biz-domain', observations: ['[1|2026-01-01] alpha domain'] },
+    { name: 'BIZ:ProjBeta', entityType: 'biz-domain', observations: ['[1|2026-01-01] beta domain uses kafka streaming'] },
+    { name: 'INCIDENT:ProjAlpha:SaveBug', entityType: 'incident-bug', observations: ['[0.9|2026-01-01] SYMPTOM: invoice save crash'] },
+    { name: 'INCIDENT:ProjBeta:SaveBug', entityType: 'incident-bug', observations: ['[0.9|2026-01-01] SYMPTOM: invoice save crash'] },
+    { name: 'PATTERN:CODE:Retry', entityType: 'pattern-code', observations: ['[0.8|2026-01-01] WHAT: invoice retry pattern'] },
+  ]);
+
+  await test('recall: other projects excluded by default', () => {
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'invoice save crash', maxResults: 10 });
+    const names = r.entities.map(e => e.name);
+    assert(names.some(n => n.includes('ProjAlpha')), 'own project present');
+    assert(!names.some(n => n.includes('ProjBeta')), `other project leaked: ${names.join(', ')}`);
+  });
+
+  await test('recall: neutral (shared) entities stay visible', () => {
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'invoice retry pattern', maxResults: 10 });
+    assert(r.entities.some(e => e.name === 'PATTERN:CODE:Retry'), 'shared pattern must not be filtered out');
+  });
+
+  await test('recall: crossProject:true restores full breadth', () => {
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'invoice save crash', maxResults: 10, crossProject: true });
+    assert(r.entities.some(e => e.name.includes('ProjBeta')), 'opt-in cross-project returns other projects');
+  });
+
+  await test('recall: falls back to cross-project when nothing in scope', () => {
+    // "kafka streaming" exists only on the other project — in-scope result set
+    // is empty, so recall must widen rather than return nothing.
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'kafka streaming', maxResults: 10 });
+    assert(r.crossProjectFallback === true, 'fallback flag set');
+    assert(r.entities.length > 0, 'fallback returns results rather than nothing');
+  });
+
+  await test('recall: Vietnamese filler words no longer become keywords', () => {
+    const kw = extractKeywords('kết quả của việc này với các phần trong hệ thống');
+    assert(!kw.includes('của') && !kw.includes('với') && !kw.includes('các'), `VN stopwords leaked: ${kw.join(',')}`);
+  });
+}
+
 async function phase01QuickWinsTests() {
   console.log('\n⚡ Phase 01 Quick Wins Tests');
   const { makeSymbolId, idMode } = await import('../scripts/lib/code-intel/id-gen.mjs');
@@ -2146,6 +2748,11 @@ try {
   await liquidExtractorTests();
   await parsePoolTests();
   await phase01QuickWinsTests();
+  await memorySearchScopingTests();
+  await healthV2Tests();
+  await memberCallGateTests();
+  await sessionRecordTests();
+  await doctorTests();
 } finally {
   cleanup();
 }

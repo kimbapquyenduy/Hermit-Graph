@@ -14,7 +14,7 @@ import { readBrain } from './brain-io.mjs';
 
 const RO = { readOnlyHint: true };
 import { recallEntities, detectScope } from './session-recall.mjs';
-import { detectBranch, setBranchFilter } from './branch-context.mjs';
+import { detectBranch } from './branch-context.mjs';
 
 function ok(text) { return { content: [{ type: 'text', text }] }; }
 
@@ -43,9 +43,8 @@ export function register(server, ctx) {
     async ({ cwd, query }) => {
       const workDir = cwd || process.cwd();
 
-      // Detect and set branch filter
+      // Branch is reported for context only — memory is not branch-scoped.
       const branch = detectBranch(workDir);
-      if (branch !== 'unknown') setBranchFilter(branch);
 
       // Recall project-scoped entities
       const result = recallEntities(brainPath, {
@@ -55,12 +54,18 @@ export function register(server, ctx) {
         maxObsPerEntity: 3,
       });
 
-      // Graph stats
+      // Graph stats. Archived entities are counted separately — reporting the
+      // raw map size made session_start disagree with health (867 vs 831) and
+      // read like a cache inconsistency when it was just archived records.
       const { entities: allEntities, relations } = readBrain(brainPath);
+      let archivedCount = 0;
+      for (const [, e] of allEntities) if (e._archived) archivedCount++;
+      const activeCount = allEntities.size - archivedCount;
+      const activeRelations = relations.filter(r => !r._archived).length;
 
       const lines = [
         '## Hermit Session Context',
-        `Branch: ${branch} | Scope: ${result.scope} | Graph: ${allEntities.size} entities, ${relations.length} relations`,
+        `Branch: ${branch} | Scope: ${result.scope} | Graph: ${activeCount} active entities (+${archivedCount} archived), ${activeRelations} relations`,
         '',
       ];
 

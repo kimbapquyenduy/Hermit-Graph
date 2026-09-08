@@ -1,12 +1,18 @@
 /**
- * Branch Context — git branch detection + session-scoped filter state.
- * Used by intelligence-module (hermit_branch_context) and memory search tools.
+ * Branch Context — git branch detection.
+ *
+ * This module used to carry a session-scoped "branch filter" that hid
+ * observations tagged with a different branch. It was removed: the filter was
+ * set by session_start but never read by any search path (only by tests), and
+ * the graph had zero branch-tagged observations, so it could only ever be a
+ * no-op. Finishing it would have been worse than removing it — a memory system
+ * that silently hides knowledge when you switch branches loses recall, and
+ * almost no stored knowledge is genuinely branch-specific.
+ *
+ * Branch detection itself is kept: session_start reports it, which is useful.
  */
 
 import { execSync } from 'child_process';
-
-/** Session-scoped branch filter (resets on server restart). */
-let _branchFilter = null;
 
 /**
  * Detect current git branch via subprocess.
@@ -21,24 +27,4 @@ export function detectBranch(cwd = process.cwd()) {
   } catch {
     return 'unknown';
   }
-}
-
-export function getBranchFilter() { return _branchFilter; }
-export function setBranchFilter(branch) { _branchFilter = branch || null; }
-export function clearBranchFilter() { _branchFilter = null; }
-
-/**
- * Check if an observation is visible under the current branch filter.
- * - No filter → show all
- * - _branch=null → always visible (global)
- * - _branch matches filter → visible
- * - _branch is different → hidden
- * @param {string|object} obs
- * @param {string|null} branchFilter
- * @returns {boolean}
- */
-export function isObservationVisible(obs, branchFilter) {
-  if (!branchFilter) return true;
-  const obsBranch = typeof obs === 'object' ? (obs._branch || null) : null;
-  return obsBranch === null || obsBranch === branchFilter;
 }

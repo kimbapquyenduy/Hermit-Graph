@@ -5,11 +5,9 @@
 
 import { z } from 'zod';
 import { readBrain, writeBrain, withBrainLock } from './brain-io.mjs';
-import { getEntityHistory } from './audit-trail.mjs';
+import { getEntityHistory, repointRelations } from './audit-trail.mjs';
 import { obsText, parseObservation } from './parse-observation.mjs';
-import {
-  detectBranch, getBranchFilter, setBranchFilter, clearBranchFilter,
-} from './branch-context.mjs';
+import { detectBranch } from './branch-context.mjs';
 import { zNumber, zBoolean } from './zod-coerce.mjs';
 
 const RO = { readOnlyHint: true };
@@ -68,7 +66,7 @@ export function register(server, ctx) {
         const contradictions = findContradictions(entities);
 
         if (!dryRun && dupes.length > 0) {
-          applyDedup(entities, dupes);
+          applyDedup(entities, dupes, relations);
           writeBrain(brainPath, entities, relations);
         }
 
@@ -79,24 +77,15 @@ export function register(server, ctx) {
   });
 
   // ── T3: Branch Context ──
-  server.tool('hermit_branch_context', 'Detect git branch, set/clear branch filter for search operations', {
-    action: z.enum(['get', 'set_filter', 'clear_filter']).optional().default('get'),
-    branch: z.string().optional().describe('Branch name for set_filter action'),
+  // The set_filter / clear_filter actions were removed: the filter they set was
+  // never applied by any search path, so they only ever reported success while
+  // doing nothing. Memory is intentionally global — use project scoping
+  // (hermit_search_nodes cwd/scope) to narrow recall instead.
+  server.tool('hermit_branch_context', 'Report the current git branch for the working directory. Memory is global (not branch-scoped) — to narrow recall, use the cwd/scope parameters on hermit_search_nodes.', {
     cwd: z.string().optional().describe('Working directory for branch detection'),
-  }, RO, async ({ action, branch, cwd }) => {
-    if (action === 'set_filter') {
-      if (!branch) return fail('Branch name required for set_filter action.');
-      setBranchFilter(branch);
-      return ok(`Branch filter set to "${branch}". Search results will show only global + "${branch}" observations.`);
-    }
-    if (action === 'clear_filter') {
-      clearBranchFilter();
-      return ok('Branch filter cleared. Search results will show all observations.');
-    }
-    // action === 'get'
+  }, RO, async ({ cwd }) => {
     const detected = detectBranch(cwd);
-    const filter = getBranchFilter();
-    return ok(`## Branch Context\n\n- Current branch: ${detected}\n- Active filter: ${filter || '(none — showing all)'}`);
+    return ok(`## Branch Context\n\n- Current branch: ${detected}\n- Memory scoping: project-based (see hermit_search_nodes cwd/scope), not branch-based`);
   });
 
   log('intelligence-module: 3 tools registered');
@@ -153,7 +142,18 @@ function findContradictions(entities) {
   return flags;
 }
 
-function applyDedup(entities, dupes) {
+/**
+ * Merge duplicate entity groups into their first member.
+ * Relations on the merged-away entity are repointed to the survivor — the
+ * knowledge moved, so its edges must move with it. Leaving them behind was the
+ * source of most dangling relations on the real graph.
+ * @param {Map} entities
+ * @param {Array} dupes
+ * @param {Array} relations - mutated in place
+ * @returns {number} relations repointed
+ */
+function applyDedup(entities, dupes, relations = []) {
+  let repointed = 0;
   for (const { entities: group } of dupes) {
     const primary = group[0];
     for (let i = 1; i < group.length; i++) {
@@ -162,8 +162,10 @@ function applyDedup(entities, dupes) {
       secondary._archived = true;
       secondary._archivedAt = new Date().toISOString();
       secondary._history = [...(secondary._history || []), { action: 'merged_into', target: primary.name, at: secondary._archivedAt }];
+      repointed += repointRelations(relations, secondary.name, primary.name);
     }
   }
+  return repointed;
 }
 
 function formatConsolidationReport(dupes, contradictions, dryRun) {

@@ -14,6 +14,9 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
 
+// This is the explicit install path. Normal Hermit runtime never downloads.
+process.env.HERMIT_ALLOW_MODEL_DOWNLOAD = '1';
+
 console.log('=== Semantic Search Setup (JS-native) ===\n');
 
 // 1. Check Node.js version
