@@ -15,7 +15,7 @@
 
 'use strict';
 
-const fs = require('fs');
+const {invoke,readGraph}=require('./sqlite-bridge.cjs');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -281,32 +281,14 @@ function extractEntities(text, projectName) {
 }
 
 /**
- * Filter out entities that already exist in brain.jsonl.
+ * Filter out entities that already exist in canonical SQLite brain.
  * Only skip exact name matches (case-insensitive).
  *
  * @param {Array} entities - from extractEntities()
- * @param {string} brainPath - path to brain.jsonl
+ * @param {string} brainPath - path to canonical SQLite brain
  * @returns {Array} entities not yet in KG
  */
-function filterExisting(entities, brainPath) {
-  if (!entities.length) return entities;  // nothing to filter — skip brain read
-  if (!brainPath || !fs.existsSync(brainPath)) return entities;
-
-  let lines;
-  try { lines = fs.readFileSync(brainPath, 'utf-8').trim().split('\n'); }
-  catch { return entities; }
-
-  const existingNames = new Set();
-  for (const line of lines) {
-    let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
-    if (obj.type === 'entity' && obj.name) {
-      existingNames.add(obj.name.toLowerCase());
-    }
-  }
-
-  return entities.filter(e => !existingNames.has(e.name.toLowerCase()));
-}
+function filterExisting(entities) {if(!entities.length)return entities;const names=new Set(readGraph({includeCandidates:true}).entities.map(e=>e.name));return entities.filter(e=>!names.has(e.name));}
 
 /**
  * Format observations with auto-extracted confidence prefix.
@@ -321,75 +303,8 @@ function formatObservations(observations) {
   }));
 }
 
-/**
- * Acquire a simple advisory lock file. Returns true on success, false if already locked.
- * Uses 'wx' flag (exclusive create) which is atomic on most filesystems.
- * @param {string} lockPath
- * @returns {boolean}
- */
-function _acquireLock(lockPath) {
-  try {
-    fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Release advisory lock file (best-effort — ignore errors if already gone).
- * @param {string} lockPath
- */
-function _releaseLock(lockPath) {
-  try { fs.unlinkSync(lockPath); } catch { /* already gone — safe to ignore */ }
-}
-
-/**
- * Append new entities to brain.jsonl.
- * Acquires an advisory lock (5 retries, 200ms interval) to prevent concurrent writes
- * from MCP server and hooks corrupting the file.
- * @param {Array} entities - filtered entities (not in KG)
- * @param {string} brainPath
- * @returns {number} count of entities written (0 if lock not acquired)
- */
-function appendToBrain(entities, brainPath) {
-  if (!entities.length || !brainPath) return 0;
-
-  const dir = require('path').dirname(brainPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  // Acquire advisory lock (same pattern as brain-io.mjs) to prevent concurrent writes
-  const lockPath = brainPath + '.lock';
-  const MAX_RETRIES = 5;
-  const RETRY_INTERVAL_MS = 200;
-  let acquired = false;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    if (_acquireLock(lockPath)) { acquired = true; break; }
-    // Busy-wait: synchronous sleep via blocking loop (CJS context, no async available here)
-    const until = Date.now() + RETRY_INTERVAL_MS;
-    while (Date.now() < until) { /* spin */ }
-  }
-  if (!acquired) {
-    // Could not acquire lock after retries — skip append to avoid corruption
-    return 0;
-  }
-
-  try {
-    const now = Date.now();
-    const lines = entities.map(e => JSON.stringify({
-      type: 'entity',
-      name: e.name,
-      entityType: e.entityType,
-      observations: formatObservations(e.observations),
-      createdAt: now,
-    }));
-
-    fs.appendFileSync(brainPath, lines.join('\n') + '\n', 'utf-8');
-    return entities.length;
-  } finally {
-    _releaseLock(lockPath);
-  }
-}
+/** Save captures as scoped candidates via SQLite. */
+function appendToBrain(entities) {if(!entities.length)return 0;return invoke({op:'capture',entities:entities.map(e=>({...e,observations:formatObservations(e.observations).map(o=>o.content)}))}).count;}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPORTS

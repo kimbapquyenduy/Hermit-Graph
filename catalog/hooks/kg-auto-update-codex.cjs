@@ -32,6 +32,7 @@ function main() {
     if (assistantText.length < 50) process.exit(0);
 
     const cwd = payload.cwd || process.env.CWD || process.cwd();
+    process.env.CWD = cwd;
     const projectName = path.basename(cwd).replace(/[\s-_]/g, '');
 
     const entities = extractor.extractEntities(assistantText, projectName);

@@ -7,8 +7,6 @@
  */
 
 import { z } from 'zod';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
 import { exportAll } from './skill-export.mjs';
 import { exportAllCommands } from './skill-export.mjs';
 import { exportAllHooks } from './hook-export.mjs';
@@ -25,7 +23,7 @@ function fail(text) { return { content: [{ type: 'text', text: `Error: ${text}` 
 const AGENT_NAMES = Object.keys(AGENTS);
 
 export function register(server, ctx) {
-  const { brainPath, log } = ctx;
+  const { store, log } = ctx;
 
   server.tool(
     'hermit_setup',
@@ -37,18 +35,12 @@ export function register(server, ctx) {
     },
     IDEM,
     async ({ agent, cwd, global: isGlobal }) => {
-      const workDir = cwd || process.cwd();
+      const workDir = cwd || ctx.memoryService?.sessionRootPath || ctx.service?.sessionRootPath;
+      if(!workDir)return fail('Explicit project cwd or started session required');
       const agents = agent === 'all' ? AGENT_NAMES : [agent];
       const opts = { global: isGlobal };
 
       const results = { commands: [], hooks: [], skills: [], errors: [] };
-
-      // 1. Ensure brain.jsonl exists
-      if (!existsSync(brainPath)) {
-        const dataDir = dirname(brainPath);
-        if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
-        writeFileSync(brainPath, '');
-      }
 
       // 2. Export commands for each agent
       for (const ag of agents) {
@@ -97,7 +89,7 @@ export function register(server, ctx) {
       // 6. Auto-learn project identity
       let learnResult = null;
       try {
-        learnResult = await learnProject(workDir, brainPath, { silent: true });
+        learnResult = await learnProject(workDir, {store, silent:true});
       } catch (err) {
         results.errors.push(`learn: ${err.message}`);
       }

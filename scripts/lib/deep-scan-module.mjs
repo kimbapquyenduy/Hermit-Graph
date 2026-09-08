@@ -65,7 +65,7 @@ Save as: \`PATTERN:INT:{ProjectName}:{ServiceName}\` (pattern-integration) with 
 Scan HACK/FIXME/WORKAROUND comments, git reverts, skipped tests. Save as INCIDENT:{ProjectName}:{BugDesc} (incident-bug).
 
 ### Phase 7: Relations
-Connect ALL entities with typed relations. Zero-orphan goal. Key relation types: uses, has_architecture, has_data_model, affects, integrates_with, built_with, decided_for, has_incident.
+Connect ALL entities with typed relations. Zero-orphan goal. Key relation types: uses_pattern, has_entity, has_rule, has_flow, uses_tech, decided_for, found_in.
 
 ### Phase 7.5: ScanMeta Update
 Save TECH:{ProjectName}:ScanMeta with LAST_SCAN, GIT_HEAD, DIR counts, entity/relation counts.
@@ -75,11 +75,12 @@ Output coverage table for all 13 entity types. List impact-ready entities, key f
 
 ### Observation Format
 All observations MUST use: [{confidence}|{YYYY-MM-DD}] PREFIX: content
+All inferred knowledge must be saved as lifecycle=candidate in the scanned project scope; activation requires explicit review. Never append scanner inference to active reviewed knowledge.
 Follow Observation Lifecycle Protocol for incremental scans (dedup by PREFIX).
 `.trim();
 
 export function register(server, ctx) {
-  const { brainPath, log } = ctx;
+  const { store, log } = ctx;
 
   server.tool(
     'hermit_deep_scan',
@@ -90,14 +91,16 @@ export function register(server, ctx) {
     },
     RO,
     async ({ cwd, force }) => {
-      const workDir = cwd ? resolve(cwd) : process.cwd();
+      const projectRoot=cwd||ctx.memoryService?.sessionRootPath||ctx.service?.sessionRootPath;
+      if(!projectRoot)return fail('Explicit project cwd or started session required');
+      const workDir = resolve(projectRoot);
 
       if (!existsSync(workDir)) {
         return fail(`Directory not found: ${workDir}`);
       }
 
       try {
-        const result = collectScanData(workDir, brainPath, { force });
+        const result = collectScanData(workDir, {store, force});
 
         if (result.scanType === 'no-changes') {
           return ok([

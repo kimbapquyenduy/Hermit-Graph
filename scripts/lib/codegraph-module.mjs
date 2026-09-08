@@ -164,7 +164,7 @@ export function register(server, ctx) {
       // Session telemetry measured a 262s p95 here — bound it and say so
       // rather than leaving the agent to hit its own hard timeout.
       const { value: result, timedOut, elapsedMs } = await withTimeout(
-        () => codeIntel.semanticQuery(query, dataDir),
+        () => ctx.lexicalOnly ? codeIntel.query(query, dataDir) : codeIntel.semanticQuery(query, dataDir),
         { ms: timeout_ms ?? DEFAULT_TOOL_TIMEOUT_MS, fallback: null },
       );
       if (timedOut || !result) {

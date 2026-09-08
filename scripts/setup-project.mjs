@@ -23,22 +23,25 @@
 import { existsSync, mkdirSync, copyFileSync, cpSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { resolveBrainPath, getPackageRoot, getInstallMode } from './lib/resolve-brain-path.mjs';
+import {resolvePaths} from './lib/storage/paths.mjs';
+import {BrainStore} from './lib/storage/brain-store.mjs';
 import { exportAllHooks } from './lib/hook-export.mjs';
 import { exportAllCommands } from './lib/skill-export.mjs';
 import { learnProject, scanProject } from './lib/project-learner.mjs';
 import { writeBusinessMdIfMissing } from './lib/business-md-generator.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const brainRoot = getPackageRoot();
+const brainRoot = join(__dirname,'..');
+const getPackageRoot=()=>brainRoot;
 // HERMIT_USER_CWD is set by brain-cli when forking (preserves caller's cwd),
 // since brain-cli forks with cwd=ROOT for deterministic module resolution.
 const projectRoot = process.env.HERMIT_USER_CWD || process.cwd();
 const args = process.argv.slice(2);
 const userHome = process.env.USERPROFILE || process.env.HOME || '';
 
-// brain.jsonl absolute path (resolved for git-clone or npm-install mode)
-const brainJsonlPath = resolveBrainPath();
+// Canonical user SQLite data root, independent of installation or caller cwd.
+const storagePaths = resolvePaths();
+const brainDataDir = storagePaths.dataRoot.replaceAll('\\','/');
 
 // MCP server config (shared across all agents) — v4: native hermit-mcp-server
 const hermitServerPath = join(getPackageRoot(), 'scripts', 'hermit-mcp-server.mjs').replace(/\\/g, '/');
@@ -46,7 +49,7 @@ const MCP_SERVER_CONFIG = {
   command: 'node',
   args: [hermitServerPath],
   env: {
-    MEMORY_FILE_PATH: brainJsonlPath,
+    HERMIT_DATA_DIR: brainDataDir,
     HF_HUB_DISABLE_SYMLINKS_WARNING: '1'
   }
 };
@@ -258,13 +261,13 @@ let installed = 0;
 let skipped = 0;
 
 if (isMcpOnly) {
-  // ── MCP-only mode: just configure MCP + brain.jsonl ──
+  // ── MCP-only mode: just configure MCP + SQLite brain.db ──
   console.log('Hermit Graph — MCP-Only Setup');
   console.log(`Project: ${projectRoot}`);
-  console.log(`Brain:   ${brainJsonlPath}`);
+  console.log(`Brain:   ${brainDataDir}`);
   console.log('');
 
-  ensureBrainJsonl();
+  ensureBrainStore();
   printMcpConfig();
   copyBusinessTemplate();
 
@@ -294,11 +297,11 @@ await setupSingleAgent(agentKey);
 async function setupAllAgents() {
   console.log('Hermit Graph — Full Setup (all agents)');
   console.log(`Project: ${projectRoot}`);
-  console.log(`Brain:   ${brainJsonlPath}`);
+  console.log(`Brain:   ${brainDataDir}`);
   console.log('');
 
-  // 1. Shared: brain.jsonl + templates
-  ensureBrainJsonl();
+  // 1. Shared: SQLite brain.db + templates
+  ensureBrainStore();
   ensureBridgesConfig();
   const projectInfo = scanProject(projectRoot);
   copyBusinessTemplate(AGENTS.claude, projectInfo);
@@ -306,7 +309,7 @@ async function setupAllAgents() {
   // 1b. Auto-learn project identity
   if (!args.includes('--skip-learn')) {
     console.log('\n── Auto-Learn ──');
-    await learnProject(projectRoot, brainJsonlPath);
+    await learnProject(projectRoot);
   }
 
   // 2. Claude Code (full: MCP + skills + commands + hooks + CLAUDE.md)
@@ -369,21 +372,21 @@ async function setupSingleAgent(key) {
   const ag = AGENTS[key];
   console.log(`Hermit Graph — ${ag.name} Setup`);
   console.log(`Project: ${projectRoot}`);
-  console.log(`Brain:   ${brainJsonlPath}`);
+  console.log(`Brain:   ${brainDataDir}`);
   const selectedSkills = ag.supportsSkills ? resolveSkillSelection() : [];
   if (ag.supportsSkills) {
     console.log(`Skills:  ${selectedSkills.length}/${allSkills.length} selected`);
   }
   console.log('');
 
-  ensureBrainJsonl();
+  ensureBrainStore();
   ensureBridgesConfig();
   const projectInfo = scanProject(projectRoot);
 
   // Auto-learn project identity
   if (!args.includes('--skip-learn')) {
     console.log('── Auto-Learn ──');
-    await learnProject(projectRoot, brainJsonlPath);
+    await learnProject(projectRoot);
     console.log('');
   }
 
@@ -439,13 +442,9 @@ function resolveSkillSelection() {
 // SHARED HELPERS
 // ══════════════════════════════════════════════════════════════════════════
 
-function ensureBrainJsonl() {
-  if (!existsSync(brainJsonlPath)) {
-    const dataDir = dirname(brainJsonlPath);
-    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
-    writeFileSync(brainJsonlPath, '');
-    console.log('  + Created: data/brain.jsonl (empty knowledge graph)');
-  }
+function ensureBrainStore() {
+  const store=new BrainStore({dbPath:storagePaths.dbPath});
+  store.close();
 }
 
 function ensureBridgesConfig() {
@@ -577,8 +576,8 @@ function configureGlobalMcp() {
     if (!globalSettings.mcpServers) globalSettings.mcpServers = {};
     const hermitServer = globalSettings.mcpServers['hermit-graph'];
     const needsConfig = !hermitServer
-      || !hermitServer.env?.MEMORY_FILE_PATH
-      || hermitServer.env.MEMORY_FILE_PATH.includes('__BRAIN_JSONL_PATH__');
+      || !hermitServer.env?.HERMIT_DATA_DIR
+      || hermitServer.env.HERMIT_DATA_DIR.includes('__HERMIT_DATA_DIR__');
 
     if (needsConfig) {
       // Remove legacy 'memory' key if present
@@ -587,7 +586,7 @@ function configureGlobalMcp() {
       const globalDir = dirname(globalSettingsPath);
       if (!existsSync(globalDir)) mkdirSync(globalDir, { recursive: true });
       writeFileSync(globalSettingsPath, JSON.stringify(globalSettings, null, 2));
-      console.log('  + Configured: ~/.claude/settings.json (hermit-graph → brain.jsonl)');
+      console.log('  + Configured: ~/.claude/settings.json (hermit-graph → SQLite brain.db)');
       installed++;
     }
 
@@ -623,7 +622,7 @@ function configureGlobalMcp() {
     }
   } catch {
     console.log('  ! Warning: Could not auto-configure ~/.claude/settings.json');
-    console.log(`    Add MCP memory manually with MEMORY_FILE_PATH = ${brainJsonlPath}`);
+    console.log(`    Add MCP memory manually with HERMIT_DATA_DIR = ${brainDataDir}`);
   }
 }
 
@@ -633,12 +632,13 @@ function configureClaudeProject() {
   if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
 
   if (!existsSync(settingsPath)) {
-    // Create from template with correct brain.jsonl path
+    // Create from template with correct SQLite brain.db path
     const tmpl = join(brainRoot, '.claude-settings.json');
     if (existsSync(tmpl)) {
-      let content = readFileSync(tmpl, 'utf-8');
-      content = content.replace('__BRAIN_JSONL_PATH__', brainJsonlPath);
-      writeFileSync(settingsPath, content);
+      const config=JSON.parse(readFileSync(tmpl,'utf8'));
+      config.mcpServers??={};delete config.mcpServers.memory;
+      config.mcpServers['hermit-graph']=MCP_SERVER_CONFIG;
+      writeFileSync(settingsPath,JSON.stringify(config,null,2));
       console.log('  + Created: .claude/settings.json (MCP memory + hooks configured)');
       installed++;
     } else {
@@ -822,7 +822,7 @@ function configureCursorGlobalMcp() {
       const dir = dirname(globalMcpPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(globalMcpPath, JSON.stringify(config, null, 2));
-      console.log('  + Configured: ~/.cursor/mcp.json (hermit-graph → brain.jsonl)');
+      console.log('  + Configured: ~/.cursor/mcp.json (hermit-graph → SQLite brain.db)');
       installed++;
     }
   } catch {
@@ -866,7 +866,7 @@ function configureWindsurfGlobalMcp() {
       const dir = dirname(windsurfConfigPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(windsurfConfigPath, JSON.stringify(config, null, 2));
-      console.log('  + Configured: ~/.codeium/windsurf/mcp_config.json (hermit-graph → brain.jsonl)');
+      console.log('  + Configured: ~/.codeium/windsurf/mcp_config.json (hermit-graph → SQLite brain.db)');
       installed++;
     }
   } catch {
@@ -933,7 +933,7 @@ function configureCodexGlobalMcp() {
         `args = ["${hermitServerPath}"]`,
         '',
         '[mcp_servers.hermit-graph.env]',
-        `MEMORY_FILE_PATH = "${brainJsonlPath}"`,
+        `HERMIT_DATA_DIR = ${JSON.stringify(brainDataDir)}`,
         `HF_HUB_DISABLE_SYMLINKS_WARNING = "1"`,
         '',
       ].join('\n');

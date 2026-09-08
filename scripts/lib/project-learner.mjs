@@ -1,12 +1,14 @@
 /**
  * Project Learner — deterministic project scanner for hermit setup.
  * Reads config files (package.json, tsconfig, README, etc.) and writes
- * BIZ + TECH entities to brain.jsonl. No AI needed — pure file parsing.
+ * BIZ + TECH candidate entities to SQLite. No AI needed — pure file parsing.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
-import { readBrain, writeBrain, withBrainLock } from './brain-io.mjs';
+import {BrainStore} from './storage/brain-store.mjs';
+import {resolvePaths} from './storage/paths.mjs';
+import {MemoryService} from './memory-service.mjs';
 
 // ── Framework detection maps ──
 
@@ -211,75 +213,29 @@ function buildEntities(info) {
 
 // ── Main export ──
 
-/**
- * Scan project files and write BIZ + TECH entities to brain.jsonl.
- * @param {string} projectRoot — absolute path to project
- * @param {string} brainPath — absolute path to brain.jsonl
- * @param {object} [opts]
- * @param {boolean} [opts.silent] — suppress console output
- * @returns {Promise<{ projectName: string, entities: number, observations: number, skipped: boolean }>}
- */
-export async function learnProject(projectRoot, brainPath, opts = {}) {
-  const log = opts.silent ? () => {} : (msg) => console.log(msg);
-  const info = scanProject(projectRoot);
-  const { projectName, tech, biz, relation } = buildEntities(info);
-
-  let entitiesWritten = 0;
-  let obsCount = 0;
-
-  await withBrainLock(brainPath, () => {
-    const { entities, relations } = readBrain(brainPath);
-
-    // Merge or create TECH entity
-    const existingTech = entities.get(tech.name);
-    if (existingTech) {
-      const existingBodies = new Set(existingTech.observations.map(obsBody));
-      const newObs = tech.observations.filter(o => !existingBodies.has(obsBody(o)));
-      if (newObs.length) {
-        existingTech.observations.push(...newObs);
-        obsCount += newObs.length;
+/** Scan project configuration into scoped candidates; caller must review before activation. */
+export async function learnProject(projectRoot, options = {}) {
+  if(!options || typeof options !== 'object')throw new Error('learnProject requires an options object; legacy path arguments are not supported');
+  const {projectName,tech,biz}=buildEntities(scanProject(projectRoot));
+  const store=options.store??new BrainStore({dbPath:resolvePaths().dbPath});
+  try {
+    const service=new MemoryService({store});
+    let entities=0,observations=0;
+    store.batch(()=>{
+      service.startSession(projectRoot);
+      const ids=[];
+      for(const draft of [tech,biz]){
+        const existing=store.getEntity({name:draft.name,projectId:service.projectId,lifecycles:['active','candidate','archived','rejected']});
+        // Scanner inference never modifies reviewed or archived knowledge.
+        if(existing&&existing.lifecycle!=='candidate')continue;
+        const bodies=new Set((existing?.observations??[]).map(obsBody));
+        const added=draft.observations.filter(o=>!bodies.has(obsBody(o)));
+        const result=service.createEntities([{name:draft.name,entityType:draft.entityType,observations:added,lifecycle:'candidate',provenance:{source:'project-scanner',confidence:0.6}}])[0];
+        if(!existing)entities++;observations+=added.length;ids.push(result.entity.id);
       }
-    } else {
-      entities.set(tech.name, tech);
-      entitiesWritten++;
-      obsCount += tech.observations.length;
-    }
-
-    // Merge or create BIZ entity
-    const existingBiz = entities.get(biz.name);
-    if (existingBiz) {
-      const existingBodies = new Set(existingBiz.observations.map(obsBody));
-      const newObs = biz.observations.filter(o => !existingBodies.has(obsBody(o)));
-      if (newObs.length) {
-        existingBiz.observations.push(...newObs);
-        obsCount += newObs.length;
-      }
-    } else {
-      entities.set(biz.name, biz);
-      entitiesWritten++;
-      obsCount += biz.observations.length;
-    }
-
-    // Add relation if not exists
-    const relExists = relations.some(r =>
-      r.from === relation.from && r.to === relation.to && r.relationType === relation.relationType
-    );
-    if (!relExists) relations.push(relation);
-
-    writeBrain(brainPath, entities, relations);
-  });
-
-  // Log results
-  const techSummary = [...info.frameworks, ...info.tools].join(', ') || info.language || 'unknown';
-  if (entitiesWritten > 0) {
-    log(`  + TECH:${projectName} (${techSummary})`);
-    log(`  + BIZ:${projectName} (${info.description || info.name})`);
-    log(`  + Relation: BIZ:${projectName} → uses_tech → TECH:${projectName}`);
-  } else if (obsCount > 0) {
-    log(`  ~ Updated: TECH:${projectName} + BIZ:${projectName} (+${obsCount} observations)`);
-  } else {
-    log(`  · Skipped: entities already up to date`);
-  }
-
-  return { projectName, entities: entitiesWritten, observations: obsCount, skipped: obsCount === 0 };
+      if(ids.length===2)service.createRelation(ids[1],ids[0],'uses_tech');
+    });
+    if(!options.silent)console.log('Scanned '+projectName+': '+entities+' candidate entities, '+observations+' observations (review required)');
+    return {projectName,entities,observations,skipped:observations===0};
+  } finally {if(!options.store)store.close();}
 }

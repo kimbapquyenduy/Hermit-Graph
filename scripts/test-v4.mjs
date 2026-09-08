@@ -29,6 +29,16 @@ function cleanup() {
   if (existsSync(TMP)) rmSync(TMP, { recursive: true });
 }
 
+async function withHookStore(label, run) {
+ const {BrainStore}=await import('./lib/storage/brain-store.mjs');
+ const {resolveProject}=await import('./lib/storage/project-resolver.mjs');
+ const {tmpdir}=await import('node:os');const root=join(tmpdir(),'hermit-test-v4-'+label+'-'+process.pid);mkdirSync(root,{recursive:true});
+ const keys=['HERMIT_DATA_DIR','HERMIT_DB_PATH','HERMIT_USER_CWD','HERMIT_PACKAGE_ROOT'];const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+ Object.assign(process.env,{HERMIT_DATA_DIR:join(root,'data'),HERMIT_DB_PATH:join(root,'data','brain.db'),HERMIT_USER_CWD:root,HERMIT_PACKAGE_ROOT:ROOT});
+ const store=new BrainStore({dbPath:process.env.HERMIT_DB_PATH});
+ try {const project=resolveProject(store,{rootPath:root,create:true});return await run(store,project.id);}finally{store.close();for(const k of keys){if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}rmSync(root,{recursive:true,force:true});}
+}
+
 async function test(name, fn) {
   try {
     await fn();
@@ -424,7 +434,7 @@ async function mcpIntegrationTests() {
 
   function sendMcp(messages) {
     return new Promise((resolve, reject) => {
-      const proc = spawn('node', [join(ROOT, 'scripts', 'hermit-mcp-server.mjs')], {
+      const proc = spawn('node', [join(ROOT, 'scripts', 'hermit-mcp-legacy.mjs')], {
         cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'],
         // MCP integration tests exercise advanced tools (consolidate, branch_context,
         // command_list, hook_list) that are gated behind HERMIT_TOOL_PROFILE=full.
@@ -930,32 +940,21 @@ async function recallCoreTests() {
     assert(kw.some(k => k.includes('hermit_skill_search')), `Should extract backtick term, got: ${kw.join(', ')}`);
   });
 
-  await test('expandRelations: returns empty on missing brain', () => {
-    const result = core.expandRelations([{ name: 'E1' }], '/nonexistent/path.jsonl');
-    assert(result.length === 0, 'Should return empty for missing brain');
-  });
+  await test('expandRelations: returns empty on empty scoped brain', () => withHookStore('expand-empty',()=>{assert(core.expandRelations([{id:'absent',name:'E1'}]).length===0,'Empty graph has no related entities');}));
 
-  await test('expandRelations: finds related entities from real brain', () => {
-    if (!existsSync(REAL_BRAIN)) { skipped++; return; }
-    // Use a known entity that has relations
-    const results = [{ name: 'BIZ:ClaudeCodeBrain' }];
-    const expanded = core.expandRelations(results, REAL_BRAIN);
-    assert(expanded.length > 0, `Should find related entities, got ${expanded.length}`);
-    assert(expanded.length <= core.MAX_EXPANSION, `Should cap at ${core.MAX_EXPANSION}`);
-  });
+  await test('expandRelations: finds related scoped SQLite entities', () => withHookStore('expand-related',(store,projectId)=>{
+ const from=store.createEntity({name:'BIZ:Fixture',entityType:'biz-domain',projectId,observations:[]}).entity;
+ for(let i=0;i<5;i++){const target=store.createEntity({name:'TECH:Fixture:'+i,entityType:'tech-stack',projectId,observations:['related']}).entity;store.createRelation({fromEntityId:from.id,toEntityId:target.id,relationType:'uses_tech'});}
+ const expanded=core.expandRelations([from]);assert(expanded.length===core.MAX_EXPANSION,'Related entities respect expansion cap');assert(expanded.every(e=>e.id!==from.id),'Seed entity is not repeated');
+ }));
 
   // ── High-level recall() ──
 
-  await test('recall: returns null for empty prompt', () => {
-    assert(core.recall('') === null, 'Empty prompt should return null');
-  });
+  await test('recall: returns null for empty prompt', () => withHookStore('recall-empty',()=>{assert(core.recall('')===null,'Empty prompt should return null');}));
 
-  await test('recall: returns output for keyword-rich prompt', () => {
-    if (!existsSync(REAL_BRAIN)) { skipped++; return; }
-    const output = core.recall('tell me about opencode skill portability');
-    // May or may not find results depending on KG content, but should not throw
-    assert(output === null || typeof output === 'string', 'Should return string or null');
-  });
+  await test('recall: returns output for keyword-rich prompt', () => withHookStore('recall-keyword',(store,projectId)=>{
+ store.createEntity({name:'PATTERN:Portability',entityType:'pattern-code',projectId,observations:['opencode skill portability']});const output=core.recall('tell me about opencode skill portability');assert(typeof output==='string'&&output.includes('PATTERN:Portability'),'Scoped SQLite match should be injected');
+ }));
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1090,54 +1089,22 @@ async function entityExtractorTests() {
 
   // ── Deduplication ──
 
-  await test('filterExisting: removes known entities', () => {
-    const tmpBrain = join(TMP, 'filter-test-brain.jsonl');
-    writeFileSync(tmpBrain, JSON.stringify({
-      type: 'entity', name: 'TECH:Decision:PostgreSQL', entityType: 'tech-decision',
-      observations: [], createdAt: Date.now()
-    }) + '\n');
+  await test('filterExisting: removes known SQLite entities', () => withHookStore('filter-known',(store,projectId)=>{
+ store.createEntity({name:'TECH:Decision:PostgreSQL',entityType:'tech-decision',projectId,observations:[]});
+ const filtered=ext.filterExisting([{name:'TECH:Decision:PostgreSQL',entityType:'tech-decision',observations:['dup']},{name:'TECH:Decision:Redis',entityType:'tech-decision',observations:['new']}]);assert(filtered.length===1,'Only new entity remains');assert(filtered[0].name==='TECH:Decision:Redis','Expected Redis');
+ }));
 
-    const entities = [
-      { name: 'TECH:Decision:PostgreSQL', entityType: 'tech-decision', observations: ['dup'] },
-      { name: 'TECH:Decision:Redis', entityType: 'tech-decision', observations: ['new'] },
-    ];
-    const filtered = ext.filterExisting(entities, tmpBrain);
-    assert(filtered.length === 1, `Expected 1, got ${filtered.length}`);
-    assert(filtered[0].name === 'TECH:Decision:Redis', `Got: ${filtered[0].name}`);
-  });
-
-  await test('filterExisting: case-insensitive match', () => {
-    const tmpBrain = join(TMP, 'filter-case-brain.jsonl');
-    writeFileSync(tmpBrain, JSON.stringify({
-      type: 'entity', name: 'tech:decision:postgresql', entityType: 'tech-decision',
-      observations: [], createdAt: Date.now()
-    }) + '\n');
-
-    const entities = [
-      { name: 'TECH:Decision:PostgreSQL', entityType: 'tech-decision', observations: ['test'] },
-    ];
-    const filtered = ext.filterExisting(entities, tmpBrain);
-    assert(filtered.length === 0, 'Case-insensitive match should filter');
-  });
+  await test('filterExisting: preserves distinct case-sensitive canonical names', () => withHookStore('filter-case',(store,projectId)=>{
+ store.createEntity({name:'tech:decision:postgresql',entityType:'tech-decision',projectId,observations:[]});
+ const filtered=ext.filterExisting([{name:'TECH:Decision:PostgreSQL',entityType:'tech-decision',observations:['test']}]);assert(filtered.length===1,'SQLite canonical names are case-sensitive; distinct names must not silently merge');
+ }));
 
   // ── appendToBrain ──
 
-  await test('appendToBrain: writes entities to brain file', () => {
-    const tmpBrain = join(TMP, 'append-test-brain.jsonl');
-    const entities = [
-      { name: 'TECH:Decision:Redis', entityType: 'tech-decision', observations: ['Chose Redis for caching'] },
-    ];
-    const written = ext.appendToBrain(entities, tmpBrain);
-    assert(written === 1, `Expected 1, got ${written}`);
-    assert(existsSync(tmpBrain), 'Brain file should exist');
-
-    const content = readFileSync(tmpBrain, 'utf-8').trim();
-    const obj = JSON.parse(content);
-    assert(obj.type === 'entity', 'Should be entity type');
-    assert(obj.name === 'TECH:Decision:Redis', `Got: ${obj.name}`);
-    assert(obj.observations[0].content.includes('[0.5|'), 'Should have auto confidence prefix');
-    assert(obj.observations[0].confidence === 0.5, 'Confidence should be 0.5');
-  });
+  await test('appendToBrain: persists scoped candidates in SQLite', () => withHookStore('append-candidate',(store,projectId)=>{
+ const written=ext.appendToBrain([{name:'TECH:Decision:Redis',entityType:'tech-decision',observations:['Chose Redis for caching']}]);assert(written===1,'One candidate captured');
+ const obj=store.getEntity({name:'TECH:Decision:Redis',projectId,lifecycles:['candidate']});assert(obj?.name==='TECH:Decision:Redis','Candidate is durable');assert(obj.observations[0].content.includes('[0.5|'),'Auto confidence prefix preserved');assert(store.search('Redis',{projectId}).length===0,'Candidate excluded from default recall');assert(ext.appendToBrain([{name:obj.name,entityType:obj.entityType,observations:['duplicate']}])===0,'Repeated capture is idempotent');
+ }));
 
   await test('formatObservations: adds confidence prefix', () => {
     const obs = ext.formatObservations(['test observation']);
@@ -1932,7 +1899,7 @@ async function doctorTests() {
   });
 
   await test('embedding: server warms the model only when vectors are used', () => {
-    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-server.mjs'), 'utf-8');
+    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-legacy.mjs'), 'utf-8');
     assert(/warmupEmbeddings\(\)/.test(src), 'boot warms embeddings');
     assert(/_retrievalMode !== 'bm25'/.test(src), 'skipped in the default bm25 mode (never embeds)');
   });
@@ -1970,7 +1937,7 @@ async function doctorTests() {
   });
 
   await test('parity: guard runs before providers open a handle', () => {
-    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-server.mjs'), 'utf-8');
+    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-legacy.mjs'), 'utf-8');
     const guardAt = src.indexOf('ensureIndexParity({');
     const providerAt = src.indexOf('new SqliteProvider(');
     assert(guardAt > 0 && providerAt > 0, 'both present');

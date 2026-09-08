@@ -3,7 +3,7 @@
  * kg-auto-update.cjs — Claude Code Stop Hook
  *
  * Fires on session end. Scans assistant messages for extractable entities
- * (tech decisions, error patterns, explicit refs) and appends to brain.jsonl.
+ * (tech decisions, error patterns, explicit refs) and captures candidates in SQLite.
  *
  * Stdin: { session_id, conversation: [{role, content}], ... }
  * Stdout: (none — Stop hooks are non-blocking)
@@ -50,6 +50,7 @@ function main() {
 
     // Detect project name from CWD (PascalCase for consistent KG naming)
     const cwd = payload.cwd || process.env.CWD || process.cwd();
+    process.env.CWD = cwd;
     const projectName = path.basename(cwd)
       .split(/[\s\-_]+/)
       .map(w => w.charAt(0).toUpperCase() + w.slice(1))
