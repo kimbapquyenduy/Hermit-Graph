@@ -27,3 +27,5 @@ Fresh checks: npm test = 237 suite checks + 41 Node tests, all pass; verify:hook
 A fixture initially resolved a project inside the repository and created a test UUID marker in .git. It was identified by UUID/time, removed with exact-content guard, and fixtures now use OS temporary projects. No knowledge migration was performed.
 
 Remaining v8 gates: complete diagnostics/crash handling, safe setup/upgrade/uninstall validation, broader concurrency/recovery/privacy matrix and release benchmarks. Previous commit-permission limitation is retried separately.
+
+Commit restriction resolved through approved Git escalation: reconstruction and hook/scanner cutover saved in c0c926d. No push or release performed.
