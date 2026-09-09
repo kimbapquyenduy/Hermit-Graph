@@ -86,3 +86,11 @@ Capsule identity now equals the operation correlation ID when available, includi
 Acceptance tests cover import/open/initialize/ready boot faults, background uncaught failure, incompatible-schema byte preservation, diagnostics-off and full-spool fallback; all diagnostic table insertion budgets, age pruning, protected incident histories, import tombstones, exact lifetime totals, bounded capsule bytes/count and sanitized quarantine. Limits bound diagnostic rows/payloads, not the entire shared knowledge database file or externally pinned WAL readers.
 
 Initial canonical Windows run passed 137 Node results, 237 legacy checks, 18 E2E, 30 authority files and a 223-file package smoke invoking 22 tools plus resource. Subsequent boot/correlation/setup checks passed 34 results after the background-failure and correlated-setup fixes. Final RC preflight and registry publication are recorded separately when completed.
+
+Final RC evidence at source commit `4ce5355`:
+- `publish-preflight.mjs` exited 0: all 6 required checks passed; the absent optional README What's New section is explicitly skipped.
+- Canonical suite: 138 Node results, 237 legacy checks, 18 E2E, 30 authority files; 223 packaged files and all 22 MCP tools plus resource passed. Evidence: review-workspace outputs/v8-rc0-preflight.log.
+- The exact RC tarball was installed into the isolated npm consumer fixture and its 22-tool/resource smoke passed; packaged CLI reports 8.0.0-rc.0.
+- Recorder-only benchmark: 500 samples, success p95 1.126 ms and error p95 2.017 ms; this is not a whole-request latency or competitor comparison.
+- Tarball SHA-1: `19d06967bb33625a79cf183d4b4f356929e268ea` (full integrity in outputs/v8-rc0-pack.json).
+- First npm publish attempt was rejected with 403 because the account has 2FA disabled. Registry still returns 404 for 8.0.0-rc.0 and latest remains 7.1.0. Publication is pending account authentication, not local acceptance work.
