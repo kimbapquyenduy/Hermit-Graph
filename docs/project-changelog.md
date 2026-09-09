@@ -4,6 +4,14 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [8.0.0-rc.0] — 2026-09-09 (Windows release candidate)
+
+- Windows-first release candidate for Node.js 24; npm channel `next`. macOS/Linux validation is deferred and stable `latest` is unchanged.
+- CLI subprocess and hook correlation with scoped capsule import, stable session lookup and non-blocking adapter failure disclosure.
+- Boot-stage fault injection and retention age/count/privacy acceptance tests, including protected incident evidence and exact lifetime aggregates.
+- Schema 8 revision 3 upgrades explicitly; no automatic v7 migration. Successful read-only operations do not create diagnostics storage.
+- Interactive testing inside every client, cross-platform qualification and competitor comparisons are not claimed for this candidate.
+
 ## [8.0.0-dev.0] — 2026-09-09 (unreleased reconstruction)
 
 - SQLite-only public knowledge path, scoped IDs/lifecycle, current-source indexing and preview/commit scans.

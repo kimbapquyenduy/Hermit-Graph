@@ -1,6 +1,6 @@
 # Hermit Graph — v8 reconstruction
 
-Local project memory for AI coding agents, with SQLite as knowledge authority and MCP over stdio. This checkout is a development build; v8 release gates are not yet signed off. The npm registry release is a separate artifact.
+Local project memory for AI coding agents, with SQLite as knowledge authority and MCP over stdio. The first v8 release targets Windows with Node.js 24. macOS/Linux validation is deferred; those platforms are not yet claimed as supported. The npm registry release is a separate artifact.
 
 Requires Node.js 24+. Install checkout dependencies with `npm install`, then use `node scripts/brain-cli.mjs help`. In a packaged installation, use `hermit` instead.
 
@@ -8,7 +8,7 @@ Requires Node.js 24+. Install checkout dependencies with `npm install`, then use
 
 `hermit setup --agent codex --project /absolute/project/path` previews configuration changes. Add `--apply` to create backups, record owned edits and verify an isolated MCP connection. Malformed configuration or conflicting owned entries fail without overwriting unrelated settings. An existing unowned data root is refused, not silently adopted or migrated.
 
-Configuration adapters: claude, cursor, gemini-cli, windsurf, cline, codex, opencode. `auto` selects detected clients; `all` is explicit. Cline targets its VS Code extension. Claude and Codex have tested stable session hooks. Other adapters currently provide MCP configuration with degraded session lifecycle. Actual client/OS validation remains a release gate.
+Configuration adapters: claude, cursor, gemini-cli, windsurf, cline, codex, opencode. `auto` selects detected clients; `all` is explicit. Cline targets its VS Code extension. Claude and Codex have tested stable session hook contracts. Other adapters currently provide MCP configuration with degraded session lifecycle. Tests exercise configuration, hook subprocesses and MCP protocol; they do not claim interactive end-to-end validation inside every client application.
 
 `hermit uninstall --agent codex` previews removal; add `--apply` to remove owned integrations while retaining knowledge and unrelated settings.
 

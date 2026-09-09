@@ -101,6 +101,8 @@ er.name
 
 # IDE (non-VSCode)
 .cursor/
+.agents/
+.codex/
 
 # Serena cache
 .serena/cache

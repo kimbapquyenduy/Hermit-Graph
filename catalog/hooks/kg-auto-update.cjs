@@ -38,6 +38,7 @@ function main() {
     if (!stdin) process.exit(0);
 
     const payload = JSON.parse(stdin);
+    require('./lib/sqlite-bridge.cjs').bindHookContext(payload, 'claude');
 
     // Extract assistant messages from conversation
     const messages = payload.conversation || payload.messages || [];
@@ -80,7 +81,7 @@ function main() {
 
     process.exit(0);
   } catch (err) {
-    process.stderr.write(`[hermit] kg-auto-update error: ${err.message}\n`);
+    require('./lib/sqlite-bridge.cjs').reportHookFailure(err);
     process.exit(0); // Never block session close
   }
 }

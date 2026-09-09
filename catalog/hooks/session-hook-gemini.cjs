@@ -8,4 +8,4 @@ try{
  const agent='gemini-cli';
  const result=event==='SessionEnd'||event==='end'?endSession(p.cwd,agent,p.session_id):event==='SessionStart'||event==='start'?startSession(p.cwd,agent,p.session_id):{degraded:true,code:'HERMIT_HOOK_EVENT_UNSUPPORTED'};
  if(result?.degraded)process.stderr.write(result.code+'\n');
-}catch{process.stderr.write('HERMIT_SESSION_HOOK_FAILED\n');process.exitCode=1;}
+}catch(error){require('./lib/sqlite-bridge.cjs').reportHookFailure(error);process.exitCode=1;}
