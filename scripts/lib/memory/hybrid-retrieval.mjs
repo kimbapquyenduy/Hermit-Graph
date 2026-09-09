@@ -102,7 +102,12 @@ export async function searchHybrid(query, ctx, opts = {}) {
   let bm25Results = [];
   try {
     const raw = await memoryProvider.searchKeyword(query, { topK: fetchK });
-    bm25Results = (raw || []).map(r => ({ name: r.name, _entityType: r.entityType, _obsCount: r.observationCount }));
+    bm25Results = (raw || []).map(r => ({
+      name: r.id || r.name,
+      _displayName: r.name,
+      _entityType: r.entityType,
+      _obsCount: r.observationCount,
+    }));
   } catch (_err) {
     // Non-fatal: proceed with empty BM25 list
   }
@@ -118,7 +123,7 @@ export async function searchHybrid(query, ctx, opts = {}) {
         const vecPromise = vectorBackend.search(qvec, fetchK);
         const { ok, value } = await withTimeout(vecPromise, VECTOR_TIMEOUT_MS);
         if (ok && Array.isArray(value)) {
-          vectorResults = value.map(r => ({ name: r.name }));
+          vectorResults = value.map(r => ({ name: r.id || r.name, _displayName: r.name }));
         } else {
           vectorFallback = true;
         }
@@ -146,16 +151,23 @@ export async function searchHybrid(query, ctx, opts = {}) {
   const bm25ScoreMap = new Map(bm25Results.map((r, i) => [r.name, 1 - i / Math.max(bm25Results.length, 1)]));
   const vecScoreMap = new Map(vectorResults.map((r, i) => [r.name, 1 - i / Math.max(vectorResults.length, 1)]));
   // Build entity-type + obsCount lookup from BM25 results (already hydrated)
-  const metaMap = new Map(bm25Results.map(r => [r.name, { entityType: r._entityType, observationCount: r._obsCount }]));
+  const metaMap = new Map(bm25Results.map(r => [r.name, {
+    name: r._displayName || r.name,
+    entityType: r._entityType,
+    observationCount: r._obsCount,
+  }]));
 
   // ── Hydrate missing metadata via memoryProvider.getEntity ───────────────
   const hydrateNames = fused.filter(r => !metaMap.has(r.name)).map(r => r.name);
   if (hydrateNames.length > 0) {
     await Promise.all(hydrateNames.map(async (name) => {
       try {
-        const entity = await memoryProvider.getEntity(name);
+        const entity = memoryProvider.getEntityById
+          ? await memoryProvider.getEntityById(name)
+          : await memoryProvider.getEntity(name);
         if (entity) {
           metaMap.set(name, {
+            name: entity.name,
             entityType: entity.entityType,
             observationCount: (entity.observations || []).length,
           });
@@ -167,7 +179,8 @@ export async function searchHybrid(query, ctx, opts = {}) {
   return fused.map(r => {
     const meta = metaMap.get(r.name) || { entityType: 'unknown', observationCount: 0 };
     const result = {
-      name: r.name,
+      id: r.name,
+      name: meta.name || r.name,
       entityType: meta.entityType,
       score: Math.round(r.score * 10000) / 10000,
       observationCount: meta.observationCount ?? 0,

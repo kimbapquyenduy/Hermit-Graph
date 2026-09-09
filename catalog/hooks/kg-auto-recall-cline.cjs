@@ -23,6 +23,7 @@ function main() {
     if (!stdin) process.exit(0);
 
     const payload = JSON.parse(stdin);
+    require('./lib/sqlite-bridge.cjs').bindHookContext(payload, 'cline');
     const prompt = payload.message || payload.prompt || '';
     if (prompt.length < 10) process.exit(0);
 
@@ -35,7 +36,7 @@ function main() {
       console.log(JSON.stringify({ contextModification: output }));
     }
     process.exit(0);
-  } catch { process.exit(0); }
+  } catch (error) { require('./lib/sqlite-bridge.cjs').reportHookFailure(error); process.exit(0); }
 }
 
 main();

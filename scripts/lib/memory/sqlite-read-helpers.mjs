@@ -137,6 +137,7 @@ export function searchKeywordFts(readStmts, query, opts = {}) {
   for (const row of ftsRows) {
     const meta = readStmts.selectEntityMeta.get(row.name);
     results.push({
+      id: row.name,
       name: row.name,
       entityType: meta?.entity_type ?? '',
       // Negate: BM25 returns negative values (lower = better), caller wants higher = better

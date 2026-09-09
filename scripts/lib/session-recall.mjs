@@ -7,6 +7,7 @@
  */
 
 import { readBrain } from './brain-io.mjs';
+import { STOP_WORDS as SHARED_STOP_WORDS } from './memory-search-scoring.mjs';
 
 // ── Config ──────────────────────────────────────────────────────────────
 const MIN_KEYWORD_LEN = 3;
@@ -17,7 +18,9 @@ const SCOPE_PENALTY = -2;
 // Manual aliases for project names that can't be auto-detected from directory
 const SCOPE_OVERRIDES = {
   wheeloffate: ['wof', 'wheel'],
-  claudecodebrain: ['brain', 'claudecode'],
+  // HermitGraph / HermitMCP / HermitV4 are all this same repo — without the
+  // aliases the scope filter reads them as a different project and hides them.
+  claudecodebrain: ['brain', 'claudecode', 'hermitgraph', 'hermit', 'hermitmcp', 'hermitv4'],
   edumvp: ['edu'],
 };
 
@@ -49,12 +52,16 @@ const STOPWORDS = new Set([
 
 // ── Keyword Extraction ──────────────────────────────────────────────────
 
-/** Extract meaningful keywords from text, filtering stopwords. */
+/**
+ * Extract meaningful keywords from text, filtering stopwords.
+ * Merges the shared (English + Vietnamese) stopword list so non-English prompts
+ * don't turn every filler word into a search term.
+ */
 export function extractKeywords(text) {
   return [...new Set(
     text.toLowerCase()
       .split(/[\s\-_:;,.!?()[\]{}"'`/\\|<>@#$%^&*+=~]+/)
-      .filter(w => w.length >= MIN_KEYWORD_LEN && !STOPWORDS.has(w))
+      .filter(w => w.length >= MIN_KEYWORD_LEN && !STOPWORDS.has(w) && !SHARED_STOP_WORDS.has(w))
   )];
 }
 
@@ -108,8 +115,12 @@ export function detectScope(cwd, brainPath) {
   };
 }
 
-/** Check if entity belongs to current scope, another scope, or neutral. */
-function checkEntityScope(entityName, currentAliases, allScopes) {
+/**
+ * Check if entity belongs to current scope, another scope, or neutral.
+ * Exported so memory search tools scope results the same way session recall does
+ * (one scope resolver, not two).
+ */
+export function checkEntityScope(entityName, currentAliases, allScopes) {
   if (currentAliases.length === 0) return 'neutral';
   const nameLower = entityName.toLowerCase().replace(/[\s\-_]/g, '');
 
@@ -140,10 +151,11 @@ function normalizeObs(obs) {
  * @param {string} [opts.cwd] - Working directory for scope detection
  * @param {number} [opts.maxResults=5]
  * @param {number} [opts.maxObsPerEntity=3]
- * @returns {{ entities: Array, scope: string, keywords: string[] }}
+ * @param {boolean} [opts.crossProject=false] - Include entities owned by other projects
+ * @returns {{ entities: Array, scope: string, keywords: string[], crossProjectFallback: boolean }}
  */
 export function recallEntities(brainPath, opts = {}) {
-  const { query = '', cwd = process.cwd(), maxResults = 5, maxObsPerEntity = 3 } = opts;
+  const { query = '', cwd = process.cwd(), maxResults = 5, maxObsPerEntity = 3, crossProject = false } = opts;
   const { scope, aliases, allScopes } = detectScope(cwd, brainPath);
   const keywords = query ? extractKeywords(query) : [];
   const { entities: entityMap } = readBrain(brainPath);
@@ -183,9 +195,24 @@ export function recallEntities(brainPath, opts = {}) {
       entityType: entity.entityType,
       observations: (entity.observations || []).map(normalizeObs).slice(0, maxObsPerEntity),
       score,
+      scopeResult,
     });
   }
 
   results.sort((a, b) => b.score - a.score);
-  return { entities: results.slice(0, maxResults), scope, keywords };
+
+  // Entities that clearly belong to ANOTHER project are excluded by default.
+  // SCOPE_PENALTY alone never won against keyword hits: a generic prompt could
+  // rank another project's incidents above the current project's own knowledge.
+  // 'neutral' (no recognizable project in the name — shared patterns) stays.
+  let visible = crossProject ? results : results.filter(r => r.scopeResult !== 'other');
+  let crossProjectFallback = false;
+  if (!visible.length && results.length) { visible = results; crossProjectFallback = true; }
+
+  return {
+    entities: visible.slice(0, maxResults),
+    scope,
+    keywords,
+    crossProjectFallback,
+  };
 }

@@ -1,0 +1,11 @@
+import {readFileSync,existsSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import assert from 'node:assert/strict';
+const pkg=JSON.parse(readFileSync('package.json','utf8'));
+assert.match(pkg.version,/^8\./);assert.equal(pkg.engines.node,'>=24.0.0');
+assert.ok(!pkg.dependencies['better-sqlite3']&&!pkg.dependencies['sqlite-vec']);
+const help=execFileSync(process.execPath,['scripts/brain-cli.mjs','help'],{encoding:'utf8'});
+for(const [,command] of readFileSync('README.md','utf8').matchAll(/\bhermit ([a-z][a-z-]+)/g))assert.ok(help.includes('hermit '+command),'README advertises missing command: '+command);
+for(const file of ['README.md','BUSINESS.md','docs/system-architecture.md','docs/codebase-summary.md','docs/development-roadmap.md'])assert.ok(existsSync(file));
+for(const script of Object.values(pkg.scripts))for(const [,path] of script.matchAll(/node (scripts\/[\w/.-]+\.mjs)/g))assert.ok(existsSync(path),'Missing npm script: '+path);
+console.log('V8 documented commands, Node requirement and package entrypoints agree.');

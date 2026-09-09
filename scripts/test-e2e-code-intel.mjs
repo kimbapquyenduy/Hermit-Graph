@@ -8,8 +8,9 @@
 
 import assert from 'assert';
 import { spawn } from 'child_process';
-import { existsSync, unlinkSync, readFileSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { existsSync, unlinkSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import * as codeIntel from './lib/code-intel/index.mjs';
@@ -23,7 +24,8 @@ import { blastRadius, symbolContext } from './lib/code-intel/impact.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, '..');
-const DATA_DIR = resolve(PROJECT_ROOT, 'data');
+const DATA_DIR = mkdtempSync(join(tmpdir(),'hermit-e2e-data-'));
+process.on('exit',()=>rmSync(DATA_DIR,{recursive:true,force:true}));
 
 // ── Color output helpers ──
 const colors = {
@@ -290,55 +292,12 @@ testSync('SCENARIO 10: isSupported and hasPython checks', () => {
   info(`  Python support: ${pythonAvailable ? 'available' : 'not available'}`);
 });
 
-// ── SCENARIO 11: MCP Server Boot (optional, spawns subprocess) ──
-await test('SCENARIO 11: MCP Server boot and initialization', async () => {
-  // Try to find the MCP server entry point
-  const mcpServerPath = resolve(PROJECT_ROOT, 'scripts/lib/hermit-mcp-server.mjs');
-
-  if (!existsSync(mcpServerPath)) {
-    info('  MCP server file not found, skipping live boot test');
-    return;
-  }
-
-  return new Promise((resolve, reject) => {
-    const server = spawn('node', [mcpServerPath], {
-      cwd: PROJECT_ROOT,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    });
-
-    let output = '';
-    let ready = false;
-
-    server.stdout.on('data', (data) => {
-      output += data.toString();
-      if (output.includes('Server initialized') || output.includes('tools/list')) {
-        ready = true;
-        server.kill();
-      }
-    });
-
-    server.stderr.on('data', (data) => {
-      const err = data.toString();
-      if (!err.includes('ECONNREFUSED')) {
-        info(`  Server stderr: ${err.slice(0, 100)}`);
-      }
-    });
-
-    server.on('close', (code) => {
-      if (ready) {
-        info('  MCP server booted successfully');
-        resolve();
-      } else {
-        info('  MCP server test skipped (not ready in time)');
-        resolve();
-      }
-    });
-
-    setTimeout(() => {
-      server.kill();
-    }, 3000);
-  });
+// Real stdio boot; failure is a failing gate.
+await test('SCENARIO 11: MCP Server boot and initialization',async()=>{
+ const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
+ const {StdioClientTransport}=await import('@modelcontextprotocol/sdk/client/stdio.js');
+ const client=new Client({name:'e2e',version:'1'});
+ try{await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve(PROJECT_ROOT,'scripts/hermit-mcp-server.mjs')],env:{...process.env,HERMIT_STORAGE:'v8',HERMIT_DATA_DIR:join(DATA_DIR,'mcp'),HERMIT_DB_PATH:'',HERMIT_PROJECT_CWD:'',CLAUDE_PROJECT_DIR:'',HERMIT_USER_CWD:''},stderr:'pipe'}));const result=await client.listTools();assert.ok(result.tools.some(t=>t.name==='hermit_search_nodes'));}finally{await client.close();}
 });
 
 // ── SCENARIO 12: CodeGraph API completeness ──
@@ -410,6 +369,55 @@ testSync('SCENARIO 13: code-symbols.jsonl file format', () => {
   info(`  - Meta: 1`);
   info(`  - Symbols: ${symbols.length}`);
   info(`  - Relations: ${relations.length}`);
+});
+
+// ── Regression: worker mode with zero AST-parseable files ──
+// A repo of >=50 files that contains no JS/TS/PY (only XML / Vue / Svelte /
+// Liquid) enables the parse worker but never allocates the pool. Pass-2 used to
+// call _pool.preloadSymbols() unconditionally and threw
+// "Cannot read properties of null (reading 'preloadSymbols')".
+
+function makeTempRepo(prefix, count, name, content) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  for (let i = 0; i < count; i++) {
+    writeFileSync(join(dir, name(i)), content(i), 'utf-8');
+  }
+  return dir;
+}
+
+await test('Regression: fullIndex on 60 non-MyBatis XML files (worker mode, no AST files)', async () => {
+  const repo = makeTempRepo('hermit-xml-', 60,
+    (i) => `config-${i}.xml`,
+    (i) => `<?xml version="1.0"?>
+<beans><bean id="b${i}" class="com.example.Bean${i}"/></beans>
+`);
+  const data = mkdtempSync(join(tmpdir(), 'hermit-xml-data-'));
+  try {
+    const result = await fullIndex(repo, data);
+    assert_has_property(result, 'graph', 'fullIndex should return a graph');
+    assert_has_property(result, 'stats', 'fullIndex should return stats');
+    info(`  indexed ${result.stats.files} XML files without crashing`);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(data, { recursive: true, force: true });
+  }
+});
+
+await test('Regression: fullIndex on 60 Vue SFC files (worker mode, no AST files)', async () => {
+  const repo = makeTempRepo('hermit-vue-', 60,
+    (i) => `Comp${i}.vue`,
+    (i) => `<template><div>c${i}</div></template>
+<script>export default { name: 'Comp${i}' }</script>
+`);
+  const data = mkdtempSync(join(tmpdir(), 'hermit-vue-data-'));
+  try {
+    const result = await fullIndex(repo, data);
+    assert_has_property(result, 'graph', 'fullIndex should return a graph');
+    info(`  indexed ${result.stats.files} Vue files without crashing`);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(data, { recursive: true, force: true });
+  }
 });
 
 // ── Summary ──

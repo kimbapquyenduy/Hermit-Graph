@@ -4,6 +4,8 @@
  * Relations: CALLS, IMPORTS, EXTENDS, MEMBER_OF.
  */
 
+import { shouldResolveMemberCall } from './resolution/known-names.mjs';
+
 // ── Symbol extraction ──
 
 /**
@@ -99,12 +101,16 @@ export function extractRelationsJS(root, file, lang, symbolMap) {
         relations.push({ _v: 1, _type: 'relation', from: callerSymId, to: targetId, kind: 'CALLS', line: line(node) });
       }
     }
-    // Method call: obj.method() — resolve if obj is known class instance
+    // Method call: obj.method() — resolve if obj is known class instance.
+    // Guarded: a bare method-name lookup against the flat symbol map used to
+    // invent edges for built-in calls (`someSet.add(x)` → McpClientPool.add).
     if (callee.kind() === 'member_expression') {
       const method = callee.field('property')?.text();
       if (method) {
         const targetId = symbolMap.get(method);
-        if (targetId && targetId !== callerSymId) {
+        const receiver = callee.field('object')?.text();
+        if (targetId && targetId !== callerSymId
+            && shouldResolveMemberCall(receiver, method, targetId, file)) {
           relations.push({ _v: 1, _type: 'relation', from: callerSymId, to: targetId, kind: 'CALLS', line: line(node) });
         }
       }

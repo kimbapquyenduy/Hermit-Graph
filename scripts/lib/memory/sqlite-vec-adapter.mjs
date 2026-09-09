@@ -8,7 +8,7 @@
  * Usage:
  *   import { SqliteVecBackend } from './sqlite-vec-adapter.mjs';
  *   const backend = new SqliteVecBackend({ db: sqliteProvider.getDb() });
- *   await backend.upsert('TECH:MyEntity', float32ArrayVec);
+ *   await backend.upsert('entity-id-123', float32ArrayVec);
  */
 
 import { VectorBackend } from './vector-backend.mjs';
@@ -80,13 +80,13 @@ export class SqliteVecBackend extends VectorBackend {
   }
 
   /**
-   * Upsert an entity's embedding. Creates or replaces by name (vec0 PRIMARY KEY).
-   * @param {string} name
+   * Upsert an entity's embedding. Creates or replaces by stable ID (vec0 PRIMARY KEY).
+   * @param {string} entityId
    * @param {Float32Array} vec - Must be exactly 384-dim with finite values.
    * @returns {Promise<void>}
    */
-  async upsert(name, vec) {
-    if (!name) throw new Error('SqliteVecBackend.upsert: name is required');
+  async upsert(entityId, vec) {
+    if (!entityId) throw new Error('SqliteVecBackend.upsert: entityId is required');
     if (!(vec instanceof Float32Array)) {
       throw new Error(`SqliteVecBackend.upsert: vec must be Float32Array, got ${typeof vec}`);
     }
@@ -101,8 +101,8 @@ export class SqliteVecBackend extends VectorBackend {
     const blob = vecToBlob(vec);
     // vec0 does not support INSERT OR REPLACE; emulate upsert via DELETE + INSERT.
     const run = this._db.transaction(() => {
-      this._stmtDelete.run(name);
-      this._stmtInsert.run(name, blob);
+      this._stmtDelete.run(entityId);
+      this._stmtInsert.run(entityId, blob);
     });
     run();
   }
@@ -116,12 +116,12 @@ export class SqliteVecBackend extends VectorBackend {
     if (!pairs || pairs.length === 0) return;
     // vec0 does not support INSERT OR REPLACE; emulate upsert via DELETE + INSERT per row.
     const run = this._db.transaction(() => {
-      for (const [name, vec] of pairs) {
+      for (const [entityId, vec] of pairs) {
         if (!(vec instanceof Float32Array) || vec.length !== EMBEDDING_DIM) {
-          throw new Error(`upsertBatch: invalid vector for "${name}"`);
+          throw new Error(`upsertBatch: invalid vector for "${entityId}"`);
         }
-        this._stmtDelete.run(name);
-        this._stmtInsert.run(name, vecToBlob(vec));
+        this._stmtDelete.run(entityId);
+        this._stmtInsert.run(entityId, vecToBlob(vec));
       }
     });
     run();
@@ -129,12 +129,12 @@ export class SqliteVecBackend extends VectorBackend {
 
   /**
    * Delete an entity's embedding. No-op if not found.
-   * @param {string} name
+   * @param {string} entityId
    * @returns {Promise<void>}
    */
-  async delete(name) {
-    if (!name) throw new Error('SqliteVecBackend.delete: name is required');
-    const run = this._db.transaction(() => this._stmtDelete.run(name));
+  async delete(entityId) {
+    if (!entityId) throw new Error('SqliteVecBackend.delete: entityId is required');
+    const run = this._db.transaction(() => this._stmtDelete.run(entityId));
     run();
   }
 
@@ -149,12 +149,12 @@ export class SqliteVecBackend extends VectorBackend {
 
   /**
    * kNN search via vec_distance_cosine — O(n) scan with sqlite-vec acceleration.
-   * Returns [{name, distance}] sorted ascending by distance (lower = closer).
+   * Returns [{id, name, distance}] sorted ascending by distance (lower = closer).
    * Does NOT hydrate entityType/observationCount — that's the caller's responsibility.
    *
    * @param {Float32Array} queryVec - 384-dim query vector
    * @param {number} topK - Nearest neighbours to return (capped at 100)
-   * @returns {Promise<Array<{name: string, distance: number}>>}
+   * @returns {Promise<Array<{id: string, name: string, distance: number}>>}
    */
   async search(queryVec, topK = 10) {
     if (!(queryVec instanceof Float32Array)) {
@@ -177,6 +177,6 @@ export class SqliteVecBackend extends VectorBackend {
 
     const blob = vecToBlob(queryVec);
     const rows = this._stmtSearch.all(blob, k);
-    return rows.map(r => ({ name: r.name, distance: r.distance }));
+    return rows.map(r => ({ id: r.name, name: r.name, distance: r.distance }));
   }
 }

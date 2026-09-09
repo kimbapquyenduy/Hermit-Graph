@@ -14,9 +14,7 @@
 
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const {invoke,readGraph}=require('./sqlite-bridge.cjs');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -78,118 +76,22 @@ const SCOPE_OVERRIDES = {
 // BRAIN PATH RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Read MEMORY_FILE_PATH from global ~/.claude/settings.json MCP config.
- * @returns {string|null}
- */
-function readMemoryPathFromSettings() {
-  // Search multiple config files for MEMORY_FILE_PATH
-  const configFiles = [
-    path.join(os.homedir(), '.claude.json'),        // user-scope MCP servers
-    path.join(os.homedir(), '.claude', 'settings.json'), // legacy location
-  ];
-  const serverNames = ['hermit-graph', 'memory'];   // current + legacy name
-
-  for (const configPath of configFiles) {
-    try {
-      if (!fs.existsSync(configPath)) continue;
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const servers = config?.mcpServers || {};
-      for (const name of serverNames) {
-        const memPath = servers[name]?.env?.MEMORY_FILE_PATH;
-        if (memPath && fs.existsSync(memPath)) return memPath;
-      }
-    } catch { /* ignore parse errors */ }
-  }
-  return null;
-}
-
-// Internal cache — resolved once per process lifetime
-let _brainPathCache = null;
-
-/**
- * Resolve brain.jsonl path from env, MCP settings, then common locations.
- * Result is cached after first resolution.
- * @returns {string}
- */
-function resolveBrainPath() {
-  if (_brainPathCache !== null) return _brainPathCache;
-
-  const candidates = [
-    process.env.MEMORY_FILE_PATH,
-    readMemoryPathFromSettings(),
-    // Relative to this file: catalog/hooks/lib/ -> ../../.. -> repo root -> data/brain.jsonl
-    path.join(__dirname, '..', '..', '..', 'data', 'brain.jsonl'),
-    path.join(__dirname, '..', '..', 'data', 'brain.jsonl'),
-    path.join(os.homedir(), '.claude', 'brain', 'data', 'brain.jsonl'),
-    path.join(os.homedir(), 'hermit-graph', 'data', 'brain.jsonl'),
-    path.join(os.homedir(), 'claude-code-brain', 'data', 'brain.jsonl'),
-  ].filter(Boolean);
-
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      _brainPathCache = p;
-      return p;
-    }
-  }
-
-  _brainPathCache = candidates[0] || '';
-  return _brainPathCache;
-}
+/** Resolve the canonical SQLite path. */
+function resolveBrainPath() { return invoke({op:'paths'}).dbPath; }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PROJECT SCOPE DETECTION
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Auto-discover project scopes from brain.jsonl entity names.
+ * Auto-discover project scopes from canonical SQLite brain entity names.
  * Extracts the SCOPE part from TIER:SCOPE:LABEL naming pattern.
  * Only reads biz-domain and tech-stack entity types (top-level project markers).
  *
- * @param {string} brainPath - path to brain.jsonl
+ * @param {string} brainPath - path to canonical SQLite brain
  * @returns {Object} map { scopeLower: [scopeLower, ...aliases] }
  */
-function buildProjectScopes(brainPath) {
-  if (!brainPath || !fs.existsSync(brainPath)) return {};
-
-  let lines;
-  try { lines = fs.readFileSync(brainPath, 'utf-8').trim().split('\n'); }
-  catch { return {}; }
-
-  const scopes = new Set();
-  const PROJECT_ENTITY_TYPES = ['biz-domain', 'tech-stack'];
-
-  for (const line of lines) {
-    let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
-    if (obj.type !== 'entity' || !obj.name) continue;
-    if (!PROJECT_ENTITY_TYPES.includes(obj.entityType)) continue;
-
-    const parts = obj.name.split(':');
-    if (parts.length >= 2 && parts[1]) {
-      const scope = parts[1].toLowerCase().replace(/[\s-_]/g, '');
-      if (scope.length >= 3) scopes.add(scope);
-    }
-  }
-
-  // Build aliases map: { scope: [scope, ...overrides] }
-  const result = {};
-  for (const scope of scopes) {
-    const aliases = [scope];
-    if (SCOPE_OVERRIDES[scope]) {
-      aliases.push(...SCOPE_OVERRIDES[scope]);
-    }
-    // Check if any override key maps TO this scope
-    for (const [overrideKey, overrideAliases] of Object.entries(SCOPE_OVERRIDES)) {
-      if (overrideAliases.includes(scope) && !aliases.includes(overrideKey)) {
-        aliases.push(overrideKey);
-      }
-    }
-    result[scope] = [...new Set(aliases)];
-  }
-
-  return result;
-}
+function buildProjectScopes() { const graph=readGraph();return graph.project?{[graph.project.name.toLowerCase()]:[graph.project.name.toLowerCase()]}:{}; }
 
 /**
  * Detect current project scope from an explicit directory path.
@@ -198,34 +100,13 @@ function buildProjectScopes(brainPath) {
  * @param {string} cwdPath - directory path to inspect
  * @returns {string[]} array of lowercase scope keywords to match against entity names
  */
-function detectProjectScopeFromPath(cwdPath) {
-  const brainPath = resolveBrainPath();
-  const projectScopes = buildProjectScopes(brainPath);
-
-  const normalized = (cwdPath || '').replace(/\\/g, '/');
-  const parts = normalized.split('/').filter(Boolean);
-
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const dir = parts[i].toLowerCase().replace(/[\s-_]/g, '');
-    for (const [scope, aliases] of Object.entries(projectScopes)) {
-      if (aliases.some(a => dir.includes(a)) || dir.includes(scope)) {
-        return aliases;
-      }
-    }
-  }
-
-  // Fallback: use last directory name as-is
-  const lastDir = (parts[parts.length - 1] || '').toLowerCase().replace(/[\s-_]/g, '');
-  return lastDir.length >= 3 ? [lastDir] : [];
-}
+function detectProjectScopeFromPath(cwdPath) { const graph=readGraph({cwd:cwdPath});return graph.project?[graph.project.name.toLowerCase()]:[]; }
 
 /**
  * Detect current project scope from process.env.CWD or process.cwd().
  * @returns {string[]} array of lowercase scope keywords
  */
-function detectProjectScope() {
-  return detectProjectScopeFromPath(process.env.CWD || process.cwd());
-}
+function detectProjectScope() { return detectProjectScopeFromPath(process.env.HERMIT_USER_CWD||process.env.CLAUDE_PROJECT_DIR||process.env.CWD||process.cwd()); }
 
 /**
  * Check whether an entity name belongs to the current project scope.
@@ -292,7 +173,7 @@ function normalizeObs(obs) {
 }
 
 /**
- * Search brain.jsonl for entities matching the given keywords.
+ * Search canonical SQLite brain for entities matching the given keywords.
  * Applies project-scope boosting/penalty to the score.
  *
  * @param {string[]} keywords
@@ -300,67 +181,9 @@ function normalizeObs(obs) {
  * @returns {Array<{name, entityType, observations, score, matchedKeywords}>}
  */
 function searchBrain(keywords, projectScope) {
-  const brainPath = resolveBrainPath();
-  if (!brainPath || !fs.existsSync(brainPath)) return [];
-
-  let lines;
-  try {
-    lines = fs.readFileSync(brainPath, 'utf-8').trim().split('\n');
-  } catch {
-    return [];
-  }
-
-  // Pre-build project scopes once — avoids O(N * M) file reads inside the loop
-  const projectScopesCache = buildProjectScopes(brainPath);
-
-  const results = [];
-
-  for (const line of lines) {
-    let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
-    if (obj.type !== 'entity') continue;
-
-    const name = (obj.name || '').toLowerCase();
-    const entityType = (obj.entityType || '').toLowerCase();
-    const obsTexts = (obj.observations || []).map(o => normalizeObs(o).toLowerCase());
-    const allText = [name, entityType, ...obsTexts].join(' ');
-
-    let score = 0;
-    const matchedKeywords = [];
-
-    for (const kw of keywords) {
-      if (name.includes(kw)) {
-        score += 5;
-        matchedKeywords.push(kw);
-      } else if (obsTexts.some(o => o.includes(kw))) {
-        score += 2;
-        matchedKeywords.push(kw);
-      } else if (allText.includes(kw)) {
-        score += 1;
-        matchedKeywords.push(kw);
-      }
-    }
-
-    if (score >= MIN_SCORE) {
-      const scope = checkEntityScope(obj.name, projectScope, projectScopesCache);
-      if (scope === 'match') score += SCOPE_BOOST;
-      else if (scope === 'other') score += SCOPE_PENALTY;
-
-      // Skip if score dropped below threshold after penalty
-      if (score >= MIN_SCORE) {
-        results.push({
-          name: obj.name,
-          entityType: obj.entityType,
-          observations: (obj.observations || []).map(normalizeObs),
-          score,
-          matchedKeywords: [...new Set(matchedKeywords)]
-        });
-      }
-    }
-  }
-
-  results.sort((a, b) => b.score - a.score);
-  return results.slice(0, MAX_RESULTS);
+ const results=[];
+ for(const entity of readGraph().entities){const observations=entity.observations.map(normalizeObs);const name=entity.name.toLowerCase();const matchedKeywords=keywords.filter(k=>name.includes(k)||observations.some(o=>o.toLowerCase().includes(k)));const score=matchedKeywords.reduce((n,k)=>n+(name.includes(k)?5:2),0);if(score>=MIN_SCORE)results.push({...entity,observations,score,matchedKeywords});}
+ return results.sort((a,b)=>b.score-a.score).slice(0,MAX_RESULTS);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -470,59 +293,15 @@ function extractTaskKeywords(prompt) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Expand results with depth-1 related entities from brain.jsonl.
+ * Expand results with depth-1 related entities from canonical SQLite brain.
  * Reads relations, finds entities connected to result set, looks up their data.
  * @param {Array} results - from searchBrain()
- * @param {string} brainPath - path to brain.jsonl
+ * @param {string} brainPath - path to canonical SQLite brain
  * @returns {Array} additional entity objects (max MAX_EXPANSION)
  */
-function expandRelations(results, brainPath) {
-  if (!brainPath || !fs.existsSync(brainPath)) return [];
-
-  let lines;
-  try { lines = fs.readFileSync(brainPath, 'utf-8').trim().split('\n'); }
-  catch { return []; }
-
-  const entityNames = new Set(results.map(r => r.name));
-  const relatedNames = new Set();
-
-  // Pass 1: find related entity names from relations
-  for (const line of lines) {
-    let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
-    if (obj.type !== 'relation') continue;
-    if (entityNames.has(obj.from) && !entityNames.has(obj.to)) {
-      relatedNames.add(obj.to);
-    }
-    if (entityNames.has(obj.to) && !entityNames.has(obj.from)) {
-      relatedNames.add(obj.from);
-    }
-  }
-
-  if (relatedNames.size === 0) return [];
-
-  // Cap early to avoid unnecessary parsing
-  const targetNames = [...relatedNames].slice(0, MAX_EXPANSION);
-
-  // Pass 2: lookup entity data for related names
-  const expanded = [];
-  for (const line of lines) {
-    let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
-    if (obj.type !== 'entity') continue;
-    if (targetNames.includes(obj.name)) {
-      expanded.push({
-        name: obj.name,
-        entityType: obj.entityType,
-        observations: (obj.observations || []).map(normalizeObs),
-        score: 0, // expansion, not direct match
-        matchedKeywords: ['(expanded)'],
-      });
-      if (expanded.length >= MAX_EXPANSION) break;
-    }
-  }
-
-  return expanded;
+function expandRelations(results) {
+ const graph=readGraph();const ids=new Set(results.map(r=>r.id));const related=new Set();for(const r of graph.relations){if(ids.has(r.fromEntityId)&&!ids.has(r.toEntityId))related.add(r.toEntityId);if(ids.has(r.toEntityId)&&!ids.has(r.fromEntityId))related.add(r.fromEntityId);}
+ return graph.entities.filter(e=>related.has(e.id)).slice(0,MAX_EXPANSION).map(e=>({...e,observations:e.observations.map(normalizeObs),score:0,matchedKeywords:['(expanded)']}));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

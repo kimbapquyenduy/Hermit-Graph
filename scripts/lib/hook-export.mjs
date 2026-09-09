@@ -12,7 +12,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSy
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
 import { AGENTS } from './skill-adapters.mjs';
-import { getPackageRoot, resolveBrainPath } from './resolve-brain-path.mjs';
+import { getPackageRoot } from './resolve-brain-path.mjs';
+import {resolvePaths} from './storage/paths.mjs';
 
 // ── Hook name parsing ──────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ export function discoverHooks(catalogRoot) {
 export function copyLibDir(srcLibDir, dstLibDir) {
   if (!existsSync(srcLibDir)) return;
   mkdirSync(dstLibDir, { recursive: true });
+  writeFileSync(join(dstLibDir, "hermit-runtime.json"), JSON.stringify({packageRoot:getPackageRoot()}));
 
   for (const f of readdirSync(srcLibDir)) {
     const srcFile = join(srcLibDir, f);
@@ -100,14 +102,15 @@ function resolveNodePath() {
  */
 function buildMcpServerConfig(opts = {}) {
   const serverScript = join(getPackageRoot(), 'scripts', 'hermit-mcp-server.mjs').replace(/\\/g, '/');
-  const brainPath = resolveBrainPath();
+  const {dataRoot} = resolvePaths();
   const command = opts.useAbsoluteNodePath ? resolveNodePath() : 'node';
 
   return {
     command,
     args: [serverScript],
     env: {
-      MEMORY_FILE_PATH: brainPath,
+      HERMIT_DATA_DIR: dataRoot,
+      HERMIT_PACKAGE_ROOT: getPackageRoot(),
       HF_HUB_DISABLE_SYMLINKS_WARNING: '1',
     },
   };

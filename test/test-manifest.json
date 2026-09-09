@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "files": {
+    "test/discover-bridges.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/dual-write-parity.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/embedding-cache.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/embedding-offline.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/mcp-bridge-integration.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/mcp-client-pool.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/memory-provider-contract.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/migration-roundtrip.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/retrieval-quality.test.mjs": {
+      "kind": "benchmark",
+      "reason": "Historical evaluator uses a user-supplied corpus and writes baselines; explicit benchmark only."
+    },
+    "test/sqlite-bm25-search.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/sqlite-vec-write.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/sqlite-write.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/sqlite-writer-single-source.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/trace-emitter.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-cli.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-code-boundary.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-code-freshness.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostics-bounds.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostics-concurrency.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostics-maintenance.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostics-protocol.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostics.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-hook-bridge.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-hook-compat.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-maintenance.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-mcp.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-memory-service.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-model.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-pre-edit.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-public-commands.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-scan-commit.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-scanner.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-session-lifecycle.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-setup.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-store-paths.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-store.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/vector-backend-latency.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/vector-backend-recall.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/vector-identity-collision.test.mjs": {
+      "kind": "node-test"
+    },
+    "tests/business-rules/rules.test.ts": {
+      "kind": "template",
+      "reason": "Generic pricing/order example, not Hermit behavior; assertions are placeholders.",
+      "optional": true
+    },
+    "test/v8-no-network.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-export-roundtrip.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-viewer.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostics-crash.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostic-identity.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostic-migration.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-process-correlation.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-boot-matrix.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-retention-matrix.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/test-runner-manifest.test.mjs": {
+      "kind": "node-test"
+    }
+  }
+}

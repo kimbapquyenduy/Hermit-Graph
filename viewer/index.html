@@ -534,7 +534,7 @@
   <div class="header">
     <div class="title">Knowledge Graph</div>
     <div class="controls">
-      <input type="file" id="fileInput" accept=".jsonl,.json" style="display:none">
+      <input type="file" id="fileInput" accept=".json" style="display:none">
       <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load File</button>
       <button class="btn btn-layout" id="layoutBtn" onclick="toggleLayout()" style="display:none" title="Toggle force layout">Layout</button>
       <button class="btn btn-layout" id="spreadBtn" onclick="spreadNodes()" style="display:none" title="Push nodes apart">Spread</button>
@@ -551,7 +551,7 @@
     <div id="sigma-container">
       <div class="empty-state" id="emptyState">
         <h2>No Data Loaded</h2>
-        <p>Click "Load File" and select a brain.jsonl file</p>
+        <p>Click "Load File" and select a Hermit knowledge JSON export</p>
       </div>
       <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
@@ -887,7 +887,14 @@
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
-        try { loadBrainData(ev.target.result); }
+        try {
+const snapshot=JSON.parse(ev.target.result);
+if(snapshot.format!=='hermit-knowledge'||snapshot.version!==1||!Array.isArray(snapshot.entities)||!Array.isArray(snapshot.relations))throw new Error('Unsupported knowledge export');
+const entities=snapshot.entities.filter(e=>e.lifecycle==='active');
+const ids=new Set(entities.map(e=>e.id));
+const rows=[...entities.map(e=>({...e,type:'entity',observations:e.observations.filter(o=>o.lifecycle==='active').map(o=>o.content)})),...snapshot.relations.filter(r=>r.lifecycle==='active'&&ids.has(r.fromEntityId)&&ids.has(r.toEntityId)).map(r=>({...r,type:'relation',from:r.fromEntityId,to:r.toEntityId}))];
+loadBrainData(rows.map(row=>JSON.stringify(row)).join('\n'));
+}
         catch (err) { alert('Parse error: ' + err.message); }
       };
       reader.readAsText(file);
@@ -906,7 +913,7 @@
         try {
           const d = JSON.parse(line);
           if (d.type === 'entity' && !d._archived) {
-            entityMap[d.name] = { name: d.name, entityType: d.entityType, observations: d.observations || [] };
+            entityMap[d.id || d.name] = { id: d.id || d.name, name: d.name, entityType: d.entityType, observations: d.observations || [] };
           } else if (d.type === 'relation') {
             relations.push(d);
           }
@@ -919,11 +926,11 @@
 
       // Add nodes
       Object.values(entityMap).forEach(ent => {
-        const degree = relations.filter(r => r.from === ent.name || r.to === ent.name).length;
+        const degree = relations.filter(r => r.from === ent.id || r.to === ent.id).length;
         const hasStale = ent.observations.some(o => isStale(parseObs(o).date));
         const baseColor = getColor(ent.entityType);
 
-        graph.addNode(ent.name, {
+        graph.addNode(ent.id, {
           label: shortenLabel(ent.name),
           size: Math.max(5, Math.min(3 + degree * 1.5, 18)),
           color: baseColor,
@@ -2159,7 +2166,7 @@
           if (!state.activeFilters.has(tier)) return false;
         }
         if (state.searchQuery && !state.searchQuery.startsWith('__')) {
-          if (!state.searchMatches.has(ent.name)) return false;
+          if (!state.searchMatches.has(ent.id)) return false;
         }
         return true;
       });
@@ -2167,7 +2174,7 @@
 
     function exportJSON() {
       const entities = getVisibleEntities();
-      const names = new Set(entities.map(e => e.name));
+      const names = new Set(entities.map(e => e.id));
       const relations = [];
       graph.forEachEdge((edge, attr, source, target) => {
         if (names.has(source) && names.has(target)) {

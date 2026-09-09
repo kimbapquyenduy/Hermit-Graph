@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, readdirSync, statSync, promises as fsp } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { parseFile, isSupported, ensurePythonLoaded, ensureJavaLoaded } from './parser.mjs';
@@ -26,16 +26,16 @@ const FILE_IO_BATCH_SIZE = 10;
  * Read files in batches concurrently, yielding {file, source} pairs.
  * Skips unreadable files (>500KB cap, permission errors, binaries).
  */
-async function* batchedReads(projectRoot, files) {
+async function* batchedReads(projectRoot, files, opts = {}) {
   for (let i = 0; i < files.length; i += FILE_IO_BATCH_SIZE) {
     const batch = files.slice(i, i + FILE_IO_BATCH_SIZE);
     const reads = await Promise.all(batch.map(async (file) => {
       try {
         const stat = await fsp.stat(join(projectRoot, file));
-        if (stat.size > 500_000) return null;
+        if (stat.size > 500_000) { if(opts.strict) throw new Error(`HERMIT_INDEX_FILE_LIMIT: ${file}`); return null; }
         const source = await fsp.readFile(join(projectRoot, file), 'utf-8');
         return { file, source };
-      } catch { return null; }
+      } catch (error) { if(opts.strict) throw error; return null; }
     }));
     for (const r of reads) if (r) yield r;
   }
@@ -57,7 +57,7 @@ const IGNORE_DIRS = new Set([
 export async function fullIndex(projectRoot, dataDir, opts = {}) {
   await ensurePythonLoaded();
   await ensureJavaLoaded();
-  const files = collectFiles(projectRoot);
+  const files = collectFiles(projectRoot, '', opts);
   const graph = new CodeGraph();
 
   // Phase 05 — worker pool parses files across N workers in parallel with
@@ -66,7 +66,7 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   // Override: HERMIT_PARSE_WORKER=1 forces on, =0 forces off.
   // Measured on EduMVP (547 files): worker ~2.7s vs sync ~4.6s (-42%).
   const _envWorker = process.env.HERMIT_PARSE_WORKER;
-  const useWorker = _envWorker === '1' ? true
+  const useWorker = opts.strict ? false : _envWorker === '1' ? true
                   : _envWorker === '0' ? false
                   : files.length >= 50;
   let _pool = null;
@@ -84,7 +84,7 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
 
   // Phase 05 lite — batched async reads, sequential parse.
   let i = 0;
-  for await (const { file, source } of batchedReads(projectRoot, files)) {
+  for await (const { file, source } of batchedReads(projectRoot, files, opts)) {
     i++;
     // XML branch — currently only MyBatis mappers
     if (file.toLowerCase().endsWith('.xml')) {
@@ -131,7 +131,8 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
       pendingAstInputs.push({ file, source });
     } else {
       const parsed = parseFile(file, source);
-      if (!parsed) continue;
+      if (!parsed) { if(opts.strict) throw new Error(`HERMIT_INDEX_PARSE_FAILED: ${file}`); continue; }
+      if(opts.strict && parsed.root.find({rule:{kind:'ERROR'}})) throw new Error(`HERMIT_INDEX_PARSE_FAILED: ${file}`);
       const { symbols } = extractAll(parsed.root, file, parsed.langStr);
       for (const s of symbols) globalSymbolMap.set(s.name, s.id);
       fileResults.push({ file, source, parsed, symbols });
@@ -158,7 +159,10 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
   }
 
   // Pass 2: extract relations with global symbol map for cross-file call resolution.
-  if (useWorker) {
+  // _pool exists only if at least one AST-parseable file was collected. A repo of
+  // >=50 files that is 100% XML/Vue/Svelte/Liquid enables useWorker but never
+  // allocates the pool — guard on _pool or pass-2 null-derefs on preloadSymbols.
+  if (useWorker && _pool) {
     // Preload the symbol map into every worker once (saves serializing the
     // full map per file — big win on large repos with many symbols).
     await _pool.preloadSymbols(globalSymbolMap);
@@ -210,12 +214,13 @@ export async function fullIndex(projectRoot, dataDir, opts = {}) {
     frameworkStats = await runFrameworkPass(projectRoot, files, graph);
   } catch (err) {
     // Framework pass is opportunistic — never block indexing on failure.
+    if(opts.strict) throw err;
     opts.onProgress?.(`framework-pass error: ${err.message}`, files.length, files.length);
   }
 
   graph.meta.commit = getHeadCommit(projectRoot);
   // Phase 01 — capture content hashes for non-git change detection fallback.
-  const { newHashes } = getChangedFilesByHash(projectRoot, {});
+  const { newHashes } = getChangedFilesByHash(projectRoot, {}, opts);
   graph.meta.fileHashes = newHashes;
   graph.meta.frameworks = frameworkStats.active;
   await writeCodeGraph(dataDir, graph);
@@ -355,13 +360,14 @@ export function detectChanges(projectRoot, dataDir) {
 
 // ── Helpers ──
 
-function collectFiles(root, prefix = '') {
+function collectFiles(root, prefix = '', opts = {}) {
   const files = [];
   for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if(opts.excludePaths?.some(p=>resolve(p)===resolve(root,rel))) continue;
     if (entry.isDirectory()) {
       if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-      files.push(...collectFiles(root, rel));
+      files.push(...collectFiles(root, rel, opts));
     } else if (entry.isFile() && isSupported(entry.name)) {
       files.push(rel);
     }
@@ -413,14 +419,14 @@ function getChangedFiles(projectRoot, sinceCommit) {
  * @param {Record<string, string>} oldHashes
  * @returns {{ changed: string[], newHashes: Record<string, string> }}
  */
-export function getChangedFilesByHash(projectRoot, oldHashes = {}) {
-  const files = collectFiles(projectRoot);
+export function getChangedFilesByHash(projectRoot, oldHashes = {}, opts = {}) {
+  const files = collectFiles(projectRoot, '', opts);
   const changed = [];
   const newHashes = {};
   for (const file of files) {
     const abs = join(projectRoot, file);
     const src = safeRead(abs);
-    if (src === null) continue;
+    if (src === null) { if(opts.strict) throw new Error(`HERMIT_INDEX_UNREADABLE: ${file}`); continue; }
     const hash = createHash('sha256').update(src).digest('hex').slice(0, 16);
     newHashes[file] = hash;
     if (oldHashes[file] !== hash) changed.push(file);

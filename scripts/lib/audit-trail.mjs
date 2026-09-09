@@ -52,6 +52,63 @@ export function archiveObservation(obs) {
 }
 
 /**
+ * Archive every relation touching one of the given entity names.
+ * Archiving an entity without cascading leaves relations pointing at a node
+ * that health checks no longer see — a dangling graph.
+ * @param {Array} relations - mutated in place
+ * @param {Set<string>|Array<string>} names - archived entity names
+ * @returns {number} count of relations archived
+ */
+export function archiveRelationsFor(relations, names) {
+  const targets = new Set(names);
+  let archived = 0;
+  const at = new Date().toISOString();
+  for (const rel of relations) {
+    if (rel._archived) continue;
+    if (!targets.has(rel.from) && !targets.has(rel.to)) continue;
+    rel._archived = true;
+    rel._archivedAt = at;
+    rel._history = [...(rel._history || []), { action: 'archived_with_entity', at }];
+    archived++;
+  }
+  return archived;
+}
+
+/**
+ * Repoint relations from a merged-away entity onto the entity it merged into,
+ * dropping self-loops and duplicates. Used by dedup, where the knowledge is
+ * kept (unlike archival) so the edges should follow it.
+ * @param {Array} relations - mutated in place
+ * @param {string} fromName - the merged-away (secondary) entity
+ * @param {string} toName - the surviving (primary) entity
+ * @returns {number} count of relations repointed
+ */
+export function repointRelations(relations, fromName, toName) {
+  const seen = new Set(relations.map(r => `${r.from}|||${r.to}|||${r.relationType}`));
+  let repointed = 0;
+  for (const rel of relations) {
+    if (rel._archived) continue;
+    if (rel.from !== fromName && rel.to !== fromName) continue;
+    const next = {
+      from: rel.from === fromName ? toName : rel.from,
+      to: rel.to === fromName ? toName : rel.to,
+    };
+    // Self-loop or an edge that already exists → retire this one instead.
+    const key = `${next.from}|||${next.to}|||${rel.relationType}`;
+    if (next.from === next.to || seen.has(key)) {
+      rel._archived = true;
+      rel._archivedAt = new Date().toISOString();
+      continue;
+    }
+    rel.from = next.from;
+    rel.to = next.to;
+    seen.add(key);
+    repointed++;
+  }
+  return repointed;
+}
+
+/**
  * Collect all history entries from an entity's observations.
  * @param {object} entity
  * @returns {Array<{content, changedAt, reason, observationIndex}>} Sorted newest-first

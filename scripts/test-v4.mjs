@@ -29,6 +29,16 @@ function cleanup() {
   if (existsSync(TMP)) rmSync(TMP, { recursive: true });
 }
 
+async function withHookStore(label, run) {
+ const {BrainStore}=await import('./lib/storage/brain-store.mjs');
+ const {resolveProject}=await import('./lib/storage/project-resolver.mjs');
+ const {tmpdir}=await import('node:os');const root=join(tmpdir(),'hermit-test-v4-'+label+'-'+process.pid);mkdirSync(root,{recursive:true});
+ const keys=['HERMIT_DATA_DIR','HERMIT_DB_PATH','HERMIT_USER_CWD','HERMIT_PACKAGE_ROOT'];const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+ Object.assign(process.env,{HERMIT_DATA_DIR:join(root,'data'),HERMIT_DB_PATH:join(root,'data','brain.db'),HERMIT_USER_CWD:root,HERMIT_PACKAGE_ROOT:ROOT});
+ const store=new BrainStore({dbPath:process.env.HERMIT_DB_PATH});
+ try {const project=resolveProject(store,{rootPath:root,create:true});return await run(store,project.id);}finally{store.close();for(const k of keys){if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}rmSync(root,{recursive:true,force:true});}
+}
+
 async function test(name, fn) {
   try {
     await fn();
@@ -183,7 +193,8 @@ async function auditTrailTests() {
 
 async function branchContextTests() {
   console.log('\n🌿 Branch Context Tests');
-  const { detectBranch, getBranchFilter, setBranchFilter, clearBranchFilter, isObservationVisible } = await import('./lib/branch-context.mjs');
+  const branchMod = await import('./lib/branch-context.mjs');
+  const { detectBranch } = branchMod;
 
   await test('detectBranch: returns branch name', () => {
     const branch = detectBranch(ROOT);
@@ -196,27 +207,31 @@ async function branchContextTests() {
     assert(branch === 'unknown', `Expected unknown, got: ${branch}`);
   });
 
-  await test('setBranchFilter + getBranchFilter', () => {
-    setBranchFilter('feature/test');
-    assert(getBranchFilter() === 'feature/test');
-    clearBranchFilter();
-    assert(getBranchFilter() === null);
+  await test('branch filter removed (was a no-op that hid memory)', () => {
+    // The filter was set by session_start but never read by any search path,
+    // and no observation was ever branch-tagged. Removed rather than finished:
+    // branch-scoped recall would silently drop knowledge on branch switches.
+    for (const gone of ['setBranchFilter', 'getBranchFilter', 'clearBranchFilter', 'isObservationVisible']) {
+      assert(!(gone in branchMod), `${gone} should no longer be exported`);
+    }
   });
+}
 
-  await test('isObservationVisible: no filter shows all', () => {
-    assert(isObservationVisible('string obs', null) === true);
-    assert(isObservationVisible({ content: 'x', _branch: 'other' }, null) === true);
-  });
+// ══════════════════════════════════════════════════════════════════════════
+// SESSION RECORDS (append-only, per-session)
+// ══════════════════════════════════════════════════════════════════════════
 
-  await test('isObservationVisible: filter matches branch', () => {
-    assert(isObservationVisible({ content: 'x', _branch: 'main' }, 'main') === true);
-    assert(isObservationVisible({ content: 'x', _branch: null }, 'main') === true);
-    assert(isObservationVisible({ content: 'x', _branch: 'other' }, 'main') === false);
-  });
-
-  await test('isObservationVisible: string obs always visible with filter', () => {
-    assert(isObservationVisible('plain string', 'feature/x') === true);
-  });
+async function sessionRecordTests() {
+ const sc=(await import('node:module')).createRequire(import.meta.url)('../catalog/hooks/lib/session-core.cjs');
+ await withHookStore('sessions',async(store,projectId)=>{
+ const dir=process.env.HERMIT_USER_CWD;let first;
+ await test('session: missing stable ID degrades without writing',()=>{assert(sc.startSession(dir,'codex').degraded);assert(sc.listSessions(dir).length===0);});
+ await test('session: stable client identity persists in SQLite',()=>{first=sc.startSession(dir,'codex','upstream-one');assert(first.status==='OPEN');assert(!existsSync(join(dir,'.hermit','sessions')));});
+ await test('session: separate hook process reuses same session',()=>{assert(sc.startSession(dir,'codex','upstream-one').sessionId===first.sessionId);assert(sc.listSessions(dir).length===1);});
+ await test('session: agent identity prevents collisions',()=>{const other=sc.startSession(dir,'claude','upstream-one');assert(other.sessionId!==first.sessionId);assert(sc.listSessions(dir).length===2);});
+ await test('session: end only closes matching client identity',()=>{assert(sc.endSession(dir,'codex','upstream-one').status==='CLOSED');assert(sc.listSessions(dir).find(s=>s.agent==='claude').status==='OPEN');});
+ await test('session: expired stable sessions become abandoned',()=>{store.db.prepare("UPDATE runtime_sessions SET heartbeat_at=0 WHERE agent='claude'").run();sc.startSession(dir,'claude','upstream-two');assert(sc.listSessions(dir).some(s=>s.status==='ABANDONED'));});
+ });
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -375,7 +390,7 @@ async function mcpIntegrationTests() {
 
   function sendMcp(messages) {
     return new Promise((resolve, reject) => {
-      const proc = spawn('node', [join(ROOT, 'scripts', 'hermit-mcp-server.mjs')], {
+      const proc = spawn('node', [join(ROOT, 'scripts', 'hermit-mcp-legacy.mjs')], {
         cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'],
         // MCP integration tests exercise advanced tools (consolidate, branch_context,
         // command_list, hook_list) that are gated behind HERMIT_TOOL_PROFILE=full.
@@ -689,6 +704,12 @@ async function skillIndexTests() {
   const { buildSkillIndex, getSkillIndex, invalidateSkillIndex } = await import('./lib/skill-index.mjs');
   const { searchSkills } = await import('./lib/skill-search-module.mjs');
 
+  const previousCwd = process.cwd();
+  const projectRoot = join(TMP, 'skill-index-project');
+  mkdirSync(projectRoot, { recursive: true });
+  process.chdir(projectRoot);
+  invalidateSkillIndex();
+  try {
   await test('buildSkillIndex: returns Map with catalog skills', () => {
     const index = buildSkillIndex();
     assert(index instanceof Map, 'Should return a Map');
@@ -722,16 +743,16 @@ async function skillIndexTests() {
     invalidateSkillIndex(); // cleanup
   });
 
-  await test('searchSkills: finds payment-integration skill', () => {
+  await test('searchSkills: finds api-design catalog skill', () => {
     invalidateSkillIndex();
-    const results = searchSkills('payment integration');
+    const results = searchSkills('api design');
     assert(results.length > 0, 'Should find at least 1 result');
-    assert(results[0].name === 'payment-integration', `Expected payment-integration, got ${results[0].name}`);
+    assert(results[0].name === 'api-design', `Expected api-design, got ${results[0].name}`);
   });
 
   await test('searchSkills: scores are normalized 0-1', () => {
     invalidateSkillIndex();
-    const results = searchSkills('payment');
+    const results = searchSkills('api design');
     for (const r of results) {
       assert(r.score >= 0 && r.score <= 1, `Score ${r.score} out of range for ${r.name}`);
     }
@@ -755,8 +776,8 @@ async function skillIndexTests() {
   });
 
   await test('searchSkills: results have activationHint', () => {
-    const results = searchSkills('git');
-    assert(results.length > 0, 'Should find git-related skills');
+    const results = searchSkills('database migration');
+    assert(results.length > 0, 'Should find database migration skills');
     for (const r of results) {
       assert(typeof r.activationHint === 'string' && r.activationHint.includes('SKILL.md'),
         `Missing activationHint for ${r.name}`);
@@ -771,7 +792,10 @@ async function skillIndexTests() {
     }
   });
 
-  invalidateSkillIndex(); // final cleanup
+  } finally {
+    process.chdir(previousCwd);
+    invalidateSkillIndex();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -881,32 +905,21 @@ async function recallCoreTests() {
     assert(kw.some(k => k.includes('hermit_skill_search')), `Should extract backtick term, got: ${kw.join(', ')}`);
   });
 
-  await test('expandRelations: returns empty on missing brain', () => {
-    const result = core.expandRelations([{ name: 'E1' }], '/nonexistent/path.jsonl');
-    assert(result.length === 0, 'Should return empty for missing brain');
-  });
+  await test('expandRelations: returns empty on empty scoped brain', () => withHookStore('expand-empty',()=>{assert(core.expandRelations([{id:'absent',name:'E1'}]).length===0,'Empty graph has no related entities');}));
 
-  await test('expandRelations: finds related entities from real brain', () => {
-    if (!existsSync(REAL_BRAIN)) { skipped++; return; }
-    // Use a known entity that has relations
-    const results = [{ name: 'BIZ:ClaudeCodeBrain' }];
-    const expanded = core.expandRelations(results, REAL_BRAIN);
-    assert(expanded.length > 0, `Should find related entities, got ${expanded.length}`);
-    assert(expanded.length <= core.MAX_EXPANSION, `Should cap at ${core.MAX_EXPANSION}`);
-  });
+  await test('expandRelations: finds related scoped SQLite entities', () => withHookStore('expand-related',(store,projectId)=>{
+ const from=store.createEntity({name:'BIZ:Fixture',entityType:'biz-domain',projectId,observations:[]}).entity;
+ for(let i=0;i<5;i++){const target=store.createEntity({name:'TECH:Fixture:'+i,entityType:'tech-stack',projectId,observations:['related']}).entity;store.createRelation({fromEntityId:from.id,toEntityId:target.id,relationType:'uses_tech'});}
+ const expanded=core.expandRelations([from]);assert(expanded.length===core.MAX_EXPANSION,'Related entities respect expansion cap');assert(expanded.every(e=>e.id!==from.id),'Seed entity is not repeated');
+ }));
 
   // ── High-level recall() ──
 
-  await test('recall: returns null for empty prompt', () => {
-    assert(core.recall('') === null, 'Empty prompt should return null');
-  });
+  await test('recall: returns null for empty prompt', () => withHookStore('recall-empty',()=>{assert(core.recall('')===null,'Empty prompt should return null');}));
 
-  await test('recall: returns output for keyword-rich prompt', () => {
-    if (!existsSync(REAL_BRAIN)) { skipped++; return; }
-    const output = core.recall('tell me about opencode skill portability');
-    // May or may not find results depending on KG content, but should not throw
-    assert(output === null || typeof output === 'string', 'Should return string or null');
-  });
+  await test('recall: returns output for keyword-rich prompt', () => withHookStore('recall-keyword',(store,projectId)=>{
+ store.createEntity({name:'PATTERN:Portability',entityType:'pattern-code',projectId,observations:['opencode skill portability']});const output=core.recall('tell me about opencode skill portability');assert(typeof output==='string'&&output.includes('PATTERN:Portability'),'Scoped SQLite match should be injected');
+ }));
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1041,54 +1054,22 @@ async function entityExtractorTests() {
 
   // ── Deduplication ──
 
-  await test('filterExisting: removes known entities', () => {
-    const tmpBrain = join(TMP, 'filter-test-brain.jsonl');
-    writeFileSync(tmpBrain, JSON.stringify({
-      type: 'entity', name: 'TECH:Decision:PostgreSQL', entityType: 'tech-decision',
-      observations: [], createdAt: Date.now()
-    }) + '\n');
+  await test('filterExisting: removes known SQLite entities', () => withHookStore('filter-known',(store,projectId)=>{
+ store.createEntity({name:'TECH:Decision:PostgreSQL',entityType:'tech-decision',projectId,observations:[]});
+ const filtered=ext.filterExisting([{name:'TECH:Decision:PostgreSQL',entityType:'tech-decision',observations:['dup']},{name:'TECH:Decision:Redis',entityType:'tech-decision',observations:['new']}]);assert(filtered.length===1,'Only new entity remains');assert(filtered[0].name==='TECH:Decision:Redis','Expected Redis');
+ }));
 
-    const entities = [
-      { name: 'TECH:Decision:PostgreSQL', entityType: 'tech-decision', observations: ['dup'] },
-      { name: 'TECH:Decision:Redis', entityType: 'tech-decision', observations: ['new'] },
-    ];
-    const filtered = ext.filterExisting(entities, tmpBrain);
-    assert(filtered.length === 1, `Expected 1, got ${filtered.length}`);
-    assert(filtered[0].name === 'TECH:Decision:Redis', `Got: ${filtered[0].name}`);
-  });
-
-  await test('filterExisting: case-insensitive match', () => {
-    const tmpBrain = join(TMP, 'filter-case-brain.jsonl');
-    writeFileSync(tmpBrain, JSON.stringify({
-      type: 'entity', name: 'tech:decision:postgresql', entityType: 'tech-decision',
-      observations: [], createdAt: Date.now()
-    }) + '\n');
-
-    const entities = [
-      { name: 'TECH:Decision:PostgreSQL', entityType: 'tech-decision', observations: ['test'] },
-    ];
-    const filtered = ext.filterExisting(entities, tmpBrain);
-    assert(filtered.length === 0, 'Case-insensitive match should filter');
-  });
+  await test('filterExisting: preserves distinct case-sensitive canonical names', () => withHookStore('filter-case',(store,projectId)=>{
+ store.createEntity({name:'tech:decision:postgresql',entityType:'tech-decision',projectId,observations:[]});
+ const filtered=ext.filterExisting([{name:'TECH:Decision:PostgreSQL',entityType:'tech-decision',observations:['test']}]);assert(filtered.length===1,'SQLite canonical names are case-sensitive; distinct names must not silently merge');
+ }));
 
   // ── appendToBrain ──
 
-  await test('appendToBrain: writes entities to brain file', () => {
-    const tmpBrain = join(TMP, 'append-test-brain.jsonl');
-    const entities = [
-      { name: 'TECH:Decision:Redis', entityType: 'tech-decision', observations: ['Chose Redis for caching'] },
-    ];
-    const written = ext.appendToBrain(entities, tmpBrain);
-    assert(written === 1, `Expected 1, got ${written}`);
-    assert(existsSync(tmpBrain), 'Brain file should exist');
-
-    const content = readFileSync(tmpBrain, 'utf-8').trim();
-    const obj = JSON.parse(content);
-    assert(obj.type === 'entity', 'Should be entity type');
-    assert(obj.name === 'TECH:Decision:Redis', `Got: ${obj.name}`);
-    assert(obj.observations[0].content.includes('[0.5|'), 'Should have auto confidence prefix');
-    assert(obj.observations[0].confidence === 0.5, 'Confidence should be 0.5');
-  });
+  await test('appendToBrain: persists scoped candidates in SQLite', () => withHookStore('append-candidate',(store,projectId)=>{
+ const written=ext.appendToBrain([{name:'TECH:Decision:Redis',entityType:'tech-decision',observations:['Chose Redis for caching']}]);assert(written===1,'One candidate captured');
+ const obj=store.getEntity({name:'TECH:Decision:Redis',projectId,lifecycles:['candidate']});assert(obj?.name==='TECH:Decision:Redis','Candidate is durable');assert(obj.observations[0].content.includes('[0.5|'),'Auto confidence prefix preserved');assert(store.search('Redis',{projectId}).length===0,'Candidate excluded from default recall');assert(ext.appendToBrain([{name:obj.name,entityType:obj.entityType,observations:['duplicate']}])===0,'Repeated capture is idempotent');
+ }));
 
   await test('formatObservations: adds confidence prefix', () => {
     const obs = ext.formatObservations(['test observation']);
@@ -1707,6 +1688,559 @@ async function parsePoolTests() {
   });
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// DOCTOR — redaction, session parsing, call stats, timeout guard
+// ══════════════════════════════════════════════════════════════════════════
+
+async function doctorTests() {
+  console.log('\n🩹 Doctor / Observability Tests');
+  const { redact, redactText, hasSecret } = await import('./lib/redact-secrets.mjs');
+  const { parseSessionFile, detectError, errorFingerprint } =
+    await import('./lib/session-audit/session-jsonl-parser.mjs');
+  const { summarize, dedupeByCallId } = await import('./lib/session-audit/call-stats.mjs');
+  const { withTimeout } = await import('./lib/with-timeout.mjs');
+
+  // ── Redaction is a hard gate ──
+  await test('redact: provider keys, tokens and connection strings masked', () => {
+    const samples = [
+      'ANTHROPIC_API_KEY=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'export OPENAI_KEY=sk-proj-BBBBBBBBBBBBBBBBBBBBBBBB',
+      'token: ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+      'GOOGLE=AIzaDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+      'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345',
+      'Server=db;Password=Sup3rS3cret!;',
+      'postgres://admin:hunter2@db.internal:5432/app',
+      'aws AKIAIOSFODNN7EXAMPLE',
+      'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop',
+    ];
+    for (const s of samples) {
+      const out = redactText(s);
+      assert(out.includes('[REDACTED]'), `not masked: ${s} → ${out}`);
+      assert(!hasSecret(out), `still leaks after redaction: ${out}`);
+    }
+  });
+
+  await test('redact: assignment key stays visible so reports stay useful', () => {
+    const out = redactText('api_key = abcdef123456');
+    assert(/api_key/i.test(out), `key label preserved: ${out}`);
+    assert(out.includes('[REDACTED]'), 'value masked');
+  });
+
+  await test('redact: ordinary text untouched', () => {
+    const plain = 'checkMissingRelations flagged 110 of 190 pairs';
+    assert(redactText(plain) === plain, 'no false rewrite');
+    assert(Object.keys(redact(plain).hits).length === 0, 'no hits on clean text');
+  });
+
+  // ── Error detection precision ──
+  await test('doctor: error markers only count near the start of output', () => {
+    assert(detectError("Error: Cannot read properties of null (reading 'preloadSymbols')"), 'real failure detected');
+    // A successful session_start echoes INCIDENT observations that contain
+    // words like "timed out" — those must not be read as failures.
+    const healthy = '## Hermit Session Context\n' + 'x'.repeat(500) + '\nSYMPTOM: request timed out after 30s';
+    assert(detectError(healthy) === null, 'recalled incident text is not a failure');
+  });
+
+  await test('doctor: fingerprints normalize paths, hashes and numbers', () => {
+    const a = errorFingerprint("Error: ENOENT: no such file 'D:\\Project\\a\\b.mjs' (code 12345)");
+    const b = errorFingerprint("Error: ENOENT: no such file 'C:\\Other\\x\\y.mjs' (code 999)");
+    assert(a === b, `same fault groups: \n${a}\n${b}`);
+  });
+
+  // ── Parsing + stats ──
+  await test('doctor: parses mcp_tool_call_end telemetry with duration + isError', () => {
+    const file = join(TMP, 'sess.jsonl');
+    const lines = [
+      JSON.stringify({
+        timestamp: '2026-07-29T05:13:01.358Z', type: 'event_msg',
+        payload: {
+          type: 'mcp_tool_call_end', call_id: 'call_A',
+          invocation: { server: 'hermit-graph', tool: 'hermit_impact', arguments: {} },
+          duration: { secs: 1, nanos: 500000000 },
+          result: { Ok: { content: [{ type: 'text', text: "Error: Cannot read properties of null (reading 'preloadSymbols')" }], isError: true } },
+        },
+      }),
+      JSON.stringify({
+        timestamp: '2026-07-29T05:14:01.000Z', type: 'event_msg',
+        payload: {
+          type: 'mcp_tool_call_end', call_id: 'call_B',
+          invocation: { server: 'hermit-graph', tool: 'hermit_search_nodes', arguments: {} },
+          duration: { secs: 0, nanos: 26000000 },
+          result: { Ok: { content: [{ type: 'text', text: '3 results' }], isError: false } },
+        },
+      }),
+      'not json at all',
+    ];
+    writeFileSync(file, lines.join('\n'));
+    const { calls, badLines } = parseSessionFile(file, { toolPrefix: 'hermit_' });
+    assert(badLines === 1, `malformed line counted, not thrown: ${badLines}`);
+    assert(calls.length === 2, `both calls parsed: ${calls.length}`);
+    const impact = calls.find(c => c.tool === 'hermit_impact');
+    assert(impact.ok === false, 'isError respected');
+    assert(impact.durationMs === 1500, `duration from telemetry: ${impact.durationMs}`);
+    assert(impact.fingerprint.includes('preloadSymbols'), 'fingerprint captured');
+    assert(calls.find(c => c.tool === 'hermit_search_nodes').ok === true, 'success respected');
+  });
+
+  await test('doctor: Err result shape (agent-side timeout) counted as failure', () => {
+    const file = join(TMP, 'sess-err.jsonl');
+    writeFileSync(file, JSON.stringify({
+      timestamp: '2026-08-13T07:01:53.264Z', type: 'event_msg',
+      payload: {
+        type: 'mcp_tool_call_end', call_id: 'call_T',
+        invocation: { server: 'hermit-graph', tool: 'hermit_open_nodes', arguments: {} },
+        duration: { secs: 300, nanos: 0 },
+        result: { Err: 'tool call error: timed out awaiting tools/call after 300s' },
+      },
+    }));
+    const { calls } = parseSessionFile(file, { toolPrefix: 'hermit_' });
+    assert(calls[0].ok === false, 'Err counted as failure');
+    assert(calls[0].durationMs === 300000, 'timeout duration recorded');
+  });
+
+  await test('doctor: dedupe by call_id prefers MCP telemetry over inferred', () => {
+    const inferred = { callId: 'x', tool: 't', ok: true, durationMs: null };
+    const telemetry = { callId: 'x', tool: 't', ok: false, durationMs: 1500, source: 'mcp_tool_call_end' };
+    const kept = dedupeByCallId([inferred, telemetry]);
+    assert(kept.length === 1, 'deduped to one');
+    assert(kept[0].source === 'mcp_tool_call_end', 'telemetry record wins');
+  });
+
+  await test('doctor: stats compute error rate and percentiles', () => {
+    const calls = [
+      { callId: '1', tool: 'a', ok: true, durationMs: 10 },
+      { callId: '2', tool: 'a', ok: true, durationMs: 20 },
+      { callId: '3', tool: 'a', ok: false, durationMs: 30, fingerprint: 'boom' },
+      { callId: '4', tool: 'b', ok: true, durationMs: 100 },
+    ];
+    const s = summarize(calls);
+    assert(s.totalCalls === 4 && s.totalErrors === 1, 'totals');
+    assert(Math.abs(s.errorRate - 0.25) < 1e-9, `error rate: ${s.errorRate}`);
+    const a = s.perTool.find(t => t.tool === 'a');
+    assert(a.p50Ms === 20 && a.maxMs === 30, `percentiles: p50=${a.p50Ms} max=${a.maxMs}`);
+    assert(s.fingerprints[0].fingerprint === 'boom', 'fingerprint aggregated');
+  });
+
+  // ── Split-brain regression (found by the consumer-project install test) ──
+  await test('mirror gate: SqliteWriter must not be treated as disabled', async () => {
+    // The old gate was `ctx.dualWriter.getStats().enabled`. DualWriter reports
+    // `enabled`; SqliteWriter — the DEFAULT writer — does not, so the gate was
+    // undefined/falsy and NOTHING was written to SQLite while reads came FROM
+    // SQLite. Result: every new entity was invisible to hermit_search_nodes /
+    // hermit_open_nodes. Measured on the real vault: JSONL 878 vs SQLite 620.
+    const { SqliteWriter } = await import('./lib/memory/sqlite-writer.mjs');
+    const stats = new SqliteWriter({ sqliteProvider: { }, vectorBackend: null }).getStats();
+    assert(stats.enabled === undefined, 'precondition: SqliteWriter has no `enabled` field');
+
+    // The shipped gate must key off the writer's `_sqlite` handle instead.
+    const src = readFileSync(join(ROOT, 'scripts', 'lib', 'memory-module.mjs'), 'utf-8');
+    const gate = src.slice(src.indexOf('async function mirrorToSqlite'), src.indexOf('async function mirrorToSqlite') + 1400);
+    // Match the old EXECUTABLE gate, not the phrase in the explanatory comment.
+    assert(!/if \(!ctx\.dualWriter\?\.getStats\(\)\.enabled\)/.test(gate),
+      'mirror must not early-return on the DualWriter-only `enabled` field');
+    assert(/_sqlite/.test(gate) && /if \(!sqlite\) return/.test(gate), 'mirror gates on the _sqlite handle');
+  });
+
+  await test('mirror gate: both writer shapes expose the _sqlite handle', async () => {
+    const { SqliteWriter } = await import('./lib/memory/sqlite-writer.mjs');
+    const { DualWriter } = await import('./lib/memory/dual-writer.mjs');
+    const marker = { tag: 'provider' };
+    assert(new SqliteWriter({ sqliteProvider: marker })._sqlite === marker, 'SqliteWriter._sqlite');
+    assert(new DualWriter({ jsonlProvider: {}, sqliteProvider: marker, enabled: true })._sqlite === marker, 'DualWriter._sqlite');
+  });
+
+  // ── Embedding singleton: model-load stampede ──
+  await test('embedding: singleton is the PROMISE, so concurrent cold calls share one load', async () => {
+    // getExtractor() used to assign _extractor only AFTER `await pipeline(...)`
+    // resolved, so N concurrent callers each started their own ~23MB model load.
+    // Session telemetry showed the signature: parallel calls finishing together
+    // with a tiny spread (74.8s/74.4s, 262.2s/262.2s, 96.5s/96.4s).
+    const src = readFileSync(join(ROOT, 'scripts', 'lib', 'embedding-service.mjs'), 'utf-8');
+    assert(/let _loadPromise/.test(src), 'an in-flight load promise is tracked');
+    assert(/if \(_loadPromise\) return _loadPromise;/.test(src), 'concurrent callers reuse the in-flight load');
+    assert(/LOAD_TIMEOUT_MS/.test(src), 'a hung model load cannot block callers forever');
+    const mod = await import('./lib/embedding-service.mjs');
+    assert(typeof mod.warmup === 'function', 'warmup() exported for boot-time preload');
+  });
+
+  await test('embedding: server warms the model only when vectors are used', () => {
+    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-legacy.mjs'), 'utf-8');
+    assert(/warmupEmbeddings\(\)/.test(src), 'boot warms embeddings');
+    assert(/_retrievalMode !== 'bm25'/.test(src), 'skipped in the default bm25 mode (never embeds)');
+  });
+
+  // ── Index parity guard (JSONL = truth, SQLite = derived index) ──
+  await test('parity: counts all records so archived entries are not false drift', async () => {
+    const { countJsonl } = await import('./lib/memory/index-parity-guard.mjs');
+    const p = writeTempBrain('parity.jsonl', [
+      { name: 'BIZ:A', entityType: 'biz-domain', observations: ['[1|2026-01-01] WHAT: a'] },
+      { name: 'BIZ:B', entityType: 'biz-domain', observations: ['[1|2026-01-01] WHAT: b'], _archived: true },
+    ], [{ from: 'BIZ:A', to: 'BIZ:B', relationType: 'uses' }]);
+    const c = countJsonl(p);
+    assert(c.entities === 2, `archived counted too (index mirrors the file), got ${c.entities}`);
+    assert(c.relations === 1, `relations counted, got ${c.relations}`);
+  });
+
+  await test('parity: drift is detected and reported with a reason', async () => {
+    const { checkIndexParity } = await import('./lib/memory/index-parity-guard.mjs');
+    const p = writeTempBrain('parity2.jsonl', [
+      { name: 'BIZ:A', entityType: 'biz-domain', observations: ['[1|2026-01-01] WHAT: a'] },
+    ]);
+    // No DB at that path → index looks empty → drift against 1 JSONL entity.
+    const r = checkIndexParity({ brainPath: p, dbPath: join(TMP, 'absent.db') });
+    assert(r.inSync === false, 'drift detected');
+    assert(/entities 1 vs 0/.test(r.reason), `reason states the counts: ${r.reason}`);
+  });
+
+  await test('parity: a fresh vault with no JSONL is not treated as drift', async () => {
+    const { ensureIndexParity } = await import('./lib/memory/index-parity-guard.mjs');
+    const r = ensureIndexParity({
+      brainPath: join(TMP, 'nope.jsonl'),
+      dbPath: join(TMP, 'nope.db'),
+    });
+    assert(r.healed === false && r.checked.inSync === true, 'no rebuild attempted on a fresh vault');
+  });
+
+  await test('parity: guard runs before providers open a handle', () => {
+    const src = readFileSync(join(ROOT, 'scripts', 'hermit-mcp-legacy.mjs'), 'utf-8');
+    const guardAt = src.indexOf('ensureIndexParity({');
+    const providerAt = src.indexOf('new SqliteProvider(');
+    assert(guardAt > 0 && providerAt > 0, 'both present');
+    assert(guardAt < providerAt, 'parity check precedes SqliteProvider construction (no stale handle)');
+  });
+
+  // ── Timeout guard ──
+  await test('timeout: slow work returns the fallback instead of hanging', async () => {
+    const slow = new Promise(res => setTimeout(() => res('late'), 500));
+    const r = await withTimeout(slow, { ms: 30, fallback: 'partial' });
+    assert(r.timedOut === true, 'timeout reported');
+    assert(r.value === 'partial', 'fallback returned');
+  });
+
+  await test('timeout: fast work passes through untouched', async () => {
+    const r = await withTimeout(Promise.resolve('done'), { ms: 5000, fallback: null });
+    assert(r.timedOut === false && r.value === 'done', 'no interference');
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MEMBER-CALL RESOLUTION GATE (false call-graph edges)
+// ══════════════════════════════════════════════════════════════════════════
+
+async function memberCallGateTests() {
+  console.log('\n🎯 Member Call Resolution Gate Tests');
+  const { shouldResolveMemberCall, BUILTIN_RECEIVERS, GENERIC_MEMBER_METHODS } =
+    await import('./lib/code-intel/resolution/known-names.mjs');
+
+  await test('gate: builtin receiver never resolves to a user symbol', () => {
+    assert(!shouldResolveMemberCall('Set', 'add', 'a/b.mjs::Pool.add', 'c/d.mjs'), 'Set.add dropped');
+    assert(!shouldResolveMemberCall('console', 'log', 'a/b.mjs::log', 'c/d.mjs'), 'console.log dropped');
+    assert(!shouldResolveMemberCall('Math', 'round', 'a/b.mjs::round', 'c/d.mjs'), 'Math.round dropped');
+    assert(!shouldResolveMemberCall('Object', 'fromEntries', 'a/b.mjs::G.fromEntries', 'c/d.mjs'), 'Object.fromEntries dropped');
+  });
+
+  await test('gate: generic method on unknown receiver needs corroboration', () => {
+    // `relationSet.add(x)` — receiver is a plain local, target lives elsewhere.
+    assert(!shouldResolveMemberCall('relationSet', 'add', 'a/pool.mjs::McpClientPool.add', 'b/health.mjs'),
+      'cross-file generic member call dropped');
+  });
+
+  await test('gate: non-generic method still resolves cross-file', () => {
+    assert(shouldResolveMemberCall('pool', 'extractSymbols', 'a/pool.mjs::ParsePool.extractSymbols', 'b/idx.mjs'),
+      'domain method kept');
+  });
+
+  await test('gate: this/self receiver always resolves', () => {
+    assert(shouldResolveMemberCall('this', 'get', 'a/b.mjs::Cache.get', 'c/d.mjs'), 'this.get kept');
+    assert(shouldResolveMemberCall('self', 'get', 'a/b.py::Cache.get', 'c/d.py'), 'self.get kept');
+  });
+
+  await test('gate: receiver naming the owning class resolves', () => {
+    assert(shouldResolveMemberCall('parsePool', 'add', 'a/b.mjs::ParsePool.add', 'c/d.mjs'), 'instance of class kept');
+    assert(shouldResolveMemberCall('ParsePool', 'add', 'a/b.mjs::ParsePool.add', 'c/d.mjs'), 'class itself kept');
+  });
+
+  await test('gate: same-file generic call resolves', () => {
+    assert(shouldResolveMemberCall('cache', 'get', 'a/b.mjs::Cache.get', 'a/b.mjs'), 'same-file match kept');
+  });
+
+  await test('gate: vocabulary sets cover JS + Python + Java receivers', () => {
+    for (const r of ['Set', 'console', 'os', 'json', 'System', 'Collections']) {
+      assert(BUILTIN_RECEIVERS.has(r), `${r} listed as builtin receiver`);
+    }
+    for (const m of ['add', 'log', 'append', 'put', 'items']) {
+      assert(GENERIC_MEMBER_METHODS.has(m), `${m} listed as generic member`);
+    }
+    // Domain-ish names must NOT be blocklisted — dropping those costs real edges.
+    for (const m of ['run', 'init', 'close', 'save', 'load', 'validate']) {
+      assert(!GENERIC_MEMBER_METHODS.has(m), `${m} must stay resolvable`);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// HEALTH v2 — relation suggestions, schema conformance, integrity
+// ══════════════════════════════════════════════════════════════════════════
+
+async function healthV2Tests() {
+  console.log('\n🩺 Health v2 Tests');
+  const {
+    loadBrain, checkMissingRelations, checkSchemaConformance,
+    checkDanglingRelations, checkRelationVocabulary, checkLowConfidence,
+    checkStale, activeObservations, calculateHealth,
+  } = await import('./lib/brain-health-checks.mjs');
+  const { archiveRelationsFor, repointRelations } = await import('./lib/audit-trail.mjs');
+
+  // ── Missing Relations: precision ──
+  await test('health: generic shared words no longer suggest a relation', () => {
+    const entities = [
+      { name: 'BIZ:ProjectAlpha', entityType: 'biz-domain', observations: ['[0.8|2026-01-01] WHAT: biz platform 2026'] },
+      { name: 'TECH:Person:MentorX', entityType: 'tech-person', observations: ['[0.8|2026-01-01] ROLE: biz advisor 2026'] },
+    ];
+    const r = checkMissingRelations(entities, []);
+    assert(r.items.length === 0, `expected no suggestion, got ${JSON.stringify(r.items)}`);
+  });
+
+  await test('health: same-project entities sharing rare tokens are suggested', () => {
+    const entities = [
+      { name: 'PATTERN:WebCash:GridView', entityType: 'pattern-code', observations: ['[0.8|2026-01-01] WHAT: uses loaddatalist and calculateheight helpers'] },
+      { name: 'PATTERN:WebCash:PageShell', entityType: 'pattern-arch', observations: ['[0.8|2026-01-01] WHAT: calls loaddatalist then calculateheight'] },
+    ];
+    const r = checkMissingRelations(entities, []);
+    assert(r.items.length === 1, `expected 1 suggestion, got ${r.items.length}`);
+    assert(r.items[0].confidence > 0, 'suggestion carries a confidence');
+  });
+
+  await test('health: existing relation is not re-suggested', () => {
+    const entities = [
+      { name: 'PATTERN:WebCash:GridView', entityType: 'pattern-code', observations: ['[0.8|2026-01-01] WHAT: uses loaddatalist and calculateheight helpers'] },
+      { name: 'PATTERN:WebCash:PageShell', entityType: 'pattern-arch', observations: ['[0.8|2026-01-01] WHAT: calls loaddatalist then calculateheight'] },
+    ];
+    const rels = [{ from: 'PATTERN:WebCash:GridView', to: 'PATTERN:WebCash:PageShell', relationType: 'uses' }];
+    assert(checkMissingRelations(entities, rels).items.length === 0, 'linked pair must not be suggested');
+  });
+
+  await test('health: Missing Relations is informational (weight 0)', () => {
+    const r = checkMissingRelations([], []);
+    assert(r.weight === 0 && r.informational === true, 'must not drag the score');
+    assert(calculateHealth([r]) === 100, 'informational check contributes no penalty');
+  });
+
+  await test('health: relation suggestion scan is fast on 500 entities', () => {
+    const entities = Array.from({ length: 500 }, (_, i) => ({
+      name: `RULE:Proj${i % 10}:Rule${i}`,
+      entityType: 'biz-rule',
+      observations: [`[0.8|2026-01-01] RULE: rule ${i} about topic${i % 40} and widget${i % 37}`],
+    }));
+    const t = Date.now();
+    checkMissingRelations(entities, []);
+    const ms = Date.now() - t;
+    assert(ms < 1500, `expected < 1500ms, took ${ms}ms`);
+  });
+
+  // ── Archived observation accounting ──
+  await test('health: archived observations excluded from denominators', () => {
+    const e = {
+      name: 'BIZ:X', entityType: 'biz-domain',
+      observations: [
+        { content: '[0.8|2026-01-01] WHAT: live' },
+        { content: '[0.8|2020-01-01] WHAT: superseded', _archived: true },
+      ],
+    };
+    assert(activeObservations(e).length === 1, 'only live observations counted');
+    assert(checkStale([e]).totalCount === 1, 'stale denominator excludes archived');
+    assert(checkLowConfidence([e]).totalCount === 1, 'confidence denominator excludes archived');
+  });
+
+  // ── Schema conformance ──
+  await test('health: schema flags wrong prefix, short observations, missing keys', () => {
+    const bad = { name: 'PROJECT:Foo:Flow', entityType: 'biz-flow', observations: ['[0.8|2026-01-01] FLOW: a → b'] };
+    const r = checkSchemaConformance([bad]);
+    assert(r.violationCount === 1, 'entity flagged');
+    const problems = r.items[0].problems.join(' | ');
+    assert(/prefix/.test(problems), `prefix problem reported: ${problems}`);
+    assert(/observations/.test(problems), `min-observation problem reported: ${problems}`);
+    assert(/missing keys/.test(problems), `required keys reported: ${problems}`);
+  });
+
+  await test('health: conforming entity passes schema check', () => {
+    const good = {
+      name: 'GOTCHA:Foo:Thing', entityType: 'incident-gotcha',
+      observations: [
+        '[0.8|2026-01-01] WHAT: a thing',
+        '[0.8|2026-01-01] IMPACT: breaks x',
+        '[0.8|2026-01-01] FIX: do y',
+        '[0.8|2026-01-01] APPLIES_TO: all',
+      ],
+    };
+    assert(checkSchemaConformance([good]).violationCount === 0, 'clean entity not flagged');
+  });
+
+  // ── Dangling relations ──
+  await test('health: dangling relations detect missing vs archived endpoints', () => {
+    const entities = [{ name: 'BIZ:Alive', entityType: 'biz-domain', observations: [] }];
+    const relations = [
+      { from: 'BIZ:Alive', to: 'BIZ:Ghost', relationType: 'uses' },
+      { from: 'BIZ:Alive', to: 'BIZ:Gone', relationType: 'uses' },
+    ];
+    const r = checkDanglingRelations(entities, relations, new Set(['BIZ:Gone']));
+    assert(r.violationCount === 2, 'both flagged');
+    assert(r.items.some(i => i.reasons.join().includes('does not exist')), 'missing endpoint reported');
+    assert(r.items.some(i => i.reasons.join().includes('archived')), 'archived endpoint reported');
+    assert(r.weight > 0, 'dangling relations count toward the score');
+  });
+
+  // ── Relation vocabulary ──
+  await test('health: off-registry relation types reported, not deleted', () => {
+    const r = checkRelationVocabulary([
+      { from: 'a', to: 'b', relationType: 'uses' },
+      { from: 'a', to: 'c', relationType: 'frobnicates' },
+    ]);
+    assert(r.violationCount === 1, 'only the off-registry one counted');
+    assert(r.informational === true && r.weight === 0, 'informational, does not punish the score');
+  });
+
+  // ── Archive cascade ──
+  await test('archive: cascades to relations touching the entity', () => {
+    const relations = [
+      { from: 'A', to: 'B', relationType: 'uses' },
+      { from: 'C', to: 'D', relationType: 'uses' },
+    ];
+    assert(archiveRelationsFor(relations, ['B']) === 1, 'one relation archived');
+    assert(relations[0]._archived === true, 'touching relation archived');
+    assert(!relations[1]._archived, 'unrelated relation untouched');
+  });
+
+  await test('dedup: relations repoint to the surviving entity', () => {
+    const relations = [{ from: 'X', to: 'OldName', relationType: 'uses' }];
+    assert(repointRelations(relations, 'OldName', 'NewName') === 1, 'one relation repointed');
+    assert(relations[0].to === 'NewName', 'edge follows the merged entity');
+  });
+
+  await test('dedup: repointing drops self-loops instead of creating them', () => {
+    const relations = [{ from: 'Primary', to: 'Secondary', relationType: 'uses' }];
+    repointRelations(relations, 'Secondary', 'Primary');
+    assert(relations[0]._archived === true, 'self-loop archived rather than kept');
+  });
+
+  // ── Real graph regression ──
+  await test('health: real brain graph passes all checks without throwing', () => {
+    if (!existsSync(REAL_BRAIN)) { skipped++; return; }
+    const { entities, relations, archivedNames } = loadBrain(REAL_BRAIN);
+    const checks = [
+      checkStale(entities), checkLowConfidence(entities),
+      checkMissingRelations(entities, relations),
+      checkSchemaConformance(entities),
+      checkDanglingRelations(entities, relations, archivedNames),
+      checkRelationVocabulary(relations),
+    ];
+    const score = calculateHealth(checks);
+    assert(score >= 0 && score <= 100, `score in range, got ${score}`);
+    const missing = checks[2];
+    assert(missing.items.length <= 10, `at most 10 suggestions, got ${missing.items.length}`);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MEMORY SEARCH SCORING + PROJECT-SCOPED RECALL
+// ══════════════════════════════════════════════════════════════════════════
+
+async function memorySearchScopingTests() {
+  console.log('\n🔎 Memory Search Scoring + Scoped Recall Tests');
+  const { tokenize, tokenizeQuery, scoreEntity, isIdentifierToken } =
+    await import('./lib/memory-search-scoring.mjs');
+  const { recallEntities, extractKeywords } = await import('./lib/session-recall.mjs');
+  const id = (o) => o;
+
+  const incident = {
+    name: 'INCIDENT:InfoERP:ACPS10610000SaveMissingLoadingIndicator',
+    entityType: 'incident-bug',
+    observations: ['[0.9|2026-08-11] SYMPTOM: invoice save flow has no loading indicator'],
+  };
+
+  // ── tokenizing ──
+  await test('scoring: identifier shapes detected', () => {
+    assert(isIdentifierToken('ACPS10610000'), 'screen code is an identifier');
+    assert(isIdentifierToken('btnVerify'), 'camelCase is an identifier');
+    assert(isIdentifierToken('MEMB_SLIP_NO'), 'snake/upper is an identifier');
+    assert(!isIdentifierToken('invoice'), 'plain word is not an identifier');
+  });
+
+  await test('scoring: stopwords dropped (English + Vietnamese)', () => {
+    const t = tokenize('the invoice is in of và của với');
+    assert(!t.has('the') && !t.has('in') && !t.has('of'), 'English stopwords dropped');
+    assert(!t.has('và') && !t.has('của') && !t.has('với'), 'Vietnamese stopwords dropped');
+    assert(t.has('invoice'), 'content word kept');
+  });
+
+  await test('scoring: glued entity names expand into parts', () => {
+    const t = tokenize('ACPS10610000SaveMissingLoadingIndicator');
+    assert(t.has('acps'), 'prefix part indexed');
+    assert(t.has('10610000'), 'digit part indexed');
+    assert(t.has('loading'), 'word part indexed');
+  });
+
+  // ── the actual regression: substring matching ──
+  await test('scoring: short terms no longer substring-match (in/out/api)', () => {
+    const { score } = scoreEntity(tokenizeQuery('in out api'), incident, id);
+    assert(score === 0, `expected 0 for pure-noise query, got ${score}`);
+  });
+
+  await test('scoring: identifier query matches glued name', () => {
+    const { score, matched } = scoreEntity(tokenizeQuery('ACPS10610000'), incident, id);
+    assert(score > 0.5, `expected strong match, got ${score}`);
+    assert(matched.includes('10610000'), 'reports which tokens matched');
+  });
+
+  await test('scoring: unrelated entity scores zero', () => {
+    const wuxia = {
+      name: 'BIZ:Wuxia', entityType: 'biz-domain',
+      observations: ['[1|2026-01-01] Web novel generator'],
+    };
+    const { score } = scoreEntity(tokenizeQuery('ACPS10610000 invoice'), wuxia, id);
+    assert(score === 0, `expected 0 for unrelated entity, got ${score}`);
+  });
+
+  // ── project scoping ──
+  const scopedBrain = writeTempBrain('scoped.jsonl', [
+    { name: 'BIZ:ProjAlpha', entityType: 'biz-domain', observations: ['[1|2026-01-01] alpha domain'] },
+    { name: 'BIZ:ProjBeta', entityType: 'biz-domain', observations: ['[1|2026-01-01] beta domain uses kafka streaming'] },
+    { name: 'INCIDENT:ProjAlpha:SaveBug', entityType: 'incident-bug', observations: ['[0.9|2026-01-01] SYMPTOM: invoice save crash'] },
+    { name: 'INCIDENT:ProjBeta:SaveBug', entityType: 'incident-bug', observations: ['[0.9|2026-01-01] SYMPTOM: invoice save crash'] },
+    { name: 'PATTERN:CODE:Retry', entityType: 'pattern-code', observations: ['[0.8|2026-01-01] WHAT: invoice retry pattern'] },
+  ]);
+
+  await test('recall: other projects excluded by default', () => {
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'invoice save crash', maxResults: 10 });
+    const names = r.entities.map(e => e.name);
+    assert(names.some(n => n.includes('ProjAlpha')), 'own project present');
+    assert(!names.some(n => n.includes('ProjBeta')), `other project leaked: ${names.join(', ')}`);
+  });
+
+  await test('recall: neutral (shared) entities stay visible', () => {
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'invoice retry pattern', maxResults: 10 });
+    assert(r.entities.some(e => e.name === 'PATTERN:CODE:Retry'), 'shared pattern must not be filtered out');
+  });
+
+  await test('recall: crossProject:true restores full breadth', () => {
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'invoice save crash', maxResults: 10, crossProject: true });
+    assert(r.entities.some(e => e.name.includes('ProjBeta')), 'opt-in cross-project returns other projects');
+  });
+
+  await test('recall: falls back to cross-project when nothing in scope', () => {
+    // "kafka streaming" exists only on the other project — in-scope result set
+    // is empty, so recall must widen rather than return nothing.
+    const r = recallEntities(scopedBrain, { cwd: '/work/projalpha', query: 'kafka streaming', maxResults: 10 });
+    assert(r.crossProjectFallback === true, 'fallback flag set');
+    assert(r.entities.length > 0, 'fallback returns results rather than nothing');
+  });
+
+  await test('recall: Vietnamese filler words no longer become keywords', () => {
+    const kw = extractKeywords('kết quả của việc này với các phần trong hệ thống');
+    assert(!kw.includes('của') && !kw.includes('với') && !kw.includes('các'), `VN stopwords leaked: ${kw.join(',')}`);
+  });
+}
+
 async function phase01QuickWinsTests() {
   console.log('\n⚡ Phase 01 Quick Wins Tests');
   const { makeSymbolId, idMode } = await import('../scripts/lib/code-intel/id-gen.mjs');
@@ -2146,6 +2680,11 @@ try {
   await liquidExtractorTests();
   await parsePoolTests();
   await phase01QuickWinsTests();
+  await memorySearchScopingTests();
+  await healthV2Tests();
+  await memberCallGateTests();
+  await sessionRecordTests();
+  await doctorTests();
 } finally {
   cleanup();
 }

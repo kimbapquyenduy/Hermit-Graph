@@ -26,6 +26,7 @@ import { createRequire } from 'module';
 import * as sqliteVec from 'sqlite-vec';
 import { SqliteVecBackend } from './lib/memory/sqlite-vec-adapter.mjs';
 import { embed } from './lib/embedding-service.mjs';
+import { entityId } from './lib/memory/entity-identity.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -164,9 +165,10 @@ async function main() {
   }
 
   for await (const entity of streamEntities(opts.fromJsonl)) {
+    const id = entityId(entity);
     let vec;
-    if (cache && cache.has(entity.name)) {
-      vec = cache.get(entity.name);
+    if (cache && (cache.has(id) || cache.has(entity.name))) {
+      vec = cache.get(id) || cache.get(entity.name);
     } else {
       const obsText = (entity.observations || [])
         .map(o => (typeof o === 'string' ? o : (o.content || '')))
@@ -178,7 +180,7 @@ async function main() {
         continue;
       }
     }
-    batch.push([entity.name, vec]);
+    batch.push([id, vec]);
     processed++;
     if (batch.length >= opts.batch) await flushBatch();
     if (processed % 100 === 0) process.stdout.write(`\r  processed: ${processed}`);

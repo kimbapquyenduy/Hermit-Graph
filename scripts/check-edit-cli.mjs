@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {reportCliFailure} from './lib/diagnostics/cli-failure.mjs';
 /**
  * hermit check-edit — Pre-edit impact check for one or more source files.
  *
@@ -22,7 +23,10 @@
 import { resolve, dirname, join, relative } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
-import * as codeIntel from './lib/code-intel/index.mjs';
+import {readCodeGraph} from './lib/code-intel/code-io.mjs';
+import {impactCounts} from './lib/code-intel/impact.mjs';
+import {ensureFreshCodeIndex,resolveCodeCache} from './lib/code-intel/code-index-service.mjs';
+import {resolvePaths} from './lib/storage/paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -61,24 +65,12 @@ if (files.length === 0) {
 
 // ── Main ──
 
-const dataDir = join(flags.cwd, 'data');
-const projectRoot = flags.cwd;
-
-// Build index if missing
-const graphPath = codeIntel.codeGraphPath(dataDir);
-if (!existsSync(graphPath)) {
-  if (flags.format === 'text') {
-    console.error(`Index missing — building for ${projectRoot}...`);
-  }
-  try {
-    await codeIntel.fullIndex(projectRoot, dataDir);
-  } catch (e) {
-    console.error(`Failed to index: ${e.message}`);
-    process.exit(1);
-  }
-}
-
-const graph = codeIntel.readCodeGraph(dataDir);
+const paths=resolvePaths();
+const projectRoot=flags.cwd;
+const dataDir=resolveCodeCache(projectRoot,paths.dataRoot);
+try { await ensureFreshCodeIndex(projectRoot,dataDir,{excludePaths:[paths.dataRoot]}); }
+catch(error){reportCliFailure(error,{component:'code-index'});process.exit(1);}
+const graph=readCodeGraph(dataDir);
 const results = [];
 
 for (const filePath of files) {
@@ -101,7 +93,7 @@ for (const filePath of files) {
     const isPublic = s.exported || isLikelyFrameworkBound(s);
     if (!isPublic) continue;
 
-    const counts = codeIntel.impactCounts(graph, s.id, 'upstream');
+    const counts = impactCounts(graph, s.id, 'upstream');
     const frameworkBound = isLikelyFrameworkBound(s);
     if (counts.d1 === 0 && !frameworkBound) continue; // no signal
 

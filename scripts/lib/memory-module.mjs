@@ -7,8 +7,10 @@ import { z } from 'zod';
 import { readBrain, writeBrain, withBrainLock } from './brain-io.mjs';
 import { search } from './semantic-search.mjs';
 import { obsText, parseObservation } from './parse-observation.mjs';
-import { archiveObservation, appendHistory } from './audit-trail.mjs';
+import { archiveObservation, appendHistory, archiveRelationsFor } from './audit-trail.mjs';
 import { zNumber, zBoolean, zArray } from './zod-coerce.mjs';
+import { tokenizeQuery, scoreEntity } from './memory-search-scoring.mjs';
+import { detectScope, checkEntityScope } from './session-recall.mjs';
 
 const MAX_RESPONSE_CHARS = 25000;
 const RO = { readOnlyHint: true };
@@ -44,14 +46,16 @@ function findEntity(entities, name) {
   return null;
 }
 
-/** Keyword relevance score for search. */
+/**
+ * Keyword relevance score for search — exact-token, stopword-filtered,
+ * identifier-boosted. Substring matching was removed because short terms like
+ * "in" / "out" / "api" matched nearly every entity in the graph.
+ * @param {string} query
+ * @param {object} entity
+ * @returns {number} 0..1
+ */
 function keywordMatch(query, entity) {
-  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
-  if (!terms.length) return 0;
-  const text = [entity.name, entity.entityType, ...(entity.observations || []).map(o => obsText(o))].join(' ').toLowerCase();
-  let hits = 0;
-  for (const t of terms) { if (text.includes(t)) hits++; }
-  return hits / terms.length;
+  return scoreEntity(tokenizeQuery(query), entity, obsText).score;
 }
 
 // ── Contradiction Detection ──
@@ -211,15 +215,28 @@ export function register(server, ctx) {
    * @param {object[]} changedRelations
    */
   async function mirrorToSqlite(changedEntities, changedRelations = []) {
-    if (!ctx.dualWriter?.getStats().enabled) return;
-    const sqlite = ctx.dualWriter._sqlite;
+    // The gate used to be `ctx.dualWriter.getStats().enabled`, but only
+    // DualWriter reports `enabled` — SqliteWriter (the DEFAULT writer since
+    // Phase 08) has no such field, so this returned early and nothing was ever
+    // written to SQLite. Meanwhile readGraph() reads FROM SQLite, so every
+    // newly created entity became invisible to hermit_search_nodes and
+    // hermit_open_nodes while still landing in brain.jsonl. Gate on the
+    // presence of a SQLite writer instead; both writer types expose `_sqlite`.
+    const sqlite = ctx.dualWriter?._sqlite || ctx.sqliteWriter?._sqlite;
+    if (!sqlite) return;
     try {
       for (const entity of changedEntities) await sqlite.writeEntity(entity);
       for (const rel of changedRelations) await sqlite.writeRelation(rel);
     } catch (err) {
-      ctx.dualWriter._lastSqliteError = err;
-      ctx.dualWriter._sqliteFailureCount++;
-      log(`memory-module: SQLite mirror failed (failure #${ctx.dualWriter._sqliteFailureCount}): ${err.message}`);
+      // Record on whichever writer is configured (DualWriter or SqliteWriter).
+      const writer = ctx.dualWriter || ctx.sqliteWriter;
+      if (writer) {
+        writer._lastSqliteError = err;
+        writer._sqliteFailureCount = (writer._sqliteFailureCount || 0) + 1;
+        log(`memory-module: SQLite mirror failed (failure #${writer._sqliteFailureCount}): ${err.message}`);
+      } else {
+        log(`memory-module: SQLite mirror failed: ${err.message}`);
+      }
     }
   }
 
@@ -313,19 +330,52 @@ export function register(server, ctx) {
     query: z.string().min(1),
     limit: zNumber().int().min(1).max(50).optional().default(10),
     include_archived: zBoolean().optional().default(false),
-  }, RO, async ({ query, limit, include_archived }) => {
+    cwd: z.string().optional().describe('Working directory — scopes results to the current project'),
+    scope: z.string().optional().describe('Explicit project scope override (e.g. "infoerp")'),
+    cross_project: zBoolean().optional().default(false).describe('Include other projects (default: current project only)'),
+  }, RO, async ({ query, limit, include_archived, cwd, scope, cross_project }) => {
     const { entities } = await readGraph(ctx);
-    let results = [];
+    const terms = tokenizeQuery(query);
+
+    // Resolve the asking project so other projects' entities can be dropped.
+    // Reuses session-recall's scope resolver — one implementation, not two.
+    let aliases = [], allScopes = {}, scopeName = 'global';
+    try {
+      const detected = scope
+        ? { scope, aliases: [scope.toLowerCase()], allScopes: detectScope(cwd || process.cwd(), brainPath).allScopes }
+        : detectScope(cwd || process.cwd(), brainPath);
+      ({ aliases, allScopes } = detected);
+      scopeName = detected.scope;
+    } catch (e) {
+      log(`hermit_search_nodes: scope detection failed (${e.message}) — searching unscoped`);
+    }
+
+    const scored = [];
     for (const [, e] of entities) {
       if (!include_archived && e._archived) continue;
-      const score = keywordMatch(query, e);
-      if (score > 0) results.push({ entity: e, score });
+      const { score, matched } = scoreEntity(terms, e, obsText);
+      if (score <= 0) continue;
+      const entityScope = checkEntityScope(e.name, aliases, allScopes);
+      scored.push({ entity: e, score, matched, entityScope });
     }
+
+    // Default: hide entities that clearly belong to a DIFFERENT project.
+    // 'neutral' (no scope prefix — shared patterns) always stays visible.
+    let results = cross_project ? scored : scored.filter(r => r.entityScope !== 'other');
+    let fellBack = false;
+    if (!results.length && scored.length) { results = scored; fellBack = true; }
+
     results.sort((a, b) => b.score - a.score);
     results = results.slice(0, limit);
     if (!results.length) return ok(`No results for "${query}".`);
-    const lines = results.map(r => `${r.score.toFixed(2)}  ${r.entity.name} (${r.entity.entityType})`);
-    return ok(`## Search: "${query}"\n\n${lines.join('\n')}\n\n${results.length} results`);
+
+    const lines = results.map(r => {
+      const why = r.matched.length ? `  ← matched: ${r.matched.slice(0, 5).join(', ')}` : '';
+      return `${r.score.toFixed(2)}  ${r.entity.name} (${r.entity.entityType}) [${r.entityScope}]${why}`;
+    });
+    const header = `## Search: "${query}"  scope=${scopeName}${cross_project ? ' (cross-project)' : ''}`;
+    const note = fellBack ? '\n\n(no in-project match — showing cross-project results)' : '';
+    return ok(`${header}\n\n${lines.join('\n')}${note}\n\n${results.length} results`);
   });
 
   // ── T4: Semantic Search ──
@@ -390,6 +440,7 @@ export function register(server, ctx) {
       const { entities, relations } = readBrain(brainPath);
       let archived = 0;
       const changed = [];
+      const archivedNames = [];
       for (const name of names) {
         const entity = findEntity(entities, name);
         if (entity && !entity._archived) {
@@ -399,13 +450,17 @@ export function register(server, ctx) {
           entity._history = [...(entity._history || []), { action: 'archived', at: entity._archivedAt }];
           archived++;
           changed.push(entity);
+          archivedNames.push(entity.name);
         }
       }
+      // Cascade: relations pointing at an archived entity would otherwise
+      // dangle — health saw 42 such relations on the real graph.
+      const relsArchived = archiveRelationsFor(relations, archivedNames);
       writeBrain(brainPath, entities, relations);
       await mirrorToSqlite(changed);
-      return archived;
+      return { archived, relsArchived };
     });
-    return ok(`Archived ${result} entities.`);
+    return ok(`Archived ${result.archived} entities and ${result.relsArchived} relations touching them.`);
   });
 
   // ── T8: Archive Observations (with audit trail) ──

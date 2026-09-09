@@ -28,6 +28,9 @@ Hermit is a persistent brain (4-tier KG: BIZ/PATTERN/TECH/INCIDENT) + AST-derive
 - **"Rebuild index"** → \`hermit_index\`
 - **"What's in the brain right now?"** → \`hermit_health\`
 - **"Start of session — load context"** → \`hermit_session_start\`
+- **"Save what I just learned"** → \`hermit_create_entities\` (new) / \`hermit_add_observations\` (extend existing)
+- **"Link two saved entities"** → \`hermit_create_relations\`
+- **"Read full details of a known entity"** → \`hermit_open_nodes\` (chain after \`hermit_search_nodes\`)
 
 ## Anti-patterns
 
@@ -51,7 +54,7 @@ Hermit is a persistent brain (4-tier KG: BIZ/PATTERN/TECH/INCIDENT) + AST-derive
 
 ## Advanced tools
 
-Hermit has 24 additional tools (memory CRUD, skills export, MCP bridges, audit trail, …) registered only under \`HERMIT_TOOL_PROFILE=full\`. The 10 core tools above cover ~95% of agent flows. If you need to create/archive entities, manage skills, or inspect MCP bridges, ask the user to set \`HERMIT_TOOL_PROFILE=full\` and restart the MCP server.
+Hermit has 20 additional tools (archive, get_related, read_graph, skills export, MCP bridges, audit trail, …) registered only under \`HERMIT_TOOL_PROFILE=full\`. The 14 core tools above cover ~95% of agent flows. If you need to archive entities, traverse relations, manage skills, or inspect MCP bridges, ask the user to set \`HERMIT_TOOL_PROFILE=full\` and restart the MCP server.
 
 ## Limits
 
