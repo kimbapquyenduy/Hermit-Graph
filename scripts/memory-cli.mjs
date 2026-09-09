@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+import {reportCliFailure} from './lib/diagnostics/cli-failure.mjs';
+import {BrainStore} from './lib/storage/brain-store.mjs';import {resolvePaths} from './lib/storage/paths.mjs';import {MemoryService} from './lib/memory-service.mjs';import {exportKnowledge} from './lib/export-v8.mjs';import {writeFileSync} from 'node:fs';
+const [command,action,...args]=process.argv.slice(2);const argv=process.argv.slice(3);const writes=['archive','restore'].includes(command)||(command==='review'&&['accept','reject'].includes(action));let store;
+try{store=new BrainStore({dbPath:resolvePaths().dbPath,readOnly:!writes});const service=new MemoryService({store});const cwd=process.env.HERMIT_USER_CWD||process.cwd();service.projectId=service.scope(cwd);let result;
+ if(command==='export'){result=exportKnowledge(store,{projectId:service.projectId,includeGlobal:argv.includes('--include-global'),all:argv.includes('--all')});const index=argv.indexOf('--out');if(index>=0){if(!argv[index+1])throw Error('HERMIT_ARGUMENT_REQUIRED');writeFileSync(argv[index+1],JSON.stringify(result,null,2),{flag:'wx'});result={exported:argv[index+1]};}}
+ else if(command==='review'){if(action==='list'||!action)result=service.projectId?store.listEntities({projectId:service.projectId,lifecycles:['candidate']}):[];else if(['accept','reject'].includes(action))result=service.transition(args[0],action==='accept'?'active':'rejected','Explicit candidate review');else throw Error('HERMIT_ARGUMENT_REQUIRED');}
+ else if(command==='archive'||command==='restore')result=service.transition(action,command==='archive'?'archived':'active');
+ else if(command==='stale'){const cutoff=Date.now()-180*86400000;result=service.readGraph().entities.flatMap(e=>e.observations.filter(o=>{const match=o.content.match(/^\[[\d.]+\|(\d{4}-\d{2}-\d{2})\]/);return match&&Date.parse(match[1])<cutoff;}).map(o=>({entityId:e.id,entityName:e.name,observation:o})));}else throw Error('HERMIT_ARGUMENT_REQUIRED');console.log(JSON.stringify(result,null,2));
+}catch(e){reportCliFailure(e);process.exitCode=1;}finally{store?.close();}

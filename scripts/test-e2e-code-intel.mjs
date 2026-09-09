@@ -24,7 +24,8 @@ import { blastRadius, symbolContext } from './lib/code-intel/impact.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, '..');
-const DATA_DIR = resolve(PROJECT_ROOT, 'data');
+const DATA_DIR = mkdtempSync(join(tmpdir(),'hermit-e2e-data-'));
+process.on('exit',()=>rmSync(DATA_DIR,{recursive:true,force:true}));
 
 // ── Color output helpers ──
 const colors = {
@@ -291,55 +292,12 @@ testSync('SCENARIO 10: isSupported and hasPython checks', () => {
   info(`  Python support: ${pythonAvailable ? 'available' : 'not available'}`);
 });
 
-// ── SCENARIO 11: MCP Server Boot (optional, spawns subprocess) ──
-await test('SCENARIO 11: MCP Server boot and initialization', async () => {
-  // Try to find the MCP server entry point
-  const mcpServerPath = resolve(PROJECT_ROOT, 'scripts/lib/hermit-mcp-server.mjs');
-
-  if (!existsSync(mcpServerPath)) {
-    info('  MCP server file not found, skipping live boot test');
-    return;
-  }
-
-  return new Promise((resolve, reject) => {
-    const server = spawn('node', [mcpServerPath], {
-      cwd: PROJECT_ROOT,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    });
-
-    let output = '';
-    let ready = false;
-
-    server.stdout.on('data', (data) => {
-      output += data.toString();
-      if (output.includes('Server initialized') || output.includes('tools/list')) {
-        ready = true;
-        server.kill();
-      }
-    });
-
-    server.stderr.on('data', (data) => {
-      const err = data.toString();
-      if (!err.includes('ECONNREFUSED')) {
-        info(`  Server stderr: ${err.slice(0, 100)}`);
-      }
-    });
-
-    server.on('close', (code) => {
-      if (ready) {
-        info('  MCP server booted successfully');
-        resolve();
-      } else {
-        info('  MCP server test skipped (not ready in time)');
-        resolve();
-      }
-    });
-
-    setTimeout(() => {
-      server.kill();
-    }, 3000);
-  });
+// Real stdio boot; failure is a failing gate.
+await test('SCENARIO 11: MCP Server boot and initialization',async()=>{
+ const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
+ const {StdioClientTransport}=await import('@modelcontextprotocol/sdk/client/stdio.js');
+ const client=new Client({name:'e2e',version:'1'});
+ try{await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve(PROJECT_ROOT,'scripts/hermit-mcp-server.mjs')],env:{...process.env,HERMIT_STORAGE:'v8',HERMIT_DATA_DIR:join(DATA_DIR,'mcp'),HERMIT_DB_PATH:'',HERMIT_PROJECT_CWD:'',CLAUDE_PROJECT_DIR:'',HERMIT_USER_CWD:''},stderr:'pipe'}));const result=await client.listTools();assert.ok(result.tools.some(t=>t.name==='hermit_search_nodes'));}finally{await client.close();}
 });
 
 // ── SCENARIO 12: CodeGraph API completeness ──

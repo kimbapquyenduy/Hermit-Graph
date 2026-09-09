@@ -13,7 +13,7 @@ test('MCP writes persist across restart without JSONL and scopes IDs',async t=>{
  try{
   const created=await call('hermit_create_entities',{entities:[{name:'TECH:Shared',entityType:'tech-stack',observations:['alpha','omega']}]});
   const id=created[0].entity.id;
-  const scanned=await client.callTool({name:'hermit_deep_scan',arguments:{cwd:a,force:true}});assert.ok(!scanned.isError,JSON.stringify(scanned));assert.match(scanned.content[0].text,/candidate/i);
+  const scanned=await client.callTool({name:'hermit_deep_scan',arguments:{cwd:a,force:true}});assert.ok(!scanned.isError,JSON.stringify(scanned));assert.equal(JSON.parse(scanned.content[0].text).state,'COLLECTED');
   await call('hermit_create_entities',{entities:[{name:'TECH:Inferred',entityType:'tech-stack',observations:['scanner inference'],lifecycle:'candidate'}]});assert.equal((await call('hermit_open_nodes',{names:['TECH:Inferred']})).length,0);
   await call('hermit_session_start',{cwd:b});assert.equal((await call('hermit_open_nodes',{names:[id]})).length,0);
   await client.close();client=await connect();assert.equal((await call('hermit_search_nodes',{query:'alpha omega'}))[0].id,id);

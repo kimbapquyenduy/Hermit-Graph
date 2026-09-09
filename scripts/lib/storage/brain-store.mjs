@@ -1,3 +1,5 @@
+import {initializeExtendedSchema,CURRENT_SCHEMA_REVISION} from './schema-v8.mjs';
+import {acquireRuntimeLease} from '../maintenance/maintenance-lock.mjs';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, existsSync, realpathSync } from 'node:fs';
@@ -12,10 +14,14 @@ function canonical(p) { let value=realpathSync(resolve(p));return process.platfo
 export class BrainStore {
  constructor({dbPath,readOnly=false}={}) {
   required(dbPath,'dbPath'); this.dbPath=resolve(dbPath); this.depth=0;
-  if(existsSync(this.dbPath)) { const probe=new DatabaseSync(this.dbPath,{readOnly:true}); try { const version=probe.prepare('PRAGMA user_version').get().user_version;const tables=probe.prepare("SELECT name FROM sqlite_master WHERE type='table'").all(); if(version!==8 && (version!==0||tables.length)) fail('HERMIT_SCHEMA_UNSUPPORTED',`Database schema ${version} is not v8; existing database preserved`); } finally {probe.close();} }
+  if(readOnly&&!existsSync(this.dbPath))fail('HERMIT_STORE_MISSING','No initialized brain; run setup');
+  this.lease=acquireRuntimeLease(this.dbPath,{version:`8.${CURRENT_SCHEMA_REVISION}`});
+  try {
+  if(existsSync(this.dbPath)) { const probe=new DatabaseSync(this.dbPath,{readOnly:true}); try { const version=probe.prepare('PRAGMA user_version').get().user_version;const tables=probe.prepare("SELECT name FROM sqlite_master WHERE type='table'").all(); if(version!==8 && (version!==0||tables.length)) fail(version>8?'HERMIT_RUNTIME_TOO_OLD':'HERMIT_UPGRADE_REQUIRED',`Incompatible schema; run hermit upgrade plan after closing all runtimes`);if(version===8){const meta=tables.some(t=>t.name==='schema_meta');const rev=meta?Number(probe.prepare("SELECT value FROM schema_meta WHERE key='revision'").get()?.value):1;if(rev!==CURRENT_SCHEMA_REVISION)fail(rev>CURRENT_SCHEMA_REVISION?'HERMIT_RUNTIME_TOO_OLD':'HERMIT_UPGRADE_REQUIRED','Run hermit upgrade plan after closing all runtimes');} } finally {probe.close();} }
   if(!readOnly) mkdirSync(dirname(this.dbPath),{recursive:true});
   this.db=new DatabaseSync(this.dbPath,{readOnly});
-  try {this.db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');if(!readOnly){this.db.exec('PRAGMA journal_mode=WAL;');this.initialize();}else if(this.db.prepare('PRAGMA user_version').get().user_version!==8)fail('HERMIT_SCHEMA_UNSUPPORTED','Expected schema v8');}catch(e){this.db.close();throw e;}
+  try {this.db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');if(!readOnly){this.db.exec('PRAGMA journal_mode=WAL;');if(this.db.prepare('PRAGMA user_version').get().user_version===0)this.initialize();}else if(this.db.prepare('PRAGMA user_version').get().user_version!==8)fail('HERMIT_SCHEMA_UNSUPPORTED','Expected schema v8');}catch(e){this.db.close();throw e;}
+  }catch(e){this.lease.release();throw e;}
  }
  initialize(){this.db.exec(`BEGIN IMMEDIATE;
  CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,root_path TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
@@ -27,8 +33,8 @@ export class BrainStore {
  CREATE TABLE IF NOT EXISTS change_events(id TEXT PRIMARY KEY,entity_id TEXT REFERENCES entities(id),action TEXT NOT NULL,actor TEXT NOT NULL,reason TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
  CREATE TABLE IF NOT EXISTS diag_events(id TEXT PRIMARY KEY,project_id TEXT REFERENCES projects(id),code TEXT NOT NULL,component TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,resolved_at TEXT) STRICT;
  CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(entity_id UNINDEXED,name,content);
- PRAGMA user_version=8; COMMIT;`);}
- close(){this.db.close();}
+ PRAGMA user_version=8;`);try{initializeExtendedSchema(this.db);this.db.exec('COMMIT');}catch(e){this.db.exec('ROLLBACK');throw e;}}
+ close(){try{this.db.close();}finally{this.lease?.release();}}
  batch(fn){const point=`nested_${this.depth++}`;const outer=this.depth===1;this.db.exec(outer?'BEGIN IMMEDIATE':`SAVEPOINT ${point}`);try{const result=fn(this);if(result?.then)fail('HERMIT_ASYNC_TRANSACTION','Transactions must be synchronous');this.db.exec(outer?'COMMIT':`RELEASE ${point}`);return result;}catch(e){this.db.exec(outer?'ROLLBACK':`ROLLBACK TO ${point}; RELEASE ${point}`);throw e;}finally{this.depth--;}}
  createProject({name,rootPath}) {required(name,'name');const path=canonical(rootPath);return this.batch(()=>{const existing=this.resolveProjectAlias({aliasType:'path',aliasValue:path});if(existing)return existing;const id=randomUUID();this.db.prepare('INSERT INTO projects VALUES(?,?,?,?)').run(id,name,path,now());this.db.prepare('INSERT INTO project_aliases VALUES(?,?,?)').run('path',path,id);return this.getProject(id);});}
  resolveProjectAlias({aliasType,aliasValue}){const row=this.db.prepare('SELECT project_id FROM project_aliases WHERE alias_type=? AND alias_value=?').get(aliasType,aliasValue);return row?this.getProject(row.project_id):null;}

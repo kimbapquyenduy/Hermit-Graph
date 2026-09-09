@@ -534,7 +534,7 @@
   <div class="header">
     <div class="title">Knowledge Graph</div>
     <div class="controls">
-      <input type="file" id="fileInput" accept=".jsonl,.json" style="display:none">
+      <input type="file" id="fileInput" accept=".json" style="display:none">
       <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Load File</button>
       <button class="btn btn-layout" id="layoutBtn" onclick="toggleLayout()" style="display:none" title="Toggle force layout">Layout</button>
       <button class="btn btn-layout" id="spreadBtn" onclick="spreadNodes()" style="display:none" title="Push nodes apart">Spread</button>
@@ -551,7 +551,7 @@
     <div id="sigma-container">
       <div class="empty-state" id="emptyState">
         <h2>No Data Loaded</h2>
-        <p>Click "Load File" and select a brain.jsonl file</p>
+        <p>Click "Load File" and select a Hermit knowledge JSON export</p>
       </div>
       <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
@@ -887,7 +887,14 @@
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
-        try { loadBrainData(ev.target.result); }
+        try {
+const snapshot=JSON.parse(ev.target.result);
+if(snapshot.format!=='hermit-knowledge'||snapshot.version!==1||!Array.isArray(snapshot.entities)||!Array.isArray(snapshot.relations))throw new Error('Unsupported knowledge export');
+const entities=snapshot.entities.filter(e=>e.lifecycle==='active');
+const ids=new Set(entities.map(e=>e.id));
+const rows=[...entities.map(e=>({...e,type:'entity',observations:e.observations.filter(o=>o.lifecycle==='active').map(o=>o.content)})),...snapshot.relations.filter(r=>r.lifecycle==='active'&&ids.has(r.fromEntityId)&&ids.has(r.toEntityId)).map(r=>({...r,type:'relation',from:r.fromEntityId,to:r.toEntityId}))];
+loadBrainData(rows.map(row=>JSON.stringify(row)).join('\n'));
+}
         catch (err) { alert('Parse error: ' + err.message); }
       };
       reader.readAsText(file);

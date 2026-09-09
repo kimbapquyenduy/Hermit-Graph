@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {reportCliFailure} from './lib/diagnostics/cli-failure.mjs';
 import { ModelManager } from './lib/v8-model.mjs';
 import { resolvePaths } from './lib/storage/paths.mjs';
 
@@ -25,5 +26,5 @@ try {
     const manager = new ModelManager({ dataDir: paths.dataDir });
     console.log(JSON.stringify(command === 'install' ? await manager.install() : manager.status(), null, 2));
   }
-} catch (error) { console.error(error.message); process.exitCode = 1; }
+} catch (error) { reportCliFailure(error,{component:'model'}); process.exitCode = 1; }
 finally { store?.close(); }

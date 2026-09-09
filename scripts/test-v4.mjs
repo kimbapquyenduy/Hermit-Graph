@@ -222,60 +222,16 @@ async function branchContextTests() {
 // ══════════════════════════════════════════════════════════════════════════
 
 async function sessionRecordTests() {
-  console.log('\n🗂  Session Record Tests');
-  const require_ = (await import('module')).createRequire(import.meta.url);
-  const sc = require_('../catalog/hooks/lib/session-core.cjs');
-  const dir = join(TMP, 'sessroot');
-  mkdirSync(dir, { recursive: true });
-
-  await test('session: start writes a per-session record with pid', () => {
-    const s = sc.startSession(dir, 'codex');
-    assert(s.sessionId.includes('codex'), 'id carries the agent');
-    assert(s.pid === process.pid, 'id carries the pid');
-    assert(existsSync(join(dir, '.hermit', 'sessions', `${s.sessionId}.json`)), 'record file written');
-  });
-
-  await test('session: index is append-only (no clobbering)', () => {
-    const before = readFileSync(join(dir, '.hermit', 'sessions', 'index.jsonl'), 'utf-8').trim().split('\n').length;
-    sc.startSession(dir, 'gemini');
-    const after = readFileSync(join(dir, '.hermit', 'sessions', 'index.jsonl'), 'utf-8').trim().split('\n').length;
-    assert(after > before, `index grew: ${before} → ${after}`);
-  });
-
-  await test('session: concurrent agents both keep their record', () => {
-    const all = sc.listSessions(dir);
-    const agents = new Set(all.map(r => r.agent));
-    assert(agents.has('codex') && agents.has('gemini'), `both retained: ${[...agents].join(',')}`);
-  });
-
-  await test('session: a dead session never masquerades as current', () => {
-    // Simulate a finished session from another process, newest by timestamp.
-    const stale = {
-      sessionId: '99991231-235959-ghost-999999',
-      startedAt: '9999-12-31T23:59:59.000Z',
-      cwd: dir, agent: 'ghost', pid: 999999,
-    };
-    writeFileSync(join(dir, '.hermit', 'sessions', `${stale.sessionId}.json`), JSON.stringify(stale), 'utf-8');
-    const current = sc.getSessionInfo(dir);
-    assert(current.pid === process.pid, `live session wins, got pid ${current.pid} (${current.agent})`);
-    assert(sc.isAlive(999999) === false, 'dead pid detected as dead');
-  });
-
-  await test('session: end closes only this process own session', () => {
-    const ended = sc.endSession(dir);
-    assert(ended && ended.pid === process.pid, 'ended our own session');
-    assert(ended.endedAt, 'endedAt recorded');
-  });
-
-  await test('session: prune drops records past retention', () => {
-    const old = {
-      sessionId: '20200101-000000-old-1', startedAt: '2020-01-01T00:00:00.000Z',
-      cwd: dir, agent: 'old', pid: 1, endedAt: '2020-01-01T01:00:00.000Z',
-    };
-    writeFileSync(join(dir, '.hermit', 'sessions', `${old.sessionId}.json`), JSON.stringify(old), 'utf-8');
-    assert(sc.pruneSessions(dir, 14) >= 1, 'old record pruned');
-    assert(!sc.listSessions(dir).some(r => r.sessionId === old.sessionId), 'pruned record gone');
-  });
+ const sc=(await import('node:module')).createRequire(import.meta.url)('../catalog/hooks/lib/session-core.cjs');
+ await withHookStore('sessions',async(store,projectId)=>{
+ const dir=process.env.HERMIT_USER_CWD;let first;
+ await test('session: missing stable ID degrades without writing',()=>{assert(sc.startSession(dir,'codex').degraded);assert(sc.listSessions(dir).length===0);});
+ await test('session: stable client identity persists in SQLite',()=>{first=sc.startSession(dir,'codex','upstream-one');assert(first.status==='OPEN');assert(!existsSync(join(dir,'.hermit','sessions')));});
+ await test('session: separate hook process reuses same session',()=>{assert(sc.startSession(dir,'codex','upstream-one').sessionId===first.sessionId);assert(sc.listSessions(dir).length===1);});
+ await test('session: agent identity prevents collisions',()=>{const other=sc.startSession(dir,'claude','upstream-one');assert(other.sessionId!==first.sessionId);assert(sc.listSessions(dir).length===2);});
+ await test('session: end only closes matching client identity',()=>{assert(sc.endSession(dir,'codex','upstream-one').status==='CLOSED');assert(sc.listSessions(dir).find(s=>s.agent==='claude').status==='OPEN');});
+ await test('session: expired stable sessions become abandoned',()=>{store.db.prepare("UPDATE runtime_sessions SET heartbeat_at=0 WHERE agent='claude'").run();sc.startSession(dir,'claude','upstream-two');assert(sc.listSessions(dir).some(s=>s.status==='ABANDONED'));});
+ });
 }
 
 // ══════════════════════════════════════════════════════════════════════════

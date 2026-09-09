@@ -1,252 +1,29 @@
 #!/usr/bin/env node
-/**
- * Hermit Graph CLI — single entry point for all graph operations.
- *
- * Usage: hermit <command> [args]
- *
- * Commands:
- *   skills           List, add, or remove AI agent skills
- *   setup            Full project setup (skills + commands + hooks)
- *   search <query>   Hybrid semantic + keyword search
- *   health           Run graph health checks
- *   index [--force]  Build/rebuild embedding index
- *   export           Export MCP DB to brain.jsonl
- *   stale            Stale observation report
- *   serve            Start MCP memory server
- *   view             Open dashboard viewer
- *   help             Show this help
- */
-
-import { resolve, dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-import { execSync, fork } from 'child_process';
-import { readFileSync } from 'fs';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, '..');
-const PKG_VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
-
-const [,, command, ...args] = process.argv;
-
-// ── Universal --help / --version detection ──
-// Check BEFORE routing to any subcommand so flags are never treated as positional args.
-// Also check `command` position — hermit --help and hermit health --help both work.
-const allArgv = process.argv.slice(2);
-const helpRequested = allArgv.includes('--help') || allArgv.includes('-h');
-const versionRequested = allArgv.includes('--version') || allArgv.includes('-v');
-
-const COMMANDS = {
- model: {desc:'Manage the optional local model',usage:'hermit model status|install|backfill',run:()=>runScript('semantic-cli.mjs',args)},
- doctor:{desc:'Read-only diagnostics',usage:'hermit doctor [--json]',run:()=>runScript('doctor.mjs',args)},
- backup:{desc:'Verified SQLite backup',usage:'hermit backup <fresh-destination>',run:()=>runScript('backup-brain.mjs',args)},
-  search: {
-    desc: 'Hybrid semantic + keyword search',
-    usage: 'hermit search <query>',
-    examples: [
-      'hermit search "payment gateway"',
-      'hermit search "auth bug 2026"',
-    ],
-    run: runSearch,
-  },
-  skills: {
-    desc: 'List, add, or remove AI agent skills',
-    usage: 'hermit skills [list|add|remove|info|installed]',
-    examples: [
-      'hermit skills',
-      'hermit skills add biz-guard',
-      'hermit skills add --all',
-    ],
-    run: runSkills,
-  },
-  setup: {
-    desc: 'Project setup — configures ALL agents by default (zero-config)',
-    usage: 'hermit setup [--agent <name|all>] [--mcp-only] [--only x,y] [--skip x,y]',
-    examples: ['hermit setup', 'hermit setup --agent claude'],
-    run: () => runScript('setup-project.mjs', args),
-  },
-  health: {
-    desc: 'Run graph health checks',
-    usage: 'hermit health',
-    examples: ['hermit health'],
-    run: () => runScript('brain-health.mjs',args),
-  },
-  index: {
-    desc: 'Build/rebuild embedding index',
-    usage: 'hermit index [--force]',
-    examples: ['hermit index', 'hermit index --force'],
-    run: () => runScript('build-embedding-index.mjs', args),
-  },
-  export: {
-    desc: 'Export SQLite brain.db to brain.jsonl',
-    usage: 'hermit export [--db <path>] [--to <path>] [--verbose]',
-    examples: ['hermit export', 'hermit export --to /tmp/backup.jsonl'],
-    run: () => runScript('export-sqlite-to-jsonl.mjs', args),
-  },
-  stale: {
-    desc: 'Stale observation report',
-    usage: 'hermit stale',
-    examples: ['hermit stale'],
-    run: () => runScript('stale-report.mjs'),
-  },
-  serve: {
-    desc: 'Start Hermit MCP server (unified)',
-    usage: 'hermit serve',
-    examples: ['hermit serve'],
-    run: () => runScript('hermit-mcp-server.mjs'),
-  },
-  migrate: {
-    desc: 'Migrate brain.jsonl from v3 to v4 format',
-    usage: 'hermit migrate [path] [--yes]',
-    examples: ['hermit migrate', 'hermit migrate /path/to/brain.jsonl --yes'],
-    run: () => runScript('migrate-v3-to-v4.mjs', args),
-  },
-  view: {
-    desc: 'Open dashboard viewer (--code for CodeGraph)',
-    usage: 'hermit view [--code] [path]',
-    examples: ['hermit view', 'hermit view --code'],
-    run: runView,
-  },
-  'check-edit': {
-    desc: 'Pre-edit impact check for source file(s)',
-    usage: 'hermit check-edit <file>... [--verbose] [--format=json] [--cwd=PATH]',
-    examples: ['hermit check-edit src/api/routes.ts'],
-    run: () => runScript('check-edit-cli.mjs', args),
-  },
-  help: {
-    desc: 'Show this help',
-    usage: 'hermit help',
-    examples: ['hermit help'],
-    run: showHelp,
-  },
-};
-
-// ── Help printer ──
-
-/**
- * Print help for a specific command or global help.
- * @param {string|null} cmdName
- */
-function printHelp(cmdName) {
-  if (cmdName && COMMANDS[cmdName]) {
-    const cmd = COMMANDS[cmdName];
-    console.log('');
-    console.log(`  hermit ${cmdName} — ${cmd.desc}`);
-    console.log('');
-    console.log(`  Usage: ${cmd.usage}`);
-    if (cmd.examples?.length) {
-      console.log('');
-      console.log('  Examples:');
-      for (const ex of cmd.examples) console.log(`    ${ex}`);
-    }
-    console.log('');
-  } else {
-    showHelp();
-  }
-}
-
-// ── Command runners ──
-
-async function runSkills() {
-  const { run } = await import('./skills-manager.mjs');
-  await run(args);
-}
-
-async function runSearch() {
- if(process.env.HERMIT_STORAGE !== 'legacy') {
- const {openRuntime}=await import('./lib/v8-cli-runtime.mjs');const r=openRuntime();
- try {const query=args.filter(a=>!a.startsWith('-')).join(' ');if(!query)throw new Error('Usage: hermit search <query>');
- const results=r.store.search(query,{...r.scope,topK:10});
- if(args.includes('--json'))console.log(JSON.stringify(results));else {console.log('Search mode: bm25');for(const e of results)console.log(e.score+'  '+e.name+' ('+e.entityType+') ['+e.id+']');if(!results.length)console.log('No results found.');}
- }finally{r.store.close();}return;
- }
-
-  const query = args.filter(a => !a.startsWith('-')).join(' ');
-  if (!query) {
-    console.error('Usage: hermit search <query>');
-    process.exit(1);
-  }
-  const { search, searchStatus } = await import('./lib/semantic-search.mjs');
-  const status = searchStatus();
-  const mode = status.vectorSearch ? 'hybrid (vector+keyword)' : 'keyword-only';
-  console.log(`Search mode: ${mode} | Entities: ${status.indexEntityCount}`);
-  console.log(`Query: "${query}"\n`);
-
-  const results = await search(query, { topK: 10 });
-  if (results.length === 0) {
-    console.log('No results found.');
-    return;
-  }
-  for (const r of results) {
-    const score = r.score.toFixed(3);
-    console.log(`  ${score}  ${r.name} (${r.entityType})`);
-  }
-  console.log(`\n${results.length} results`);
-}
-
-function runView() {return runScript('view-graph.mjs',args);}
-
-function runScript(name, extraArgs = []) {
-  const script = join(__dirname, name);
-  // Preserve user's original cwd via env — some scripts (check-edit) need to
-  // resolve against the caller's directory, not hermit-graph's install root.
-  const env = { ...process.env, HERMIT_USER_CWD: process.env.HERMIT_USER_CWD || process.cwd() };
-  const child = fork(script, extraArgs, { cwd: ROOT, stdio: 'inherit', env });
-  child.on('exit', (code) => process.exit(code || 0));
-}
-
-function showHelp() {
-  console.log('');
-  console.log(`  hermit — Hermit Graph CLI v${PKG_VERSION}`);
-  console.log('');
-  console.log('  Usage: hermit <command> [args]');
-  console.log('');
-  for (const [name, cmd] of Object.entries(COMMANDS)) {
-    console.log(`    ${name.padEnd(10)} ${cmd.desc}`);
-  }
-  console.log('');
-  console.log('  Examples:');
-  console.log('    hermit skills                          List available skills');
-  console.log('    hermit skills add biz-guard api-design  Install specific skills');
-  console.log('    hermit skills add --all                 Install everything');
-  console.log('    hermit search "payment integration"');
-  console.log('    hermit health');
-  console.log('    hermit index --force');
-  console.log('');
-}
-
-// ── Main ──
-
-// Handle --version / -v anywhere in argv
-if (versionRequested) {
-  console.log(`hermit-graph v${PKG_VERSION}`);
-  process.exit(0);
-}
-
-// Handle --help / -h with no real command → global help
-if (helpRequested && (!command || command === '--help' || command === '-h')) {
-  showHelp();
-  process.exit(0);
-}
-
-if (!command || !COMMANDS[command]) {
-  // Edge case: command IS the help flag (hermit --help handled above, but guard anyway)
-  if (!command || command.startsWith('-')) { showHelp(); process.exit(0); }
-  console.error(`Unknown command: ${command}\n`);
-  showHelp();
-  process.exit(1);
-}
-
-// Handle --help / -h for a specific command: print its help, never run
-if (helpRequested) {
-  printHelp(command);
-  process.exit(0);
-}
-
-try {
-  if(process.env.HERMIT_STORAGE && !['legacy','v8'].includes(process.env.HERMIT_STORAGE))throw new Error('HERMIT_STORAGE must be v8 or legacy');
-  if(process.env.HERMIT_STORAGE !== 'legacy' && ['index','export','stale','migrate','setup'].includes(command))throw new Error(command+' is currently legacy-only; set HERMIT_STORAGE=legacy explicitly. Use backup for a verified v8 snapshot.');
-  await COMMANDS[command].run();
-} catch (err) {
-  console.error(`Error: ${err.message}`);
-  process.exit(1);
+import {fork} from 'node:child_process';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {dirname,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=dirname(dirname(fileURLToPath(import.meta.url))),[command,...args]=process.argv.slice(2);
+const usage={setup:'setup [--agent auto|all|NAME] [--preview|--apply] [--project PATH]',uninstall:'uninstall [--agent NAME] [--preview|--apply]',serve:'serve',search:'search QUERY [--json] [--include-global]',model:'model status|install|backfill [--all]',doctor:'doctor [summary|errors|show|mark|verify|bundle|prune|promote]',status:'status',health:'health',backup:'backup create|list|verify|restore [DIRECTORY] [--apply --confirm-file FILE]',upgrade:'upgrade plan|apply|verify|rollback',reset:'reset SCOPE [--apply --confirm-file FILE]',maintenance:'maintenance status|recover',scan:'scan collect|preview|commit [RUN_ID]',review:'review list|accept|reject [ENTITY_ID]',archive:'archive ENTITY_ID',restore:'restore ENTITY_ID',export:'export [--out FILE] [--include-global|--all]',stale:'stale',view:'view [--snapshot|--no-open]',index:'index', 'check-edit':'check-edit FILE [--cwd PATH] [--format=json]',skills:'skills list|add|remove',help:'help'};
+function run(script,argv=args){const child=fork(join(root,'scripts',script),argv,{cwd:process.env.HERMIT_USER_CWD||process.cwd(),env:{...process.env,HERMIT_USER_CWD:process.env.HERMIT_USER_CWD||process.cwd()},stdio:'inherit'});child.on('error',()=>{process.exitCode=1;});child.on('exit',code=>{process.exitCode=code??1;});}
+if(args.includes('--help')||command==='--help'||!command||command==='help'){console.log('Hermit v8 — local SQLite memory\n'+(usage[command]&&command!=='help'?'hermit '+usage[command]:Object.values(usage).map(u=>'hermit '+u).join('\n')));}
+else if(command==='--version'||args.includes('--version'))console.log(JSON.parse(readFileSync(join(root,'package.json'),'utf8')).version);
+else if(!usage[command]){console.error('HERMIT_UNKNOWN_COMMAND');process.exitCode=1;}
+else if(process.env.HERMIT_STORAGE&&process.env.HERMIT_STORAGE!=='v8'){console.error('HERMIT_LEGACY_RUNTIME_REQUIRED: use the matching older release');process.exitCode=1;}
+else if(command==='serve')run('hermit-mcp-server.mjs');
+else if(command==='setup'||command==='uninstall')run('setup-v8.mjs',command==='uninstall'?['uninstall',...args]:args);
+else if(['upgrade','reset','maintenance'].includes(command))run('maintenance-cli.mjs',[command,...args]);
+else if(command==='backup')run(['create','list','verify','restore'].includes(args[0])?'maintenance-cli.mjs':'backup-brain.mjs',['create','list','verify','restore'].includes(args[0])?[command,...args]:args);
+else if(command==='model')run('semantic-cli.mjs');
+else if(command==='doctor'&&args.length&&args[0]!=='--json')run('diagnostics-cli.mjs');
+else if(command==='doctor'||command==='status')run('doctor.mjs');
+else if(command==='view')run('view-graph.mjs');
+else if(command==='health')run('brain-health.mjs');
+else if(command==='check-edit')run('check-edit-cli.mjs');
+else if(command==='skills')run('skills-manager.mjs');
+else if(command==='scan')run('scan-cli.mjs');
+else if(command==='index')run('code-index-cli.mjs');
+else if(['review','archive','restore','stale','export'].includes(command))run('memory-cli.mjs',[command,...args]);
+else if(command==='search'){
+ let runtime;try{const {openRuntime}=await import('./lib/v8-cli-runtime.mjs');runtime=openRuntime({readOnly:!['hybrid','vector'].includes(process.env.HERMIT_SEARCH_MODE)});const query=args.filter(a=>!a.startsWith('--')).join(' ');const {ModelManager}=await import('./lib/v8-model.mjs');const mode=process.env.HERMIT_SEARCH_MODE||'lexical';const result=await new ModelManager({store:runtime.store,dataDir:runtime.paths.dataRoot}).search(query,{...runtime.scope,mode:mode==='bm25'?'lexical':mode});if(args.includes('--json'))console.log(JSON.stringify(result.entities));else{for(const e of result.entities)console.log(`${e.name} (${e.entityType})`);if(result.degraded)console.log('Lexical fallback: '+result.reason);}}catch(error){console.error(error.code||'HERMIT_SEARCH_FAILED');process.exitCode=1;}finally{runtime?.store.close();}
 }

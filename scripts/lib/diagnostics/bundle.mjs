@@ -1,0 +1,3 @@
+import { writeFileSync } from 'node:fs';
+import { safeMetadata } from './redactor.mjs';
+export function diagnosticBundle(store,{samples=false,out,projectId=null}={}){const data={version:1,summary:store.summary({projectId}),fingerprints:store.list({limit:5000,projectId}).map(row=>({id:row.id,...safeMetadata(row),state:row.state,total:row.total,firstSeen:row.first_seen,lastSeen:row.last_seen,regressions:row.regressions}))};if(samples)data.occurrences=data.fingerprints.flatMap(row=>store.samples(row.id,{projectId}).map(s=>({id:s.id,fingerprintId:row.id,createdAt:s.created_at,durationMs:s.duration_ms})));if(out)writeFileSync(out,JSON.stringify(data,null,2),{flag:'wx',mode:0o600});return data;}

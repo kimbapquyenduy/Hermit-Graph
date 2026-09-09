@@ -1,6 +1,6 @@
 import test from 'node:test';
 import {createHash} from 'node:crypto';
-import {ModelManager,MODEL_ID,REQUIRED_ARTIFACTS} from '../scripts/lib/v8-model.mjs';
+import {ModelManager,MODEL_ID,MODEL_REVISION,REQUIRED_ARTIFACTS} from '../scripts/lib/v8-model.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,readdirSync,readFileSync,writeFileSync,existsSync,rmSync} from 'node:fs';
@@ -16,14 +16,14 @@ test('scoped CLI search, forked doctor, health, snapshot and backup',()=>{const 
 test('wrong schema is rejected without modifying existing database',()=>{
  const root=mkdtempSync(join(tmpdir(),'v8-cli-wrong-'));const dbPath=join(root,'brain.db');
  const db=new DatabaseSync(dbPath);db.exec("CREATE TABLE old_data(value TEXT); INSERT INTO old_data VALUES ('preserve'); PRAGMA user_version=7;");db.close();
- const before=readFileSync(dbPath);const r=run(root,root,['doctor']);assert.equal(r.status,1);assert.match(JSON.parse(r.stdout).error,/not v8/);assert.deepEqual(readFileSync(dbPath),before);
+ const before=readFileSync(dbPath);const r=run(root,root,['doctor']);assert.equal(r.status,1);assert.match(JSON.parse(r.stdout).error,/Incompatible schema/);assert.deepEqual(readFileSync(dbPath),before);
 });
 
 test('doctor detects installed model without creating vectors or loading inference',()=>{
  const root=mkdtempSync(join(tmpdir(),'v8-cli-model-'));const store=new BrainStore({dbPath:join(root,'brain.db')});store.close();
  const modelDir=join(root,'models',...MODEL_ID.split('/'));mkdirSync(join(modelDir,'onnx'),{recursive:true});const files={};
  for(const file of REQUIRED_ARTIFACTS){const value=file.endsWith('.json')?'{}':'test model bytes';writeFileSync(join(modelDir,file),value);files[file]=createHash('sha256').update(value).digest('hex');}
- writeFileSync(join(modelDir,'hermit-manifest.json'),JSON.stringify({version:1,model:MODEL_ID,dimension:384,files}));
+ writeFileSync(join(modelDir,'hermit-manifest.json'),JSON.stringify({version:1,model:MODEL_ID,revision:MODEL_REVISION,dimension:384,files}));
  const before=readFileSync(join(root,'brain.db'));const r=run(root,root,['doctor'],{HERMIT_SEARCH_MODE:'hybrid'});assert.equal(r.status,0,r.stderr);const report=JSON.parse(r.stdout);assert.equal(report.model.installed,true);assert.equal(report.semanticEnabled,true);assert.equal(report.effectiveMode,'hybrid');assert.equal(report.runtimeValidated,false);assert.deepEqual(readFileSync(join(root,'brain.db')),before);
 });
 
