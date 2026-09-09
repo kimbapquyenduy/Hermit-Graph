@@ -17,7 +17,18 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 
-import { SqliteWriter } from '../scripts/lib/memory/sqlite-writer.mjs';
+import { registerHooks } from 'node:module';
+// Exercise vector failure independently of any model installed on the host.
+const embeddingHook = registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier === '../embedding-service.mjs' && context.parentURL?.endsWith('/memory/sqlite-writer.mjs')) {
+      return { url: 'data:text/javascript,export async function embed(){return new Float32Array(384).fill(0.1)}', shortCircuit: true };
+    }
+    return next(specifier, context);
+  },
+});
+const { SqliteWriter } = await import('../scripts/lib/memory/sqlite-writer.mjs');
+embeddingHook.deregister();
 import { SqliteProvider } from '../scripts/lib/memory/sqlite-backend.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +157,7 @@ console.log('\nfailure injection: vec backend throws → SQLite still committed'
 await test('vec upsert throws → SQLite committed, no exception rethrown', async () => {
   const { writer, sqlite, dbPath } = makeSetup('vec-failure');
 
+  try {
   // Inject a failing vector backend
   let vecCallCount = 0;
   writer._vectorBackend = {
@@ -155,12 +167,6 @@ await test('vec upsert throws → SQLite committed, no exception rethrown', asyn
     },
   };
   writer._embedMode = 'eager';
-
-  // Import embed stub: replace so we get a vector without model load
-  writer._vectorBackend.upsert = async () => { throw new Error('injected vec failure'); };
-
-  // Override embed so it returns a dummy vec without loading model
-  const origEmbed = (await import('../scripts/lib/embedding-service.mjs')).embed;
 
   // Must not throw despite vec failure
   await writer.writeBoth({
@@ -175,11 +181,12 @@ await test('vec upsert throws → SQLite committed, no exception rethrown', asyn
   const count = countSqliteEntities(dbPath);
   assert(count === 1, `SQLite must have 1 entity after vec failure, got ${count}`);
 
+  assert(vecCallCount === 1, 'Failing vector backend must be called exactly once');
   // Stats must reflect the failure
   const stats = writer.getStats();
   assert(stats.vectorFailureCount === 1, `vectorFailureCount must be 1, got ${stats.vectorFailureCount}`);
   console.log(`    vectorFailureCount=${stats.vectorFailureCount}, SQLite committed=1`);
-  sqlite.close();
+  } finally { sqlite.close(); }
 });
 
 // ── T4: Relations only ────────────────────────────────────────────────────────
