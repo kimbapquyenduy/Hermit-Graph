@@ -134,6 +134,12 @@
     },
     "test/v8-diagnostics-crash.test.mjs": {
       "kind": "node-test"
+    },
+    "test/v8-diagnostic-identity.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-diagnostic-migration.test.mjs": {
+      "kind": "node-test"
     }
   }
 }

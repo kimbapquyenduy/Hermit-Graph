@@ -1,3 +1,4 @@
+import {CURRENT_SCHEMA_REVISION} from '../storage/schema-v8.mjs';
 import {mkdirSync,existsSync,realpathSync,lstatSync,writeFileSync,readFileSync,readdirSync,unlinkSync,rmdirSync,renameSync} from 'node:fs';
 import {resolve,dirname,join,basename} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
@@ -18,14 +19,14 @@ function dead(record){if(record.host!==hostname()||!Number.isInteger(record.pid)
 function identity(version){return {id:randomUUID(),pid:process.pid,host:hostname(),version:String(version),createdAt:new Date().toISOString()};}
 function read(file){try{return JSON.parse(readFileSync(file,'utf8'));}catch{return {};}}
 // Publishing the exclusive directory before scanning leases closes the admission race.
-export function acquireRuntimeLease(dbPath,{version='8.2'}={}){
+export function acquireRuntimeLease(dbPath,{version=`8.${CURRENT_SCHEMA_REVISION}`}={}){
  const p=paths(dbPath);mkdirSync(p.dir,{recursive:true});
  if(existsSync(p.lock))fail('HERMIT_MAINTENANCE_ACTIVE','Maintenance must finish before opening the brain');
  const record=identity(version),file=join(p.dir,`${record.id}.json`);writeFileSync(file,JSON.stringify(record),{flag:'wx'});
  if(existsSync(p.lock)){unlinkSync(file);fail('HERMIT_MAINTENANCE_ACTIVE','Maintenance acquired admission while runtime was starting');}
  let released=false;return {record,release(){if(!released){unlinkSync(file);released=true;}}};
 }
-export function acquireMaintenanceLock(dbPath,{version='8.2'}={}){
+export function acquireMaintenanceLock(dbPath,{version=`8.${CURRENT_SCHEMA_REVISION}`}={}){
  const p=paths(dbPath);mkdirSync(dirname(p.lock),{recursive:true});
  try{mkdirSync(p.lock);}catch(e){if(e.code==='EEXIST')fail('HERMIT_MAINTENANCE_ACTIVE','Another maintenance owner exists; inspect its owner record before recovery');throw e;}
  const record=identity(version);writeFileSync(join(p.lock,'owner.json'),JSON.stringify(record),{flag:'wx'});

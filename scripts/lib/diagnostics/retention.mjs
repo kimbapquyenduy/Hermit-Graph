@@ -6,6 +6,7 @@ export function pruneDiagnostics(store,{dryRun=false,now=Date.now(),occurrenceLi
  if(dryRun)return {apply:false,before,policy:{cutoff,occurrenceLimit,operationLimit,sessionLimit,fingerprintLimit,bucketLimit,transitionLimit}};
  return store.transaction(()=>{
   for(const [table,column,cap] of [['diag_occurrence','created_at',limit(occurrenceLimit,2000)],['diag_operation','created_at',limit(operationLimit,20000)]]){db.prepare(`DELETE FROM ${table} WHERE ${column}<?`).run(cutoff);db.prepare(`DELETE FROM ${table} WHERE rowid IN(SELECT rowid FROM ${table} ORDER BY ${column} DESC,rowid DESC LIMIT -1 OFFSET ?)`).run(cap);}
+  db.prepare("UPDATE diag_session SET state='ABANDONED' WHERE state='ACTIVE' AND heartbeat_at<?").run(now-30*60*1000);
   db.prepare("DELETE FROM diag_session WHERE state IN('CLOSED','ABANDONED') AND heartbeat_at<?").run(cutoff);
   db.prepare("DELETE FROM diag_session WHERE id IN(SELECT id FROM diag_session WHERE state IN('CLOSED','ABANDONED') ORDER BY heartbeat_at DESC LIMIT -1 OFFSET ?)").run(limit(sessionLimit,5000));
   // Compact bucket totals before removal so lifetime health totals survive age and row limits.
