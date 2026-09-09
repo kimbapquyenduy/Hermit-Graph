@@ -704,6 +704,12 @@ async function skillIndexTests() {
   const { buildSkillIndex, getSkillIndex, invalidateSkillIndex } = await import('./lib/skill-index.mjs');
   const { searchSkills } = await import('./lib/skill-search-module.mjs');
 
+  const previousCwd = process.cwd();
+  const projectRoot = join(TMP, 'skill-index-project');
+  mkdirSync(projectRoot, { recursive: true });
+  process.chdir(projectRoot);
+  invalidateSkillIndex();
+  try {
   await test('buildSkillIndex: returns Map with catalog skills', () => {
     const index = buildSkillIndex();
     assert(index instanceof Map, 'Should return a Map');
@@ -737,16 +743,16 @@ async function skillIndexTests() {
     invalidateSkillIndex(); // cleanup
   });
 
-  await test('searchSkills: finds payment-integration skill', () => {
+  await test('searchSkills: finds api-design catalog skill', () => {
     invalidateSkillIndex();
-    const results = searchSkills('payment integration');
+    const results = searchSkills('api design');
     assert(results.length > 0, 'Should find at least 1 result');
-    assert(results[0].name === 'payment-integration', `Expected payment-integration, got ${results[0].name}`);
+    assert(results[0].name === 'api-design', `Expected api-design, got ${results[0].name}`);
   });
 
   await test('searchSkills: scores are normalized 0-1', () => {
     invalidateSkillIndex();
-    const results = searchSkills('payment');
+    const results = searchSkills('api design');
     for (const r of results) {
       assert(r.score >= 0 && r.score <= 1, `Score ${r.score} out of range for ${r.name}`);
     }
@@ -770,8 +776,8 @@ async function skillIndexTests() {
   });
 
   await test('searchSkills: results have activationHint', () => {
-    const results = searchSkills('git');
-    assert(results.length > 0, 'Should find git-related skills');
+    const results = searchSkills('database migration');
+    assert(results.length > 0, 'Should find database migration skills');
     for (const r of results) {
       assert(typeof r.activationHint === 'string' && r.activationHint.includes('SKILL.md'),
         `Missing activationHint for ${r.name}`);
@@ -786,7 +792,10 @@ async function skillIndexTests() {
     }
   });
 
-  invalidateSkillIndex(); // final cleanup
+  } finally {
+    process.chdir(previousCwd);
+    invalidateSkillIndex();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
