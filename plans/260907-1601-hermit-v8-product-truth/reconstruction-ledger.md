@@ -94,3 +94,5 @@ Final RC evidence at source commit `4ce5355`:
 - Recorder-only benchmark: 500 samples, success p95 1.126 ms and error p95 2.017 ms; this is not a whole-request latency or competitor comparison.
 - Tarball SHA-1: `19d06967bb33625a79cf183d4b4f356929e268ea` (full integrity in outputs/v8-rc0-pack.json).
 - First npm publish attempt was rejected with 403 because the account has 2FA disabled. Registry still returns 404 for 8.0.0-rc.0 and latest remains 7.1.0. Publication is pending account authentication, not local acceptance work.
+
+Publication completed — 2026-09-09: after the user enabled 2FA and approved npm web authentication, the exact tested tarball was published as hermit-graph@8.0.0-rc.0 with tag next. Registry dist.integrity and dist.shasum match the local artifact; latest remains 7.1.0. Evidence: review-workspace outputs/v8-rc0-registry.json, v8-rc0-registry-tags.json and v8-rc0-release-verification.json. This supersedes the pending-authentication status above. No git push or real user-vault migration was performed.

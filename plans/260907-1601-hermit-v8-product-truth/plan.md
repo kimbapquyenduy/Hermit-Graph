@@ -12,7 +12,7 @@
 
 ## Document authority
 
-- **Status:** Windows RC acceptance completed at `4ce5355`, including CLI/hook correlation and boot/retention tests. The final 8.0.0-rc.0 preflight passed; npm publication is pending account 2FA. Broader platform/client qualification remains follow-up work documented in reconstruction-ledger.md.
+- **Status:** Windows RC acceptance completed at `4ce5355`, including CLI/hook correlation and boot/retention tests. The final 8.0.0-rc.0 preflight passed; npm publication completed: next=8.0.0-rc.0, latest=7.1.0, registry integrity verified. Broader platform/client qualification remains follow-up work documented in reconstruction-ledger.md.
 - **2026-09-09 release scope override (user approved):** complete CLI/hook correlation and boot/retention acceptance on Windows, then publish `8.0.0-rc.0` with npm tag `next`. macOS/Linux qualification is deferred and does not block this candidate. This does not authorize promoting `latest` or claiming every client/platform has been interactively tested.
 - **Decision date:** 2026-09-07.
 - **Primary user:** one local developer using multiple coding agents. Team cloud sync, RBAC, and hosted SaaS are not v8 goals.
