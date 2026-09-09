@@ -74,3 +74,15 @@ Fresh revision 3 verification:
 - That run includes 16 processes x 1000 failures with exactly 16000 retained and hard-kill recovery at seven writes plus the COMMIT boundaries.
 - Recorder-only microbenchmark passed at 500 samples: success p95 1.364 ms, failure p95 1.844 ms. This measures recorder writes, not complete MCP request latency or child-span overhead. Evidence: outputs/v8-revision3-benchmark.json.
 - Repacked current source and installed it into the isolated npm consumer fixture; all 22 tools and the resource passed again. No repository node_modules junction is used for this consumer check. Dependencies from the earlier clean installation were reused; this was a tarball update, not another clean dependency installation.
+
+## Windows release candidate scope — 2026-09-09
+
+User approved Windows-first qualification and npm `8.0.0-rc.0` on tag `next`; macOS/Linux is deferred. This overrides the earlier all-platform release blocker for this candidate only. Interactive testing in every client, competitor benchmarks and independent review remain follow-up work, not claims made by the RC.
+
+CLI dispatch now passes safe UUIDv7 trace/parent context to its child process, binds existing project scope without initializing storage and reports import/unhandled/exit failures. Hook bridges preserve child references and look up existing stable sessions; recall/capture adapters propagate available upstream IDs and disclose failures without blocking the client. Successful operations carry transient context, not persistent success trace rows. Read-only doctor failures explicitly disclose unavailable durable diagnostics without creating a missing vault.
+
+Capsule identity now equals the operation correlation ID when available, including expected aggregate-only failures. Imports can recover a known runtime session link. Unknown raw upstream IDs, arguments and transcripts are not retained. Already-correlated setup failures are not captured twice.
+
+Acceptance tests cover import/open/initialize/ready boot faults, background uncaught failure, incompatible-schema byte preservation, diagnostics-off and full-spool fallback; all diagnostic table insertion budgets, age pruning, protected incident histories, import tombstones, exact lifetime totals, bounded capsule bytes/count and sanitized quarantine. Limits bound diagnostic rows/payloads, not the entire shared knowledge database file or externally pinned WAL readers.
+
+Initial canonical Windows run passed 137 Node results, 237 legacy checks, 18 E2E, 30 authority files and a 223-file package smoke invoking 22 tools plus resource. Subsequent boot/correlation/setup checks passed 34 results after the background-failure and correlated-setup fixes. Final RC preflight and registry publication are recorded separately when completed.

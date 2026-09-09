@@ -25,6 +25,7 @@ function main() {
     if (!stdin) process.exit(0);
 
     const payload = JSON.parse(stdin);
+    require('./lib/sqlite-bridge.cjs').bindHookContext(payload, 'gemini-cli');
     const prompt = payload.prompt || '';
     if (prompt.length < 10) process.exit(0);
 
@@ -39,7 +40,7 @@ function main() {
       }));
     }
     process.exit(0);
-  } catch { process.exit(0); }
+  } catch (error) { require('./lib/sqlite-bridge.cjs').reportHookFailure(error); process.exit(0); }
 }
 
 main();

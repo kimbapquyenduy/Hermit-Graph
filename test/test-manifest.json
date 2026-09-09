@@ -140,6 +140,15 @@
     },
     "test/v8-diagnostic-migration.test.mjs": {
       "kind": "node-test"
+    },
+    "test/v8-process-correlation.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-boot-matrix.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/v8-retention-matrix.test.mjs": {
+      "kind": "node-test"
     }
   }
 }

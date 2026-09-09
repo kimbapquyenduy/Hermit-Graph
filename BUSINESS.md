@@ -17,6 +17,7 @@ Projects carry stable scope IDs. Knowledge entities have stable IDs, names, one 
 - Scan collection → source digest → preview → explicit commit. Reviewed observations cannot be archived by an automatic scan; changed sources invalidate the pending commit.
 - Code freshness → isolated build → atomic cache publication → static impact. Untracked changes and deletions count; failed parsing must not publish an incomplete graph.
 - Diagnostic capture → safe metadata → bounded ledger/capsule → verified incident promotion. No raw tool input/output or transcript enters this ledger. Promotion requires complete evidence and matching project scope.
+- CLI launcher → process context → hook bridge/session lookup → diagnostic reference. Success contexts are transient; read-only inspection must not create storage. Failed best-effort hooks remain non-blocking but disclose a safe correlation ID and degraded durability when necessary.
 - Maintenance lease → verified backup → replacement → validation/rollback. A live or unknown owner blocks mutation; age alone never proves a stale lease. Older binaries without leases must be closed explicitly.
 
 ## Required checks

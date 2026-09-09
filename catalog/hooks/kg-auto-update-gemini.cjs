@@ -24,6 +24,7 @@ function main() {
     if (!stdin) process.exit(0);
 
     const payload = JSON.parse(stdin);
+    require('./lib/sqlite-bridge.cjs').bindHookContext(payload, 'gemini-cli');
     const messages = payload.messages || payload.conversation || [];
     const assistantText = messages
       .filter(m => m.role === 'assistant' || m.role === 'model')
@@ -46,7 +47,7 @@ function main() {
     extractor.appendToBrain(newEntities, brainPath);
     process.stderr.write(`[hermit] kg-auto-update-gemini: ${newEntities.length} new entities\n`);
     process.exit(0);
-  } catch { process.exit(0); }
+  } catch (error) { require('./lib/sqlite-bridge.cjs').reportHookFailure(error); process.exit(0); }
 }
 
 main();

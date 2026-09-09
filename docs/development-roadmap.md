@@ -4,4 +4,4 @@ The active plan is plans/260907-1601-hermit-v8-product-truth/plan.md. Its recons
 
 Implemented areas include scoped SQLite storage, lifecycle, lexical search, offline model fallback, hook/scanner cutover, setup/session services, staged scan commit, current-source code indexing, diagnostics and verified maintenance.
 
-Release remains gated on canonical/package checks, full export/restore evidence, OS/client matrix, privacy/concurrency/crash evidence, measured performance and competitive evaluation, documentation agreement and independent final review. Local subset results are not release sign-off.
+The user approved a Windows-first 8.0.0-rc.0 release on npm tag `next`. Its gates are canonical Windows tests, packaged-consumer smoke, export/restore evidence, CLI/hook correlation, boot/retention/privacy/concurrency/crash checks and documentation agreement. macOS/Linux qualification is deferred. Interactive testing inside every client, competitor evaluations and independent review remain follow-up work; this candidate makes no platform-wide or superiority claim.
