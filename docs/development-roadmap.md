@@ -1,6 +1,6 @@
 # Development roadmap
 
-The active plan is plans/260907-1601-hermit-v8-product-truth/plan.md. Its reconstruction-ledger.md records evidence against the D: checkout; deleted C: worktree reports are historical.
+Development planning documents are maintained outside this repository.
 
 Implemented areas include scoped SQLite storage, lifecycle, lexical search, offline model fallback, hook/scanner cutover, setup/session services, staged scan commit, current-source code indexing, diagnostics and verified maintenance.
 

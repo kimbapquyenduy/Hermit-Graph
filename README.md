@@ -66,4 +66,4 @@ Restore, upgrade and reset use exclusive maintenance and verified backups. Mutat
 
 `HERMIT_DATA_DIR` selects an absolute root. Defaults: LocalAppData/HermitGraph on Windows, Library/Application Support/HermitGraph on macOS, XDG data home/hermit-graph on Linux. `HERMIT_DB_PATH` explicitly overrides the absolute database path.
 
-Run `npm test` for functional, E2E, documentation and package checks. Historical machine-dependent thresholds run separately with `npm run bench:legacy`; `npm run bench:v8` measures the v8 diagnostics budget. Functional test success does not imply a performance benchmark passed. See [the reconstruction ledger](plans/260907-1601-hermit-v8-product-truth/reconstruction-ledger.md) for reproduced evidence and outstanding gates. Historical documents are not proof of v8 completion.
+Run `npm test` for functional, E2E, documentation and package checks. Historical machine-dependent thresholds run separately with `npm run bench:legacy`; `npm run bench:v8` measures the v8 diagnostics budget. Functional test success does not imply a performance benchmark passed. Historical documents are not proof of v8 completion.
