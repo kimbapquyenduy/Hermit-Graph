@@ -60,3 +60,17 @@ Still not a Phase 9/release sign-off:
 - Competitor evaluations are NOT_TESTED; no universal performance or superiority claim is made.
 - No independent final reviewer sign-off: delegated reviewers hit their account usage limit. Parent verification is not represented as an independent review.
 - No push, publish, real user-vault migration/reset or model-weight download was performed.
+
+## Diagnostic identity and correlation — 2026-09-09
+
+This slice supersedes the minimal fingerprint/session implementation limitation above. Schema 8 revision 3 adds normalized cause signatures, bounded package-relative frames, operation names, diagnostic session references and imported capsule references. A per-vault HMAC key stays out of diagnostic bundles; plaintext error messages are not stored. Explicit revision 2-to-3 upgrade preserves knowledge and aggregate totals; normal runtime refuses the older revision without rewriting it.
+
+MCP memory, scan and code operations propagate child context and record one failure after the primary transaction unwinds. Failure envelopes expose a queryable diagnostic reference; capsule fallback preserves correlation through import. Lookup and sample retrieval both resolve correlation IDs. Successful child spans are context-only, not persistent trace rows.
+
+Scope still open: full CLI/hook success-span correlation, complete boot-stage capture and per-table age/byte acceptance coverage. Existing CLI/hook failures have safe capsule correlation. This is not a claim that every planned diagnostics acceptance case is complete. Cross-platform/client validation and independent release review remain pending as listed above.
+
+Fresh revision 3 verification:
+- Canonical npm test passed: 237 legacy checks, 125 Node test results, 18 E2E, 30-file authority check, documentation/entrypoint check, 222-file package scan and all 22 MCP tools plus resource. Evidence: outputs/v8-revision3-canonical.log in the review workspace.
+- That run includes 16 processes x 1000 failures with exactly 16000 retained and hard-kill recovery at seven writes plus the COMMIT boundaries.
+- Recorder-only microbenchmark passed at 500 samples: success p95 1.364 ms, failure p95 1.844 ms. This measures recorder writes, not complete MCP request latency or child-span overhead. Evidence: outputs/v8-revision3-benchmark.json.
+- Repacked current source and installed it into the isolated npm consumer fixture; all 22 tools and the resource passed again. No repository node_modules junction is used for this consumer check. Dependencies from the earlier clean installation were reused; this was a tarball update, not another clean dependency installation.

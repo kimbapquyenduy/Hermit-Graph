@@ -44,7 +44,7 @@ Collection stores a preview without writing knowledge. Commit rechecks source ha
 ```sh
 hermit doctor
 hermit doctor errors
-hermit doctor show FINGERPRINT_ID
+hermit doctor show CORRELATION_OR_FINGERPRINT_ID
 hermit doctor mark FINGERPRINT_ID --state investigating
 hermit doctor bundle --preview
 hermit doctor prune --dry-run

@@ -1,3 +1,4 @@
+import {traceService} from './diagnostics/operation-span.mjs';
 import {ScanService} from './scan/scan-service.mjs';
 import {z} from 'zod';
 import {ModelManager} from './v8-model.mjs';
@@ -6,7 +7,7 @@ export function registerV8Capabilities(server,service,paths){
 
  const model=new ModelManager({store:service.store,dataDir:paths.dataRoot});
  const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
- const scanner=new ScanService({store:service.store});
+ const scanner=traceService(new ScanService({store:service.store}),[['collect','scan-collect','scan'],['preview','scan-preview','scan'],['commit','scan-commit','scan']]);
  server.tool('hermit_deep_scan','Collect a deterministic scan preview. Commit an inspected run explicitly; inferred knowledge remains candidate.',{cwd:z.string().optional(),action:z.enum(['collect','preview','commit']).optional(),runId:z.string().optional(),force:z.boolean().optional()},async a=>{
   if(!a.action||a.action==='collect'){const root=a.cwd||service.sessionRootPath;if(!root)throw Object.assign(new Error('Session required'),{code:'HERMIT_SESSION_REQUIRED'});return result(scanner.collect(root));}
   if(!a.runId)throw Object.assign(new Error('Run required'),{code:'HERMIT_VALIDATION'});

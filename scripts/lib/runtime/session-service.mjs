@@ -1,4 +1,5 @@
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash} from 'node:crypto';
+import {uuidV7 as randomUUID} from '../diagnostics/uuid-v7.mjs';
 export const SESSION_SCHEMA_SQL=`CREATE TABLE IF NOT EXISTS runtime_sessions(
  id TEXT PRIMARY KEY, project_id TEXT, agent TEXT NOT NULL, upstream_hash TEXT,
  kind TEXT NOT NULL CHECK(kind IN ('stable','process')), status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSED','ABANDONED')),

@@ -1,3 +1,4 @@
+import {withOperation} from './diagnostics/operation-span.mjs';
 import {createHash} from 'node:crypto';
 import {realpathSync} from 'node:fs';
 import {z} from 'zod';
@@ -11,7 +12,7 @@ export function registerV8CodeTools(server,service,paths){
  const output=value=>({content:[{type:'text',text:JSON.stringify(value)}]});
  const cwd=a=>a.cwd||service.sessionRootPath;
  const cache=root=>resolveCodeCache(root,paths.dataRoot);
- const run=(name,description,schema,fn)=>server.tool(name,description,schema,async a=>{const root=cwd(a);if(!root)return {...output({code:'HERMIT_SESSION_REQUIRED'}),isError:true};const data=cache(root);await ensureFreshCodeIndex(root,data,{force:name==='hermit_index',excludePaths:[paths.dataRoot]});return output(await fn(a,root,data));});
+ const run=(name,description,schema,fn)=>server.tool(name,description,schema,async a=>{const root=cwd(a);if(!root)return {...output({code:'HERMIT_SESSION_REQUIRED'}),isError:true};const data=cache(root);await withOperation('code-index','code-index',()=>ensureFreshCodeIndex(root,data,{force:name==='hermit_index',excludePaths:[paths.dataRoot]}));return output(await withOperation(name,'code-index',()=>fn(a,root,data)));});
  run('hermit_query','Search current working-tree code by name/text; no model required.',{query:z.string(),cwd:z.string().optional()},(a,r,d)=>({symbols:readCodeGraph(d).searchSymbols(a.query).slice(0,20),evidence:'static; dynamic dispatch may be unknown'}));
  run('hermit_context','Read symbol callers and callees from a fresh working-tree snapshot.',{name:z.string(),cwd:z.string().optional()},(a,r,d)=>symbolContext(readCodeGraph(d),a.name));
  run('hermit_impact','Compute fresh static impact and scoped SQLite business references. Dynamic edges remain unknown.',{target:z.string(),direction:z.enum(['upstream','downstream','both']).optional(),cwd:z.string().optional(),verbose:z.boolean().optional()},(a,root,d)=>{

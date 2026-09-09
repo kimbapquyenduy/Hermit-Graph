@@ -1125,3 +1125,5 @@ Until then, the correct product status is **architecture remediation in progress
 Original C: implementation was lost before any v8 commit. Historical review/test statements are not evidence for this checkout. See [reconstruction-ledger.md](reconstruction-ledger.md) for reproduced results and remaining gates. Do not advance phase gates solely on the reconstructed subset tests.
 
 Hook/scanner SQLite cutover is now implemented and verified: 237 suite checks + 41 Node tests pass, targeted authority verifier covers 29 files. See reconstruction ledger for scope and remaining release gates.
+
+2026-09-09 checkpoint: schema 8 revision 3 implements normalized diagnostic cause identity, MCP session/child correlation and capsule reference lookup. Current canonical validation passes 237 legacy checks, 125 Node test results, 18 E2E and 30 authority files, with a fresh 22-tool packaged-consumer smoke. These results supersede the earlier subset counts. Remaining diagnostics acceptance coverage and external release gates are explicitly listed in the reconstruction ledger; the overall plan remains in progress.
