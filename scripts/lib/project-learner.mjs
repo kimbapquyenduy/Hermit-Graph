@@ -179,7 +179,7 @@ export function scanProject(projectRoot) {
 
 // ── Entity builder ──
 
-function buildEntities(info) {
+export function buildEntities(info) {
   const projectName = toPascalCase(info.name);
   const date = todayISO();
   const techObs = [];

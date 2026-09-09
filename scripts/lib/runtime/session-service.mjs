@@ -1,0 +1,20 @@
+import {createHash,randomUUID} from 'node:crypto';
+export const SESSION_SCHEMA_SQL=`CREATE TABLE IF NOT EXISTS runtime_sessions(
+ id TEXT PRIMARY KEY, project_id TEXT, agent TEXT NOT NULL, upstream_hash TEXT,
+ kind TEXT NOT NULL CHECK(kind IN ('stable','process')), status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSED','ABANDONED')),
+ started_at INTEGER NOT NULL, heartbeat_at INTEGER NOT NULL, ended_at INTEGER,
+ UNIQUE(project_id,agent,upstream_hash)
+); CREATE INDEX IF NOT EXISTS runtime_sessions_scope ON runtime_sessions(project_id,status);`;
+const agents=new Set(['claude','cursor','gemini-cli','windsurf','cline','codex','opencode','mcp']);
+const digest=value=>createHash('sha256').update(value).digest('hex');
+const degraded=()=>({degraded:true,sessionLifecycle:'degraded',code:'HERMIT_STABLE_SESSION_REQUIRED',sessionId:null});
+const map=r=>r?{sessionId:r.id,projectId:r.project_id,agent:r.agent,kind:r.kind,status:r.status,startedAt:r.started_at,heartbeatAt:r.heartbeat_at,endedAt:r.ended_at,degraded:r.kind==='process',sessionLifecycle:r.kind==='process'?'degraded':'stable'}:null;
+export class SessionService{
+ constructor({store,clock=Date.now,timeoutMs=30*60*1000}){this.store=store;this.clock=clock;this.timeoutMs=Math.max(1000,timeoutMs);this.processSession=null;}
+ identity({projectId,agent,upstreamSessionId,sessionIdKind="stable"}){if(sessionIdKind!=="stable")return null;if(!agents.has(agent)||typeof projectId!=='string'||!projectId)throw new Error('HERMIT_SESSION_INPUT');if(typeof upstreamSessionId!=='string'||!upstreamSessionId.trim())return null;if(upstreamSessionId.length>4096)throw new Error('HERMIT_SESSION_INPUT');return {projectId,agent,key:digest(upstreamSessionId)};}
+ start(input){const x=this.identity(input);if(!x)return degraded();return this.store.batch(()=>{const now=this.clock();this.store.db.prepare("UPDATE runtime_sessions SET status='ABANDONED',ended_at=? WHERE status='OPEN' AND kind='stable' AND heartbeat_at<? AND project_id=? AND agent=?").run(now,now-this.timeoutMs,x.projectId,x.agent);let row=this.store.db.prepare('SELECT * FROM runtime_sessions WHERE project_id=? AND agent=? AND upstream_hash=?').get(x.projectId,x.agent,x.key);if(!row){const id=randomUUID();this.store.db.prepare("INSERT INTO runtime_sessions VALUES(?,?,?,?,?,'OPEN',?,?,NULL)").run(id,x.projectId,x.agent,x.key,'stable',now,now);row=this.store.db.prepare('SELECT * FROM runtime_sessions WHERE id=?').get(id);}else if(row.status==='OPEN'){this.store.db.prepare('UPDATE runtime_sessions SET heartbeat_at=? WHERE id=?').run(now,row.id);row.heartbeat_at=now;}return map(row);});}
+ end(input){const x=this.identity(input);if(!x)return degraded();return this.store.batch(()=>{const now=this.clock();this.store.db.prepare("UPDATE runtime_sessions SET status='CLOSED',ended_at=?,heartbeat_at=? WHERE project_id=? AND agent=? AND upstream_hash=? AND status='OPEN'").run(now,now,x.projectId,x.agent,x.key);return map(this.store.db.prepare('SELECT * FROM runtime_sessions WHERE project_id=? AND agent=? AND upstream_hash=?').get(x.projectId,x.agent,x.key));});}
+ list({projectId}){return this.store.db.prepare('SELECT * FROM runtime_sessions WHERE project_id IS ? ORDER BY started_at,id').all(projectId).map(map);}
+ startProcess({projectId=null}={}){if(this.processSession)return map(this.store.db.prepare('SELECT * FROM runtime_sessions WHERE id=?').get(this.processSession));const id=randomUUID(),now=this.clock();this.store.db.prepare("INSERT INTO runtime_sessions VALUES(?,?,?,NULL,'process','OPEN',?,?,NULL)").run(id,projectId,'mcp',now,now);this.processSession=id;return map(this.store.db.prepare('SELECT * FROM runtime_sessions WHERE id=?').get(id));}
+ closeProcess(){if(!this.processSession)return null;const now=this.clock();this.store.db.prepare("UPDATE runtime_sessions SET status='CLOSED',ended_at=?,heartbeat_at=? WHERE id=? AND status='OPEN'").run(now,now,this.processSession);return map(this.store.db.prepare('SELECT * FROM runtime_sessions WHERE id=?').get(this.processSession));}
+}

@@ -13,6 +13,11 @@ Projects carry stable scope IDs. Knowledge entities have stable IDs, names, one 
 - Path/project resolution → every adapter. Server working directory is not project evidence. Existing incompatible databases must be rejected without migration or mutation.
 - Model installation → validated local artifacts → optional embedding runtime. Only explicit installation downloads. Missing/invalid cache degrades to lexical search.
 - Backup → fresh destination → integrity validation. No overwrite or live data migration during reconstruction.
+- Setup → owned configuration manifest → isolated MCP smoke → rollback. Uninstall removes owned integration edits and preserves unrelated settings and knowledge. Unowned data roots are never adopted silently.
+- Scan collection → source digest → preview → explicit commit. Reviewed observations cannot be archived by an automatic scan; changed sources invalidate the pending commit.
+- Code freshness → isolated build → atomic cache publication → static impact. Untracked changes and deletions count; failed parsing must not publish an incomplete graph.
+- Diagnostic capture → safe metadata → bounded ledger/capsule → verified incident promotion. No raw tool input/output or transcript enters this ledger. Promotion requires complete evidence and matching project scope.
+- Maintenance lease → verified backup → replacement → validation/rollback. A live or unknown owner blocks mutation; age alone never proves a stale lease. Older binaries without leases must be closed explicitly.
 
 ## Required checks
 

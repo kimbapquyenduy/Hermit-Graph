@@ -21,7 +21,8 @@ test('v8 boot and code query never resolve legacy embeddings or Transformers', (
       const tools = new Map();
       const server = {tool(name,description,schema,...rest){tools.set(name,{schema,handler:rest.at(-1)});}};
       const store = {getProject:()=>({rootPath:root}),search:()=>[]};
-      registerV8Capabilities(server,{store,projectId:'p'},{dataRoot:root});
+      writeFileSync(join(root,'auth.js'),'export function authenticate() {}');
+      registerV8Capabilities(server,{store,projectId:'p',sessionRootPath:root},{dataRoot:root});
       const result = await tools.get('hermit_query').handler({query:'authenticate'});
       assert.equal(result.isError,undefined,JSON.stringify(result));
       assert.match(result.content[0].text,/authenticate/);

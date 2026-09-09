@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,6 +10,7 @@ function fixture(t) {
   const dataDir=mkdtempSync(join(tmpdir(),'hermit-model-'));
   const db=new DatabaseSync(':memory:');
   db.exec('CREATE TABLE entities(id TEXT PRIMARY KEY)');
+  db.exec("CREATE TABLE IF NOT EXISTS semantic_vectors(entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,content_hash TEXT NOT NULL,model TEXT NOT NULL,dimension INTEGER NOT NULL,vector BLOB NOT NULL)");
   const entities=[{id:'a',name:'alpha',entityType:'pattern-code',observations:[{content:'first',lifecycle:'active'}]}];
   db.prepare('INSERT INTO entities VALUES (?)').run('a');
   const calls={load:0,install:0,embed:0};
@@ -70,3 +71,7 @@ test('all-project backfill visits each project and global exactly once',async t=
   assert.deepEqual(scopes.map(s=>s.projectId),[null,'p1','p2']);
   assert.ok(scopes.every(s=>s.includeGlobal===false&&s.lifecycles[0]==='active'));
 });
+
+test('failed staged install preserves prior files; valid cache is not downloaded again',async t=>{const {manager,calls}=fixture(t);await manager.install();await manager.install();assert.equal(calls.install,1);const path=join(manager.modelDir,'config.json');writeFileSync(path,'old invalid cache');const before=readFileSync(path);manager.engine.install=async({modelDir})=>{writeFileSync(join(modelDir,'config.json'),'partial');throw Error('interrupted installer');};await assert.rejects(manager.install(),/interrupted installer/);assert.deepEqual(readFileSync(path),before);assert.equal(manager.status().installed,false);});
+
+test('vectors from an unpinned model revision are rebuilt',async t=>{const {manager,db}=fixture(t);await manager.install();await manager.backfill();db.prepare("UPDATE semantic_vectors SET model='Xenova/all-MiniLM-L6-v2'").run();assert.equal((await manager.backfill()).updated,1);});

@@ -4,6 +4,14 @@ All notable changes to Hermit Graph are documented here. Format follows [Keep a 
 
 ---
 
+## [8.0.0-dev.0] — 2026-09-09 (unreleased reconstruction)
+
+- SQLite-only public knowledge path, scoped IDs/lifecycle, current-source indexing and preview/commit scans.
+- Owned setup/uninstall, stable sessions, verified maintenance/backup/restore/reset, metadata diagnostics and crash capsules.
+- Read-only bundled viewer, versioned export, explicit pinned model installation and offline fallback.
+- Canonical classified test runner, real MCP E2E, package/content smoke and Node 24 CI matrix definition.
+- Development checkpoint only. Cross-platform/client runs, complete diagnostics acceptance and independent final review are not signed off. See the reconstruction ledger.
+
 ## [7.1.0] — 2026-05-28
 
 ### Added — Token Diet + Framework Resolvers + Multi-Worker Indexer

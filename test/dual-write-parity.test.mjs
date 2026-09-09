@@ -271,26 +271,8 @@ await test('1000-entity dual-write latency vs JSONL-only baseline', async () => 
   const sqliteEntities = readSqliteEntities(dbPath);
   assert(sqliteEntities.length === N, `SQLite must have ${N} entities after latency bench, got ${sqliteEntities.length}`);
 
-  // Append to baseline-v6.7.json (writeFileSync already imported at top)
-  const baselineFile = join(__dirname, '..', 'test', 'baseline-v6.7.json');
-  try {
-    const { writeFileSync: wfs } = await import('fs');
-    const data = JSON.parse(readFileSync(baselineFile, 'utf8'));
-    data.phase01b = {
-      date: new Date().toISOString().slice(0, 10),
-      jsonlOnlyMs: baselineMs,
-      dualWriteMs: dualMs,
-      overheadPct: parseFloat(overheadPct),
-      throughputJsonlPerSec: baselineThroughput,
-      throughputDualPerSec: dualThroughput,
-      entities: N,
-      note: 'Phase 01b dual-write latency benchmark',
-    };
-    wfs(baselineFile, JSON.stringify(data, null, 2) + '\n');
-    console.log(`    Baseline updated: ${baselineFile}`);
-  } catch (e) {
-    console.log(`    Warning: could not update baseline file: ${e.message}`);
-  }
+  // Measurements are printed above; test runs never rewrite checked-in baselines.
+
 });
 
 // ── Teardown ──────────────────────────────────────────────────────────────────

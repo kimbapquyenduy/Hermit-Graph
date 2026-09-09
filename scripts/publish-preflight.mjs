@@ -10,7 +10,7 @@
  * 5. E2E tests pass (test-e2e-code-intel.mjs)
  * 6. No secrets in package files
  * 7. npm pack dry-run OK
- * 8. Node >= 20
+ * 8. Node >= 24
  *
  * Wired as prepublishOnly in package.json.
  * Exit 0 = all clear, Exit 1 = blocked.
@@ -91,38 +91,8 @@ check('README "What\'s New" matches version', () => {
   }
 });
 
-// 4. Unit tests
-check('Unit tests pass', () => {
-  const testFile = join(__dirname, 'test-v4.mjs');
-  if (!existsSync(testFile)) throw new Error('test-v4.mjs not found');
-  const output = execFileSync(process.execPath, [testFile], {
-    cwd: ROOT, encoding: 'utf-8', timeout: 120_000,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-  // Extract results line
-  const match = output.match(/(\d+) passed, (\d+) failed/);
-  if (!match) throw new Error('Could not parse test output');
-  const [, p, f] = match;
-  if (parseInt(f) > 0) throw new Error(`${f} test(s) failed`);
-  return `${p} passed`;
-});
-
-// 5. E2E tests
-check('E2E tests pass', () => {
-  const testFile = join(__dirname, 'test-e2e-code-intel.mjs');
-  if (!existsSync(testFile)) return 'skip';
-  const output = execFileSync(process.execPath, [testFile], {
-    cwd: ROOT, encoding: 'utf-8', timeout: 120_000,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-  const match = output.match(/(\d+) passed/);
-  if (!match) throw new Error('Could not parse e2e test output');
-  if (output.includes('failed')) {
-    const fMatch = output.match(/(\d+) failed/);
-    if (fMatch && parseInt(fMatch[1]) > 0) throw new Error(`${fMatch[1]} e2e test(s) failed`);
-  }
-  return `${match[1]} passed`;
-});
+// Canonical runner includes Node, E2E, authority and package checks.
+check('Canonical validation passes',()=>{execFileSync(process.execPath,[join(__dirname,'test-runner.mjs')],{cwd:ROOT,stdio:'inherit',timeout:600000});return 'complete';});
 
 // 6. No secrets in package files
 check('No secrets in package files', () => {
@@ -156,9 +126,9 @@ check('npm pack dry-run OK', () => {
 });
 
 // 8. Node engine
-check('Node >= 20', () => {
+check('Node >= 24', () => {
   const major = parseInt(process.version.slice(1));
-  if (major < 20) throw new Error(`Node ${process.version} < 20. Upgrade to Node 20+.`);
+  if (major < 24) throw new Error(`Node ${process.version} < 24. Upgrade to Node 24+.`);
   return process.version;
 });
 

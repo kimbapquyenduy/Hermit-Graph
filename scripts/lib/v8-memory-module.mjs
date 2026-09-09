@@ -2,9 +2,9 @@ import {z} from 'zod';
 const output=value=>({content:[{type:'text',text:JSON.stringify(value)}]});
 /** Register v8 memory tools against one session-scoped service. */
 export function registerV8Memory(server,service){
- const tool=(name,description,schema,fn)=>server.tool(name,description,schema,async args=>{try{return output(await fn(args));}catch(error){const code=/^HERMIT_[A-Z_]+$/.test(error.code||'')?error.code:'HERMIT_ERROR';let diagnosticId;try{diagnosticId=service.store.recordDiagnostic({projectId:service.projectId??null,code,component:'memory'}).id;}catch{}return {...output({code,diagnosticId,message:'Memory operation failed; inspect scoped diagnostics.'}),isError:true};}});
+ const tool=(name,description,schema,fn)=>server.tool(name,description,schema,async args=>output(await fn(args)));
  tool('hermit_session_start','Select the current project and recall context.',{cwd:z.string(),query:z.string().optional()},({cwd,query})=>({project:service.startSession(cwd),entities:query?service.search(query):service.readGraph().entities}));
- tool('hermit_search_nodes','Search active memory in the current project and global scope.',{query:z.string(),includeGlobal:z.boolean().optional(),includeArchived:z.boolean().optional()},a=>service.search(a.query,a));
+ tool('hermit_search_nodes','Search active project memory; global and archived scopes require explicit inclusion.',{query:z.string(),includeGlobal:z.boolean().optional(),includeArchived:z.boolean().optional()},a=>service.search(a.query,a));
  tool('hermit_open_nodes','Read entities by stable ID or name within current scope.',{names:z.array(z.string()),includeGlobal:z.boolean().optional(),includeArchived:z.boolean().optional()},a=>service.openNodes(a.names,a));
  tool('hermit_read_graph','Read current scoped graph.',{includeGlobal:z.boolean().optional()},a=>service.readGraph(a));
  tool('hermit_create_entities','Create or extend entities in the current project.',{entities:z.array(z.object({name:z.string(),entityType:z.string(),observations:z.array(z.string()),lifecycle:z.enum(['active','candidate']).optional()}))},a=>service.createEntities(a.entities));

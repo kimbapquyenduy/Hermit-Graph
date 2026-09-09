@@ -137,7 +137,7 @@ function sleep(ms) {
   try {
     const bus = new TraceEmitter({ ringSize: 100, sinkPath: path });
     // Give the stream time to open
-    await sleep(50);
+    await new Promise((resolve,reject)=>{bus._sink.once('ready',resolve);bus._sink.once('error',reject);});
     bus.emit('tool:call', { tool: 'hermit_search_nodes', args: { query: 'test' } });
     bus.emit('tool:result', { tool: 'hermit_search_nodes', durationMs: 5, success: true });
     await bus.close();

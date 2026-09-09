@@ -12,7 +12,7 @@
 
 ## Document authority
 
-- **Status:** canonical remediation plan; implementation has not started.
+- **Status:** active reconstruction on D:; substantial implementation and local verification completed through phases 5–8. Phase exits and release remain subject to the acceptance gaps in reconstruction-ledger.md.
 - **Decision date:** 2026-09-07.
 - **Primary user:** one local developer using multiple coding agents. Team cloud sync, RBAC, and hosted SaaS are not v8 goals.
 - **Evidence baseline:** `release/v7.1.0` plus the uncommitted audit fixes present on 2026-09-07. Re-check line numbers before implementation because the worktree is dirty.

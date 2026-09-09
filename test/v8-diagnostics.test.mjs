@@ -1,0 +1,14 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { BrainStore } from '../scripts/lib/storage/brain-store.mjs';
+import { DiagnosticsStore, DIAGNOSTICS_SCHEMA_SQL } from '../scripts/lib/diagnostics/store.mjs';
+import { Recorder } from '../scripts/lib/diagnostics/recorder.mjs';
+import { instrumentHandler } from '../scripts/lib/diagnostics/instrument-server.mjs';
+import { writeCapsule, importCapsules } from '../scripts/lib/diagnostics/crash-capsule.mjs';
+function fixture(t){const root=mkdtempSync(join(tmpdir(),'hermit-diag-'));const brain=new BrainStore({dbPath:join(root,'brain.db')});brain.db.exec(DIAGNOSTICS_SCHEMA_SQL);const store=new DiagnosticsStore({brainStore:brain});t.after(()=>{store.close();brain.close();rmSync(root,{recursive:true,force:true});});return {root,brain,store};}
+test('durable exact aggregates, strict transitions, bounded samples and privacy',t=>{const {root,store}=fixture(t);for(let i=0;i<30;i++)store.record({code:'HERMIT_TEST_FAILURE',component:'mcp',operation:'tool',message:'SENTINEL_PRIVATE_PASSWORD',args:{secret:'SENTINEL_PRIVATE_PASSWORD'}});assert.equal(store.list().length,1);assert.equal(store.list()[0].total,30);assert.ok(store.samples(store.list()[0].id).length<=5);assert.throws(()=>store.transition(store.list()[0].id,'CLOSED'));assert.equal(store.summary().failures,30);assert.ok(!readFileSync(join(root,'brain.db-wal')).includes(Buffer.from('SENTINEL_PRIVATE_PASSWORD')));});
+test('wrapper records returned error, throw, and timeout exactly once; preserves success',async t=>{const {store}=fixture(t),recorder=new Recorder({store});const ok={content:[{type:'text',text:'ok'}]};assert.equal(await instrumentHandler(async()=>ok,{recorder,tool:'test'})(),ok);const err={isError:true,content:[{type:'text',text:'secret'}]};assert.equal(await instrumentHandler(async()=>err,{recorder,tool:'test'})(),err);await assert.rejects(instrumentHandler(async()=>{throw Error('secret');},{recorder,tool:'test'})());await assert.rejects(instrumentHandler(()=>new Promise(r=>setTimeout(()=>r(ok),30)),{recorder,tool:'test',timeoutMs:5})(),{code:'HERMIT_TIMEOUT'});await new Promise(r=>setTimeout(r,50));assert.equal(store.summary().failures,3);assert.equal(store.summary().successes,1);assert.equal(store.operations().filter(o=>o.state==='TIMED_OUT')[0].late_state,'LATE_SUCCEEDED');});
+test('capsules are sanitized and imported once',t=>{const {root,store}=fixture(t);const result=writeCapsule({directory:join(root,'spool'),metadata:{code:'HERMIT_BOOT_FAILURE',message:'SENTINEL_PRIVATE_PASSWORD'}});assert.equal(result.durable,true);assert.equal(importCapsules({directory:join(root,'spool'),store}).imported,1);assert.equal(importCapsules({directory:join(root,'spool'),store}).imported,0);assert.equal(store.summary().failures,1);});
