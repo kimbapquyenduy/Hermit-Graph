@@ -121,7 +121,8 @@
     },
     "tests/business-rules/rules.test.ts": {
       "kind": "template",
-      "reason": "Generic pricing/order example, not Hermit behavior; assertions are placeholders."
+      "reason": "Generic pricing/order example, not Hermit behavior; assertions are placeholders.",
+      "optional": true
     },
     "test/v8-no-network.test.mjs": {
       "kind": "node-test"
@@ -148,6 +149,9 @@
       "kind": "node-test"
     },
     "test/v8-retention-matrix.test.mjs": {
+      "kind": "node-test"
+    },
+    "test/test-runner-manifest.test.mjs": {
       "kind": "node-test"
     }
   }
